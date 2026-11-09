@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Own test runner, no test framework from outside. Run: dotnet run, project tests/Polaris.Tests -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Polaris.Tests</RootNamespace>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Polaris.Core\Polaris.Core.csproj" />
+  </ItemGroup>
+</Project>

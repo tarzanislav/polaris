@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [main, 'vyvoj/**']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_NOLOGO: 'true'
+  DOTNET_CLI_TELEMETRY_OPTOUT: 'true'
+
+jobs:
+  core:
+    name: Build and tests (Linux)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: .NET 10 SDK
+        run: |
+          if ! dotnet --list-sdks 2>/dev/null | grep -q '^10\.'; then sudo apt-get update -q && sudo apt-get install -y -q dotnet-sdk-10.0; fi
+          dotnet --list-sdks
+      - name: Build
+        run: bash tools/ci/dotnet.sh build Polaris.slnx -c Release -p:PublishAot=false
+      - name: Code format (.editorconfig)
+        run: dotnet format whitespace --folder . --verify-no-changes
+      - name: Tests
+        run: dotnet run --project tests/Polaris.Tests -c Release --no-build

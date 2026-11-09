@@ -1,0 +1,19 @@
+<Project>
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <AnalysisLevel>latest</AnalysisLevel>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Deterministic>true</Deterministic>
+    <!-- POLARIS uses no packages: nothing to audit, the build never asks nuget.org about them -->
+    <NuGetAudit>false</NuGetAudit>
+    <Version>0.1.0</Version>
+    <Company>tarzanislav</Company>
+    <Product>POLARIS</Product>
+    <Copyright>© 2026 tarzanislav</Copyright>
+    <NeutralLanguage>sk</NeutralLanguage>
+  </PropertyGroup>
+</Project>

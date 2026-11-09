@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The platform-free core: states, rotation of the layers, journal, report, disk formats. Tested on Linux. -->
+  <PropertyGroup>
+    <RootNamespace>Polaris.Core</RootNamespace>
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+</Project>

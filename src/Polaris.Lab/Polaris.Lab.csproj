@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- polaris-lab.exe: the laboratory of stage E0 (menu for the owner, conversion, the agent as a service, the test of
+       restarts). Published as one natively compiled file for Windows x64. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Polaris.Lab</RootNamespace>
+    <AssemblyName>polaris-lab</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <PublishAot>true</PublishAot>
+    <OptimizationPreference>Size</OptimizationPreference>
+    <StackTraceSupport>true</StackTraceSupport>
+    <UseSystemResourceKeys>false</UseSystemResourceKeys>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Polaris.Core\Polaris.Core.csproj" />
+    <ProjectReference Include="..\Polaris.Windows\Polaris.Windows.csproj" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Windows: virtual disks, volumes, the shadow copy, offline registry, boot configuration, the service.
+       Own calls of the system interfaces only, no packages. -->
+  <PropertyGroup>
+    <RootNamespace>Polaris.Windows</RootNamespace>
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Polaris.Core\Polaris.Core.csproj" />
+  </ItemGroup>
+</Project>
