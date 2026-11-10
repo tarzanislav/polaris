@@ -34,3 +34,45 @@ jobs:
         run: dotnet format whitespace --folder . --verify-no-changes
       - name: Tests
         run: dotnet run --project tests/Polaris.Tests -c Release --no-build
+
+  windows:
+    name: Build, tests and polaris-lab.exe (Windows)
+    runs-on: windows-2025
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: .NET 10 SDK
+        run: |
+          if (-not (dotnet --list-sdks 2>$null | Select-String '^10\.')) {
+            Invoke-WebRequest https://dot.net/v1/dotnet-install.ps1 -OutFile $env:RUNNER_TEMP/dotnet-install.ps1
+            & $env:RUNNER_TEMP/dotnet-install.ps1 -Channel 10.0 -InstallDir "$env:ProgramFiles/dotnet"
+          }
+          dotnet --list-sdks
+      - name: Build and tests
+        run: |
+          dotnet build Polaris.slnx -c Release -p:PublishAot=false
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet run --project tests/Polaris.Tests -c Release --no-build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: polaris-lab.exe (natively compiled, one file)
+        run: |
+          dotnet publish src/Polaris.Lab -c Release -r win-x64 -o out/lab
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $size = [math]::Round((Get-Item out/lab/polaris-lab.exe).Length / 1MB, 1)
+          $version = & ./out/lab/polaris-lab.exe verzia
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "::notice title=polaris-lab.exe::$version, $size MB"
+      - name: Check of the runner (changes nothing)
+        run: |
+          $text = (& ./out/lab/polaris-lab.exe kontrola) -join "`n"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $text
+          "::notice title=kontrola na runneri::$($text -replace '%', '%25' -replace "`n", '%0A')"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: polaris-lab-windows
+          path: out/lab/polaris-lab.exe
+          retention-days: 14

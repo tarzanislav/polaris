@@ -28,6 +28,15 @@ internal static class Program
                 case "verzia":
                     Console.WriteLine($"{Product.Name} {Product.Stage} {Product.Version}");
                     return 0;
+                case "kontrola":
+                    // the check of the PC without a menu; it changes nothing
+                    Console.OutputEncoding = Encoding.UTF8;
+                    foreach (var r in Conversion.Inspect().Results)
+                    {
+                        Console.WriteLine($"[{r.Mark}] {r.Name}: {r.Detail}");
+                    }
+
+                    return 0;
                 default:
                     Console.OutputEncoding = Encoding.UTF8;
                     Console.InputEncoding = Encoding.UTF8;
