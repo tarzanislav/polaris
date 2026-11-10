@@ -28,6 +28,9 @@ internal sealed record AgentEnvironment(
 /// the test of restarts – restarts the PC by itself.</summary>
 internal static class Agent
 {
+    /// <summary>At most this many immediate restarts after a used layer in a row (then only the alarm).</summary>
+    public const int MaxImmediateRestarts = 2;
+
     public static void Service(CancellationToken stop)
     {
         var store = Store.Find();
@@ -122,9 +125,27 @@ internal static class Agent
                 store.Append(state, JournalKind.AutoTest, $"Skúška dokončená: {state.AutoTest.Total} štartov.", running);
             }
 
-            // a layer that was used is never worked in: prepare clean ones and restart at once
-            var used = boots > 1;
-            outcome = new StartOutcome(running, record, state.AutoTest.Active, used);
+            // a layer that was used is never worked in: prepare clean ones and restart at once – but never in a loop
+            var restart = false;
+            if (boots > 1)
+            {
+                if (state.ImmediateRestartsInRow < MaxImmediateRestarts)
+                {
+                    state.ImmediateRestartsInRow++;
+                    restart = true;
+                }
+                else
+                {
+                    store.Append(state, JournalKind.Alarm,
+                        $"Použitá vrstva {MaxImmediateRestarts + 1}× za sebou – automatický reštart zastavený, treba zásah správcu.", running);
+                }
+            }
+            else
+            {
+                state.ImmediateRestartsInRow = 0;
+            }
+
+            outcome = new StartOutcome(running, record, state.AutoTest.Active, restart);
         });
 
         if (outcome is not { } o)

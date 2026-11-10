@@ -1,4 +1,4 @@
-using System.Text;
+using System.Globalization;
 using System.Text.Json.Serialization;
 
 namespace Polaris.Net;
@@ -25,15 +25,14 @@ public sealed class LogEntry
 
     public byte[] Signature { get; set; } = [];
 
-    public byte[] BytesToSign()
-    {
-        var text = $"{Origin}\n{Sequence}\n{Utc.ToUnixTimeMilliseconds()}\n{Kind}\n{Pc:N}\n{Text}";
-        var body = Encoding.UTF8.GetBytes(text);
-        var framed = new byte[8 + body.Length];
-        "POLLOG01"u8.CopyTo(framed);
-        body.CopyTo(framed, 8);
-        return framed;
-    }
+    public byte[] BytesToSign() => Framing.Build(
+        "POLLOG02"u8,
+        Origin,
+        Sequence.ToString(CultureInfo.InvariantCulture),
+        Utc.ToUnixTimeMilliseconds().ToString(CultureInfo.InvariantCulture),
+        Kind,
+        Pc?.ToString("N") ?? "",
+        Text);
 
     [JsonIgnore]
     public (string, long) Key => (Origin, Sequence);
@@ -59,10 +58,12 @@ public sealed class EventLog
         return entry;
     }
 
-    /// <summary>Takes over an entry from the other centre. Needs a matching signature; a duplicate is ignored.</summary>
+    /// <summary>Takes over an entry from the other centre. Needs a matching signature and must be the very next number of
+    /// its origin: an entry that arrives too early (an older one is still missing) is left for the next round, so the
+    /// high-water mark never jumps over an entry this log does not have. A duplicate is ignored.</summary>
     public bool Accept(LogEntry entry, Func<string, VerifyingKey?> originKey)
     {
-        if (_have.Contains(entry.Key))
+        if (_have.Contains(entry.Key) || entry.Sequence != _next.GetValueOrDefault(entry.Origin) + 1)
         {
             return false;
         }
@@ -79,7 +80,10 @@ public sealed class EventLog
 
     /// <summary>Entries this log is missing compared with what the other centre last had per origin.</summary>
     public IEnumerable<LogEntry> Since(IReadOnlyDictionary<string, long> theirHighWater) =>
-        _entries.Where(e => e.Sequence > theirHighWater.GetValueOrDefault(e.Origin));
+        _entries
+            .Where(e => e.Sequence > theirHighWater.GetValueOrDefault(e.Origin))
+            .OrderBy(e => e.Origin, StringComparer.Ordinal)
+            .ThenBy(e => e.Sequence);
 
     /// <summary>The highest sequence this log holds per origin (what it tells the other centre it has).</summary>
     public Dictionary<string, long> HighWater() => new(_next, StringComparer.Ordinal);

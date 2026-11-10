@@ -8,14 +8,14 @@ namespace Polaris.Windows;
 public static unsafe partial class ServiceHost
 {
     private const int OwnProcess = 0x10;
-    private const int StatePending = 2;
+    private const int StateStartPending = 2;
+    private const int StateStopPending = 3;
     private const int StateRunning = 4;
     private const int StateStopped = 1;
     private const int AcceptStop = 0x1;
     private const int AcceptShutdown = 0x4;
     private const int ControlStop = 1;
     private const int ControlShutdown = 5;
-    private const int ControlInterrogate = 4;
 
     [StructLayout(LayoutKind.Sequential)]
     private struct Status
@@ -73,7 +73,7 @@ public static unsafe partial class ServiceHost
             return;
         }
 
-        Report(StatePending, 0);
+        Report(StateStartPending, 0);
         Report(StateRunning, AcceptStop | AcceptShutdown);
         var exit = 0;
         try
@@ -93,14 +93,11 @@ public static unsafe partial class ServiceHost
     {
         if (control is ControlStop or ControlShutdown)
         {
-            Report(StatePending + 1, 0); // SERVICE_STOP_PENDING = 3
+            Report(StateStopPending, 0);
             Stop.Cancel();
         }
-        else if (control == ControlInterrogate)
-        {
-            return 0;
-        }
 
+        // SERVICE_CONTROL_INTERROGATE and anything else: the last reported status stands
         return 0;
     }
 

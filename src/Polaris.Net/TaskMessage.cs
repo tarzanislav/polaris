@@ -1,5 +1,4 @@
-using System.Buffers.Binary;
-using System.Text;
+using System.Globalization;
 using System.Text.Json.Serialization;
 
 namespace Polaris.Net;
@@ -27,16 +26,16 @@ public sealed class TaskMessage
     /// <summary>After this moment the task is stale and refused, even if signed correctly.</summary>
     public DateTimeOffset ExpiresUtc { get; set; }
 
-    /// <summary>The exact bytes that are signed – a fixed order, independent of the JSON text.</summary>
-    public byte[] BytesToSign()
-    {
-        var text = $"{Pc:N}\n{(int)Kind}\n{Argument}\n{Console}\n{Sequence}\n{IssuedUtc.ToUnixTimeSeconds()}\n{ExpiresUtc.ToUnixTimeSeconds()}";
-        var body = Encoding.UTF8.GetBytes(text);
-        var framed = new byte[8 + body.Length];
-        "POLTASK1"u8.CopyTo(framed);
-        body.CopyTo(framed, 8);
-        return framed;
-    }
+    /// <summary>The exact bytes that are signed – a fixed order with length-framed fields, independent of the JSON text.</summary>
+    public byte[] BytesToSign() => Framing.Build(
+        "POLTASK2"u8,
+        Pc.ToString("N"),
+        ((int)Kind).ToString(CultureInfo.InvariantCulture),
+        Argument,
+        Console,
+        Sequence.ToString(CultureInfo.InvariantCulture),
+        IssuedUtc.ToUnixTimeSeconds().ToString(CultureInfo.InvariantCulture),
+        ExpiresUtc.ToUnixTimeSeconds().ToString(CultureInfo.InvariantCulture));
 }
 
 /// <summary>A task with its signature, as it travels and is stored.</summary>

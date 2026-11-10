@@ -75,6 +75,10 @@ public sealed class LabState
     /// <summary>When the last restart was asked for – the length of a whole cycle is measured from it.</summary>
     public DateTimeOffset? LastRestartRequestUtc { get; set; }
 
+    /// <summary>How many starts in a row found a used layer and restarted at once. Above the limit the agent stops
+    /// restarting (it would loop) and only raises the alarm.</summary>
+    public int ImmediateRestartsInRow { get; set; }
+
     /// <summary>Start times of the original Windows read from its own measurements (ms), for comparison.</summary>
     public List<int> PhysicalBootTimesMs { get; set; } = [];
 

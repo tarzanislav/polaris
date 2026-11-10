@@ -57,7 +57,7 @@ public static class NetChecks
             (_, kind) => console.MaySend(kind));
         Expect.Equal(TaskVerdict.Ok, checker.Check(signed, Now), "dobrá úloha prejde");
         Expect.Equal(TaskVerdict.AlreadySeen, checker.Check(signed, Now), "tá istá úloha druhýkrát neprejde (opakovanie)");
-        _ = fleet;
+        Expect.True(fleet.Find(Pc1) is not null, "PC je v evidencii");
     }
 
     [Check]
@@ -197,6 +197,34 @@ public static class NetChecks
         entry.Signature = fake.Sign(entry.BytesToSign()); // signed by the wrong key
         Expect.True(!a.Accept(entry, _ => real.Public()), "podpis cudzím kľúčom sa odmietne");
         Expect.Equal(0, a.Entries.Count, "nič sa nepridalo");
+    }
+
+    [Check]
+    public static void EntryArrivingTooEarlyWaitsForItsTurn()
+    {
+        var k = SigningKey.Create();
+        VerifyingKey? ByOrigin(string o) => o == "linux" ? k.Public() : null;
+        var source = new EventLog();
+        var e1 = source.Write("linux", k, "uloha", "1", Pc1, Now);
+        var e2 = source.Write("linux", k, "uloha", "2", Pc1, Now);
+        var e3 = source.Write("linux", k, "uloha", "3", Pc1, Now);
+        var target = new EventLog();
+        // the network delivered 3 first: it must wait, otherwise 1 and 2 would never be asked for again
+        Expect.True(!target.Accept(e3, ByOrigin), "záznam 3 pred 1 a 2 počká");
+        Expect.True(target.Accept(e1, ByOrigin) && target.Accept(e2, ByOrigin) && target.Accept(e3, ByOrigin), "v poradí prejdú všetky");
+        Expect.Equal(3L, target.HighWater()["linux"], "značka po poradí");
+    }
+
+    [Check]
+    public static void FramingCannotBeShifted()
+    {
+        // without lengths, "a\nB" + "C" and "a" + "B\nC" would sign the same bytes
+        var x = Framing.Build("TESTTAG1"u8, "a\nB", "C");
+        var y = Framing.Build("TESTTAG1"u8, "a", "B\nC");
+        Expect.True(!x.AsSpan().SequenceEqual(y), "rôzne polia = rôzne bajty");
+        var t1 = new TaskMessage { Pc = Pc1, Kind = TaskKind.MessageToPupil, Argument = "ahoj\nX", Console = "K" };
+        var t2 = new TaskMessage { Pc = Pc1, Kind = TaskKind.MessageToPupil, Argument = "ahoj", Console = "X\nK" };
+        Expect.True(!t1.BytesToSign().AsSpan().SequenceEqual(t2.BytesToSign()), "úloha s novým riadkom v texte");
     }
 
     [Check]
