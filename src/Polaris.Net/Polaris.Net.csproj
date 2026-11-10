@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The network of POLARIS: the fixed signed tasks, the shared event log, the model of PCs, groups and profiles.
+       Platform-free (C# .NET, tested on Linux), shared by the agent, the centre and the console. No packages. -->
+  <PropertyGroup>
+    <RootNamespace>Polaris.Net</RootNamespace>
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Polaris.Core\Polaris.Core.csproj" />
+  </ItemGroup>
+</Project>
