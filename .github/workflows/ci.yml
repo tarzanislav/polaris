@@ -71,6 +71,17 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $text
           "::notice title=kontrola na runneri::$($text -replace '%', '%25' -replace "`n", '%0A')"
+      - name: polaris-centrum.exe (natively compiled, one file)
+        run: |
+          dotnet publish src/Polaris.Centrum -c Release -r win-x64 -o out/centrum
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & ./out/centrum/polaris-centrum.exe pomoc | Select-Object -First 1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: polaris-centrum-windows
+          path: out/centrum/polaris-centrum.exe
+          retention-days: 14
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: polaris-lab-windows

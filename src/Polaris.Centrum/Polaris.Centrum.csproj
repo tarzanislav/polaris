@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- polaris-centrum: the owner's tool for the centre's settings file (bells, groups, profiles, timetable, days off).
+       It only reads and writes that file – nothing goes over the network, no PC is touched. Runs on Linux and Windows. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Polaris.Centrum</RootNamespace>
+    <AssemblyName>polaris-centrum</AssemblyName>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <PublishAot>true</PublishAot>
+    <OptimizationPreference>Size</OptimizationPreference>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Polaris.Core\Polaris.Core.csproj" />
+    <ProjectReference Include="..\Polaris.Net\Polaris.Net.csproj" />
+  </ItemGroup>
+</Project>

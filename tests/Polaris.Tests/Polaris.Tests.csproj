@@ -8,5 +8,6 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Polaris.Core\Polaris.Core.csproj" />
     <ProjectReference Include="..\..\src\Polaris.Net\Polaris.Net.csproj" />
+    <ProjectReference Include="..\..\src\Polaris.Centrum\Polaris.Centrum.csproj" />
   </ItemGroup>
 </Project>

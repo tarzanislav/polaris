@@ -4,6 +4,7 @@
     <Project Path="src/Polaris.Net/Polaris.Net.csproj" />
     <Project Path="src/Polaris.Windows/Polaris.Windows.csproj" />
     <Project Path="src/Polaris.Lab/Polaris.Lab.csproj" />
+    <Project Path="src/Polaris.Centrum/Polaris.Centrum.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Polaris.Tests/Polaris.Tests.csproj" />
