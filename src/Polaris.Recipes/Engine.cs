@@ -27,6 +27,13 @@ public interface IElementHandler
     void Apply(Element element);
 }
 
+/// <summary>An executor that can read the state of the PC once for many elements (the list of installed programs, say).
+/// The engine opens a reading for one plan; outside it every observation reads the PC again.</summary>
+public interface IReadsInBatches
+{
+    IDisposable ReadOnce();
+}
+
 public enum ChangeKind
 {
     None,
@@ -87,6 +94,19 @@ public sealed class Engine(IReadOnlyList<IElementHandler> handlers) : IDisposabl
     }
 
     public Plan Plan(IEnumerable<Element> wanted)
+    {
+        var readings = handlers.OfType<IReadsInBatches>().Select(h => h.ReadOnce()).ToList();
+        try
+        {
+            return MakePlan(wanted);
+        }
+        finally
+        {
+            readings.ForEach(r => r.Dispose());
+        }
+    }
+
+    private Plan MakePlan(IEnumerable<Element> wanted)
     {
         var items = new List<PlanItem>();
         foreach (var element in Expansion.ExpandAll(wanted))

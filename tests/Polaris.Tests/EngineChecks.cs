@@ -4,8 +4,24 @@ using Polaris.Recipes;
 namespace Polaris.Tests;
 
 /// <summary>A made-up PC: things by their key, with switches for a broken or a stubborn executor.</summary>
-internal sealed class FakePc : IElementHandler
+internal sealed class FakePc : IElementHandler, IReadsInBatches
 {
+    /// <summary>Open readings now, and how many observations happened inside one.</summary>
+    public int Readings { get; private set; }
+
+    public int ObservedInReading { get; private set; }
+
+    public IDisposable ReadOnce()
+    {
+        Readings++;
+        return new Done(() => Readings--);
+    }
+
+    private sealed class Done(Action done) : IDisposable
+    {
+        public void Dispose() => done();
+    }
+
     public Dictionary<string, string> Things { get; } = new(StringComparer.Ordinal);
 
     public HashSet<string> Broken { get; } = [];
@@ -20,6 +36,7 @@ internal sealed class FakePc : IElementHandler
 
     public Observation Observe(Element element)
     {
+        ObservedInReading += Readings > 0 ? 1 : 0;
         if (Unreadable.Contains(element.Id))
         {
             throw new InvalidOperationException("register je zamknutý");
@@ -89,6 +106,7 @@ public static class EngineChecks
         Expect.Equal("Remove", KindOf("stary"), "program na odstránenie");
         Expect.Equal("Install", KindOf("zal.edge"), "záložky sa rozložia na hodnoty");
         Expect.True(!plan.InDesiredState && pc.Log.Count == 0, "plán nič nezmenil");
+        Expect.True(pc.ObservedInReading == plan.Items.Count && pc.Readings == 0, "plán číta PC raz pre všetky prvky a čítanie uzavrie");
         var text = RunReport.PlanText(plan, null);
         Expect.True(text.Contains("~ zmeniť: hodnota registra", StringComparison.Ordinal) && text.Contains("je 0, má byť 1", StringComparison.Ordinal), "text plánu: " + text);
     }

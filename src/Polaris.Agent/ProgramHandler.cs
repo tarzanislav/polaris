@@ -55,29 +55,35 @@ public static class InstalledPrograms
 /// <summary>Programs for the whole PC: recognised in the list of installed programs, installed by WinGet or by a checked
 /// installer from the store, removed by WinGet or by the silent uninstaller Windows knows.</summary>
 [SupportedOSPlatform("windows")]
-public sealed class ProgramHandler(string recipeFolder) : IElementHandler
+public sealed class ProgramHandler(string recipeFolder) : IElementHandler, IReadsInBatches
 {
     public static readonly TimeSpan InstallerLimit = TimeSpan.FromMinutes(60);
 
-    /// <summary>How long one reading of the list of installed programs serves (a plan of many programs reads it once).
-    /// Every change made here drops it at once, so a check after a change always sees the real state.</summary>
-    public static readonly TimeSpan SnapshotLife = TimeSpan.FromSeconds(5);
-
     private readonly Lock _gate = new();
     private List<InstalledProgram>? _snapshot;
-    private long _snapshotTaken;
+    private int _readings;
+
+    /// <summary>While a plan is made, the list of installed programs is read once for all its programs.</summary>
+    public IDisposable ReadOnce()
+    {
+        lock (_gate)
+        {
+            _readings++;
+        }
+
+        return new Reading(this);
+    }
 
     private List<InstalledProgram> Installed()
     {
         lock (_gate)
         {
-            if (_snapshot is null || Environment.TickCount64 - _snapshotTaken > SnapshotLife.TotalMilliseconds)
+            if (_readings == 0)
             {
-                _snapshot = InstalledPrograms.Read();
-                _snapshotTaken = Environment.TickCount64;
+                return InstalledPrograms.Read();
             }
 
-            return _snapshot;
+            return _snapshot ??= InstalledPrograms.Read();
         }
     }
 
@@ -86,6 +92,24 @@ public sealed class ProgramHandler(string recipeFolder) : IElementHandler
         lock (_gate)
         {
             _snapshot = null;
+        }
+    }
+
+    private sealed class Reading(ProgramHandler owner) : IDisposable
+    {
+        private bool _done;
+
+        public void Dispose()
+        {
+            lock (owner._gate)
+            {
+                if (!_done && --owner._readings == 0)
+                {
+                    owner._snapshot = null;
+                }
+
+                _done = true;
+            }
         }
     }
 

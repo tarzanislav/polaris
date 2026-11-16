@@ -172,6 +172,7 @@ public sealed class StoreWork(StoreState state, IElementHandler programs, Action
             var installed = state.Installed();
             if (request.Command == "list")
             {
+                using var reading = (programs as IReadsInBatches)?.ReadOnce(); // one reading of the PC for the whole list
                 return new StoreAnswer
                 {
                     Ok = catalogue is { Items.Count: > 0 },
