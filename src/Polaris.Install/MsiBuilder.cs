@@ -30,6 +30,8 @@ public static partial class MsiBuilder
                 "CREATE TABLE `FeatureComponents` (`Feature_` CHAR(38) NOT NULL, `Component_` CHAR(72) NOT NULL PRIMARY KEY `Feature_`, `Component_`)",
                 "CREATE TABLE `Registry` (`Registry` CHAR(72) NOT NULL, `Root` SHORT NOT NULL, `Key` CHAR(255) NOT NULL LOCALIZABLE, `Name` CHAR(255) LOCALIZABLE, `Value` LONGCHAR LOCALIZABLE, `Component_` CHAR(72) NOT NULL PRIMARY KEY `Registry`)",
                 "CREATE TABLE `InstallExecuteSequence` (`Action` CHAR(72) NOT NULL, `Condition` CHAR(255), `Sequence` SHORT PRIMARY KEY `Action`)",
+                // RegisterProduct records the sources of the package from this table, even when there are no files
+                "CREATE TABLE `Media` (`DiskId` SHORT NOT NULL, `LastSequence` SHORT NOT NULL, `DiskPrompt` CHAR(64) LOCALIZABLE, `Cabinet` CHAR(255), `VolumeLabel` CHAR(32), `Source` CHAR(72) PRIMARY KEY `DiskId`)",
             ];
             foreach (var sql in tables)
             {
@@ -46,6 +48,7 @@ public static partial class MsiBuilder
                 Run(db, $"INSERT INTO `Property` (`Property`, `Value`) VALUES ('{Quote(name)}', '{Quote(value)}')");
             }
 
+            Run(db, "INSERT INTO `Media` (`DiskId`, `LastSequence`) VALUES (1, 0)");
             Run(db, "INSERT INTO `Directory` (`Directory`, `DefaultDir`) VALUES ('TARGETDIR', 'SourceDir')");
             // the component's key path is the registry value: Windows Installer knows the product is there by it
             Run(db, $"INSERT INTO `Component` (`Component`, `ComponentId`, `Directory_`, `Attributes`, `KeyPath`) VALUES ('Hodnota', '{G(Guid.NewGuid())}', 'TARGETDIR', 4, 'Hodnota')");
