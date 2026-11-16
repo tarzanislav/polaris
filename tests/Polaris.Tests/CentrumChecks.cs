@@ -1,5 +1,5 @@
 using Polaris.Centrum;
-using Polaris.Net;
+using Polaris.Recipes;
 
 namespace Polaris.Tests;
 
@@ -15,7 +15,18 @@ public static class CentrumChecks
 
         public Session() => Directory.CreateDirectory(dir);
 
-        public string File => Path.Combine(dir, "nastavenia.json");
+        public string File => Path.Combine(dir, "centrum.json");
+
+        public string Dir => dir;
+
+        /// <summary>A small valid recipe for a profile, next to the settings.</summary>
+        public string Recipe(string name, int version = 1)
+        {
+            var path = Path.Combine(dir, "recepty", name.ToLowerInvariant() + ".json");
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            System.IO.File.WriteAllText(path, $$"""{ "schema": 1, "name": "{{name}}", "version": {{version}}, "elements": [] }""");
+            return path;
+        }
 
         public (int Code, string Text) Run(string line)
         {
@@ -31,7 +42,7 @@ public static class CentrumChecks
             Expect.True(code == 0, $"„{line}“ skončilo kódom {code}: {text}");
         }
 
-        public CentreData Data => new CentreDataStore(File).Load().Data;
+        public Classroom Data => new ClassroomStore(File).Load().Data;
 
         public void Dispose() => Directory.Delete(dir, recursive: true);
     }
@@ -42,9 +53,9 @@ public static class CentrumChecks
         s.Ok("zvonenie 1 8:00 8:45");
         s.Ok("zvonenie 2 8:55 9:40");
         s.Ok("zvonenie 3 10:00 10:45");
-        s.Ok("profil zakladny zmrazeny mimo vyučovania");
-        s.Ok("profil kancelarsky");
-        s.Ok("profil graficky");
+        s.Ok($"profil zakladny {s.Recipe("ZAKLADNY")} mimo vyučovania");
+        s.Ok($"profil kancelarsky {s.Recipe("KANCELARSKY")}");
+        s.Ok($"profil graficky {s.Recipe("GRAFICKY")}");
         s.Ok("skupina ucebna ZAKLADNY");
         s.Ok("hodina ut 1 ucebna KANCELARSKY");
         s.Ok("hodina ut 2 ucebna KANCELARSKY");
@@ -61,7 +72,8 @@ public static class CentrumChecks
         Expect.Equal(3, data.Profiles.Count, "profily");
         Expect.Equal("mimo vyučovania", data.FindProfile("ZAKLADNY")!.Description, "popis profilu");
         Expect.Equal("GRAFICKY", data.Timetable.Lessons.Single(l => l.Period == 3).Profile, "meno profilu veľkými");
-        Expect.True(new CentreDataStore(s.File).Backups().Any(), "pri ukladaní vznikajú zálohy");
+        Expect.True(new ClassroomStore(s.File).Backups().Any(), "pri ukladaní vznikajú zálohy");
+        Expect.Equal("recepty/zakladny.json", data.FindProfile("ZAKLADNY")!.File, "recept vedľa nastavení sa zapíše relatívne");
     }
 
     [Check]
@@ -135,6 +147,47 @@ public static class CentrumChecks
         Expect.Equal(2, s.Data.Timetable.Lessons.Count, "vymazaná hodina");
         var (_, text) = s.Run("den");
         Expect.True(text.Contains("→ ZAKLADNY", StringComparison.Ordinal), "po 2. hodine späť na predvolený");
+    }
+
+    [Check]
+    public static void PcsProfilesAndSignaturesAreChecked()
+    {
+        using var s = Classroom();
+        s.Ok("pc PC01 ucebna");
+        s.Ok("pc pc02 ucebna");
+        Expect.Equal(2, s.Data.Pcs.Count, "dve PC");
+        Expect.True(s.Data.Pcs.Select(p => p.Id).Distinct().Count() == 2, "každé PC má vlastný identifikátor");
+        Expect.Equal(2, s.Run("pc PC03 trieda").Code, "neznáma skupina");
+        s.Ok("pc PC02 -");
+        Expect.Equal(1, s.Data.Pcs.Count, "vyradené PC");
+        Expect.True(s.Run("pc").Text.Contains("PC01 – skupina ucebna", StringComparison.Ordinal), "zoznam PC");
+
+        var list = s.Run("profily").Text;
+        Expect.True(list.Contains("KANCELARSKY: recepty/kancelarsky.json (v1", StringComparison.Ordinal) && list.Contains("nepodpísaný", StringComparison.Ordinal), "profily: " + list);
+
+        // a recipe changed after it was signed is a problem of the check
+        System.IO.File.WriteAllText(s.Recipe("GRAFICKY") + ".podpis", """{ "schema": 1, "recipe": "GRAFICKY", "version": 1, "fingerprint": "00", "signedUtc": "2026-11-16T08:00:00Z", "console": "spravca", "consoleKey": "aa", "signature": "AA==" }""");
+        var (code, text) = s.Run("kontrola");
+        Expect.True(code == 1 && text.Contains("zmenil po podpísaní", StringComparison.Ordinal), "zmenený podpísaný recept: " + text);
+        System.IO.File.Delete(s.Recipe("GRAFICKY") + ".podpis");
+
+        System.IO.File.WriteAllText(Path.Combine(s.Dir, "zly.json"), """{ "schema": 1, "elements": [ { "type": "program", "id": "x" } ] }""");
+        Expect.Equal(2, s.Run($"profil ZLY {Path.Combine(s.Dir, "zly.json")}").Code, "recept s problémami nebude profilom");
+        System.IO.File.Delete(s.Recipe("KANCELARSKY"));
+        (code, text) = s.Run("kontrola");
+        Expect.True(code == 1 && text.Contains("neexistuje", StringComparison.Ordinal), "chýbajúci recept: " + text);
+    }
+
+    [Check]
+    public static void TheSettingsAreStrictOwnJson()
+    {
+        using var s = Classroom();
+        var json = System.IO.File.ReadAllText(s.File);
+        var again = ClassroomFormat.ToJson(ClassroomFormat.FromJson(json));
+        Expect.Equal(json, again, "zápis a čítanie sú stále");
+        System.IO.File.WriteAllText(s.File, json.Replace("\"groups\"", "\"grups\"", StringComparison.Ordinal));
+        var (code, text) = s.Run("skupiny");
+        Expect.True(text.Contains("záloha", StringComparison.Ordinal) && code == 0, "poškodený súbor → posledná dobrá záloha: " + text);
     }
 
     [Check]

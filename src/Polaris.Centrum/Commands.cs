@@ -13,23 +13,25 @@ public sealed class UsageException(string message) : Exception(message);
 /// it (safely, with a numbered backup). Nothing else is touched.</summary>
 public static partial class Commands
 {
-    public const string DefaultFile = "nastavenia.json";
+    public const string DefaultFile = "centrum.json";
 
     private static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
 
     public const string Help = """
-        polaris-centrum – nastavenia centra POLARIS (zvonenie, skupiny, profily, rozvrh, voľné dni, kľúče, zásoba)
-        Pracuje len so súborom nastavení – nič neposiela po sieti a žiadne PC nemení.
+        polaris-centrum – nastavenia centra POLARIS (zvonenie, skupiny, PC, profily, rozvrh, voľné dni, kľúče, zásoba)
+        Pracuje len so súborom nastavení a súbormi, ktoré mu zadáš – nič neposiela po sieti a žiadne PC nemení.
 
-          [--subor CESTA]                     súbor nastavení (inak nastavenia.json v aktuálnom priečinku)
+          [--subor CESTA]                     súbor nastavení (inak centrum.json v aktuálnom priečinku)
 
           zvonenie                            vypíše zvonenie
           zvonenie ČÍSLO OD DO                nastaví hodinu, napr. zvonenie 1 8:00 8:45
           zvonenie zrus ČÍSLO                 zruší hodinu zo zvonenia
-          profily                             vypíše profily
-          profil MENO [zmrazeny|trvaly] [POPIS…]   pridá alebo upraví profil
+          profily                             vypíše profily (recepty) s verziou, odtlačkom a podpisom
+          profil MENO RECEPT.json [POPIS…]    profil = pomenovaný recept (napr. profil KANCELARSKY recepty/kancelarsky.json)
           skupiny                             vypíše skupiny PC
           skupina MENO PROFIL                 pridá skupinu alebo jej zmení predvolený profil
+          pc                                  vypíše PC
+          pc MENO SKUPINA | pc MENO -         pridá PC do skupiny, presunie ho, alebo ho vyradí
           hodina DEŇ ČÍSLO SKUPINA PROFIL     zapíše hodinu do rozvrhu, napr. hodina po 1 ucebna KANCELARSKY
           hodina DEŇ ČÍSLO SKUPINA -          vymaže hodinu z rozvrhu
           zmena DÁTUM ČÍSLO SKUPINA PROFIL    jednorazová zmena (PROFIL - ju zruší)
@@ -37,7 +39,7 @@ public static partial class Commands
           volno zrus OD [DO]                  zruší voľné dni
           rozvrh [SKUPINA]                    týždenný rozvrh
           den [DÁTUM] [SKUPINA]               kedy sa PC v daný deň prepnú (inak dnes)
-          kontrola                            nájde chyby v nastaveniach (návratový kód 1, keď nejaké sú)
+          kontrola                            nájde chyby v nastaveniach a receptoch (návratový kód 1, keď nejaké sú)
           kluc novy MENO                      nový kľúč konzoly: MENO.kluc (súkromný, chránený heslom) a MENO.verejny.json
           podpisat RECEPT KLUC                podpíše recept (vznikne RECEPT.podpis); PC s dôverou k tejto konzole ho prijmú
 
@@ -125,7 +127,7 @@ public static partial class Commands
                 return Supply(words, output, utcNow);
             }
 
-            var store = new CentreDataStore(file);
+            var store = new ClassroomStore(file);
             var (data, note) = store.Load();
             if (note is not null)
             {
@@ -137,14 +139,15 @@ public static partial class Commands
             var today = DateOnly.FromDateTime(localNow);
             if (command == "kontrola")
             {
-                return Check(data, rest, output);
+                return Check(data, store, rest, output);
             }
 
             var changed = command switch
             {
                 "zvonenie" => Bells(data, rest, output),
-                "profily" => ListProfiles(data, rest, output),
-                "profil" => SetProfile(data, rest, output),
+                "profily" => ListProfiles(data, store, rest, output),
+                "profil" => SetProfile(data, store, rest, output),
+                "pc" => Pcs(data, rest, output),
                 "skupiny" => ListGroups(data, rest, output),
                 "skupina" => SetGroup(data, rest, output),
                 "hodina" => SetLesson(data, rest, output),
@@ -185,7 +188,7 @@ public static partial class Commands
         }
     }
 
-    private static bool Bells(CentreData data, List<string> a, TextWriter o)
+    private static bool Bells(Classroom data, List<string> a, TextWriter o)
     {
         var periods = data.Timetable.Periods;
         if (a.Count == 0)
@@ -232,87 +235,176 @@ public static partial class Commands
         return true;
     }
 
-    private static bool ListProfiles(CentreData data, List<string> a, TextWriter o)
+    private static bool ListProfiles(Classroom data, ClassroomStore store, List<string> a, TextWriter o)
     {
         Need(a, 0, "profily");
         if (data.Profiles.Count == 0)
         {
-            o.WriteLine("Žiadne profily. Pridaj: profil KANCELARSKY zmrazeny kancelárske programy");
+            o.WriteLine("Žiadne profily. Pridaj: profil KANCELARSKY recepty/kancelarsky.json kancelárske programy");
         }
 
         foreach (var p in data.Profiles.OrderBy(p => p.Name, StringComparer.Ordinal))
         {
-            var policy = p.Policy == ProfilePolicy.Frozen ? "zmrazený" : "trvalý";
-            var active = p.Active > 0 ? $"beží v{p.Active}" : "bez schválenej verzie";
             var description = p.Description.Length > 0 ? " – " + p.Description : "";
-            o.WriteLine($"{p.Name} ({policy}, {active}, verzií {p.Versions.Count}){description}");
+            o.WriteLine($"{p.Name}: {p.File} ({RecipeState(store, p).Line}){description}");
         }
 
         return false;
     }
 
-    private static bool SetProfile(CentreData data, List<string> a, TextWriter o)
+    /// <summary>What a profile's recipe is like now: version, fingerprint, signature; problems for the check.</summary>
+    private static (string Line, List<string> Problems) RecipeState(ClassroomStore store, ProfileRecipe p)
     {
-        if (a.Count < 1)
+        var file = store.RecipeFile(p);
+        if (!File.Exists(file))
         {
-            throw new UsageException("Použitie: profil MENO [zmrazeny|trvaly] [POPIS…]");
+            return ("recept chýba", [$"Profil {p.Name}: recept {p.File} neexistuje."]);
+        }
+
+        Recipe recipe;
+        try
+        {
+            recipe = RecipeText.Load(file);
+        }
+        catch (InvalidDataException e)
+        {
+            return ("recept sa nedá prečítať", [$"Profil {p.Name}: {e.Message}"]);
+        }
+
+        var problems = RecipeCheck.Problems(recipe).Select(x => $"Profil {p.Name}: {x}").ToList();
+        var fingerprint = RecipeText.Fingerprint(recipe);
+        var signatureFile = RecipeSigning.SignatureFileOf(file);
+        string signed;
+        if (!File.Exists(signatureFile))
+        {
+            signed = "nepodpísaný";
+        }
+        else
+        {
+            var signature = RecipeSigning.SignatureFromJson(File.ReadAllText(signatureFile));
+            if (string.Equals(signature.Fingerprint, fingerprint, StringComparison.OrdinalIgnoreCase))
+            {
+                signed = "podpísal " + signature.Console;
+            }
+            else
+            {
+                signed = "PODPIS NESEDÍ";
+                problems.Add($"Profil {p.Name}: recept sa zmenil po podpísaní – podpíš ho znova (podpisat {p.File} KLUC).");
+            }
+        }
+
+        var name = recipe.Name != p.Name ? $", v recepte {recipe.Name}" : "";
+        return ($"v{recipe.Version}{name}, odtlačok {fingerprint[..12]}…, {signed}{(problems.Count > 0 ? $", problémy: {problems.Count}" : "")}", problems);
+    }
+
+    private static bool SetProfile(Classroom data, ClassroomStore store, List<string> a, TextWriter o)
+    {
+        if (a.Count < 2)
+        {
+            throw new UsageException("Použitie: profil MENO RECEPT.json [POPIS…]");
         }
 
         var name = ProfileName(a[0]);
-        var rest = a.Skip(1).ToList();
-        ProfilePolicy? policy = null;
-        if (rest.Count > 0 && rest[0] is "zmrazeny" or "zmrazený" or "trvaly" or "trvalý")
+        var recipe = RecipeText.Load(a[1]);
+        if (RecipeCheck.Problems(recipe) is { Count: > 0 } problems)
         {
-            policy = rest[0].StartsWith("zmraz", StringComparison.Ordinal) ? ProfilePolicy.Frozen : ProfilePolicy.Persistent;
-            rest.RemoveAt(0);
+            throw new UsageException($"Recept má problémy ({problems.Count}), profil z neho nebude. Prvý: {problems[0]}");
         }
 
         var profile = data.FindProfile(name);
         var created = profile is null;
         if (profile is null)
         {
-            profile = new Profile { Name = name };
+            profile = new ProfileRecipe { Name = name };
             data.Profiles.Add(profile);
         }
 
-        if (policy is { } p)
+        profile.File = store.Relative(a[1]);
+        if (a.Count > 2)
         {
-            profile.Policy = p;
+            profile.Description = string.Join(' ', a.Skip(2));
         }
 
-        if (rest.Count > 0)
-        {
-            profile.Description = string.Join(' ', rest);
-        }
-
-        o.WriteLine(created ? $"Profil {name} pridaný." : $"Profil {name} upravený.");
+        o.WriteLine($"Profil {name} {(created ? "pridaný" : "upravený")}: recept {recipe.Name} v{recipe.Version} ({profile.File}).");
         return true;
     }
 
-    private static bool ListGroups(CentreData data, List<string> a, TextWriter o)
+    private static bool Pcs(Classroom data, List<string> a, TextWriter o)
+    {
+        if (a.Count == 0)
+        {
+            if (data.Pcs.Count == 0)
+            {
+                o.WriteLine("Žiadne PC. Pridaj: pc PC01 ucebna");
+            }
+
+            foreach (var pc in data.Pcs.OrderBy(p => p.Group, StringComparer.Ordinal).ThenBy(p => p.Name, StringComparer.Ordinal))
+            {
+                o.WriteLine($"{pc.Name} – skupina {pc.Group}");
+            }
+
+            return false;
+        }
+
+        Need(a, 2, "pc MENO SKUPINA | pc MENO -");
+        var pcName = a[0];
+        if (pcName.Length is 0 or > 40 || pcName.Any(c => char.IsWhiteSpace(c) || char.IsControl(c)))
+        {
+            throw new UsageException($"Neplatné meno PC „{pcName}“.");
+        }
+
+        var existing = data.Pcs.FirstOrDefault(p => string.Equals(p.Name, pcName, StringComparison.OrdinalIgnoreCase));
+        if (a[1] == "-")
+        {
+            if (existing is null)
+            {
+                throw new UsageException($"PC {pcName} v zozname nie je.");
+            }
+
+            data.Pcs.Remove(existing);
+            o.WriteLine($"PC {existing.Name} vyradené.");
+            return true;
+        }
+
+        var group = KnownGroup(data, a[1]);
+        if (existing is null)
+        {
+            data.Pcs.Add(new ClassroomPc { Id = Guid.NewGuid(), Name = pcName, Group = group });
+            o.WriteLine($"PC {pcName} pridané do skupiny {group}.");
+        }
+        else
+        {
+            existing.Group = group;
+            o.WriteLine($"PC {existing.Name} je teraz v skupine {group}.");
+        }
+
+        return true;
+    }
+
+    private static bool ListGroups(Classroom data, List<string> a, TextWriter o)
     {
         Need(a, 0, "skupiny");
-        if (data.Fleet.Groups.Count == 0)
+        if (data.Groups.Count == 0)
         {
             o.WriteLine("Žiadne skupiny. Pridaj: skupina ucebna ZAKLADNY");
         }
 
-        foreach (var g in data.Fleet.Groups.OrderBy(g => g.Name, StringComparer.Ordinal))
+        foreach (var g in data.Groups.OrderBy(g => g.Name, StringComparer.Ordinal))
         {
-            o.WriteLine($"{g.Name} – predvolený profil {g.DefaultProfile}, PC: {data.Fleet.InGroup(g.Name).Count()}");
+            o.WriteLine($"{g.Name} – predvolený profil {g.DefaultProfile}, PC: {data.InGroup(g.Name).Count()}");
         }
 
         return false;
     }
 
-    private static bool SetGroup(CentreData data, List<string> a, TextWriter o)
+    private static bool SetGroup(Classroom data, List<string> a, TextWriter o)
     {
         Need(a, 2, "skupina MENO PROFIL");
         var profile = KnownProfile(data, a[1]);
-        var group = data.Fleet.Groups.FirstOrDefault(g => g.Name == a[0]);
+        var group = data.Groups.FirstOrDefault(g => g.Name == a[0]);
         if (group is null)
         {
-            data.Fleet.Groups.Add(new Group { Name = a[0], DefaultProfile = profile });
+            data.Groups.Add(new ClassroomGroup { Name = a[0], DefaultProfile = profile });
             o.WriteLine($"Skupina {a[0]} pridaná, predvolený profil {profile}.");
         }
         else
@@ -324,7 +416,7 @@ public static partial class Commands
         return true;
     }
 
-    private static bool SetLesson(CentreData data, List<string> a, TextWriter o)
+    private static bool SetLesson(Classroom data, List<string> a, TextWriter o)
     {
         Need(a, 4, "hodina DEŇ ČÍSLO SKUPINA PROFIL");
         var day = Weekday(a[0]);
@@ -346,7 +438,7 @@ public static partial class Commands
         return true;
     }
 
-    private static bool SetOverride(CentreData data, List<string> a, DateOnly today, TextWriter o)
+    private static bool SetOverride(Classroom data, List<string> a, DateOnly today, TextWriter o)
     {
         Need(a, 4, "zmena DÁTUM ČÍSLO SKUPINA PROFIL");
         var date = ParseDate(a[0], today);
@@ -373,7 +465,7 @@ public static partial class Commands
         return true;
     }
 
-    private static bool DaysOff(CentreData data, List<string> a, DateOnly today, TextWriter o)
+    private static bool DaysOff(Classroom data, List<string> a, DateOnly today, TextWriter o)
     {
         var remove = a.Count > 0 && a[0] == "zrus";
         if (remove)
@@ -416,7 +508,7 @@ public static partial class Commands
         return count > 0;
     }
 
-    private static bool Week(CentreData data, List<string> a, TextWriter o)
+    private static bool Week(Classroom data, List<string> a, TextWriter o)
     {
         if (a.Count > 1)
         {
@@ -432,7 +524,7 @@ public static partial class Commands
 
         foreach (var group in Groups(data, a))
         {
-            var fallback = data.Fleet.Groups.First(g => g.Name == group).DefaultProfile;
+            var fallback = data.Groups.First(g => g.Name == group).DefaultProfile;
             var days = Enumerable.Range(1, 5)
                 .Concat(tt.Lessons.Where(l => l.Group == group && l.Weekday > 5).Select(l => l.Weekday).Distinct().Order())
                 .ToList();
@@ -467,7 +559,7 @@ public static partial class Commands
         return false;
     }
 
-    private static bool Day(CentreData data, List<string> a, DateOnly today, TextWriter o)
+    private static bool Day(Classroom data, List<string> a, DateOnly today, TextWriter o)
     {
         if (a.Count > 2)
         {
@@ -485,7 +577,7 @@ public static partial class Commands
         var tt = data.Timetable;
         foreach (var group in Groups(data, groupArgs))
         {
-            var fallback = data.Fleet.Groups.First(g => g.Name == group).DefaultProfile;
+            var fallback = data.Groups.First(g => g.Name == group).DefaultProfile;
             o.WriteLine($"{Timetable.WeekdayName(Timetable.IsoWeekday(date))} {Date(date)} – skupina {group} (predvolený {fallback})");
             if (tt.DaysOff.Contains(date))
             {
@@ -515,13 +607,22 @@ public static partial class Commands
         return false;
     }
 
-    private static int Check(CentreData data, List<string> a, TextWriter o)
+    private static int Check(Classroom data, ClassroomStore store, List<string> a, TextWriter o)
     {
         Need(a, 0, "kontrola");
         var profiles = data.Profiles.Select(p => p.Name).ToHashSet();
-        var groups = data.Fleet.Groups.Select(g => g.Name).ToHashSet();
+        var groups = data.Groups.Select(g => g.Name).ToHashSet();
         var problems = data.Timetable.Problems(profiles, groups);
-        foreach (var g in data.Fleet.Groups.Where(g => !profiles.Contains(g.DefaultProfile)))
+        foreach (var p in data.Profiles)
+        {
+            problems.AddRange(RecipeState(store, p).Problems);
+        }
+
+        foreach (var pc in data.Pcs.Where(p => !groups.Contains(p.Group)))
+        {
+            problems.Add($"PC {pc.Name}: neznáma skupina {pc.Group}.");
+        }
+        foreach (var g in data.Groups.Where(g => !profiles.Contains(g.DefaultProfile)))
         {
             problems.Add($"Skupina {g.Name}: neznámy predvolený profil {g.DefaultProfile}.");
         }
@@ -543,7 +644,7 @@ public static partial class Commands
 
         if (problems.Count == 0)
         {
-            o.WriteLine($"V poriadku. Hodiny v zvonení: {data.Timetable.Periods.Count}, skupiny: {groups.Count}, profily: {profiles.Count}, " +
+            o.WriteLine($"V poriadku. Hodiny v zvonení: {data.Timetable.Periods.Count}, skupiny: {groups.Count}, PC: {data.Pcs.Count}, profily: {profiles.Count}, " +
                 $"zápisy v rozvrhu: {data.Timetable.Lessons.Count}.");
             return 0;
         }
@@ -648,7 +749,7 @@ public static partial class Commands
         return name;
     }
 
-    private static string KnownProfile(CentreData data, string text)
+    private static string KnownProfile(Classroom data, string text)
     {
         var name = ProfileName(text);
         return data.FindProfile(name) is not null
@@ -656,12 +757,12 @@ public static partial class Commands
             : throw new UsageException($"Profil {name} neexistuje. Pridaj ho: profil {name}");
     }
 
-    private static string KnownGroup(CentreData data, string text) =>
-        data.Fleet.Groups.Any(g => g.Name == text)
+    private static string KnownGroup(Classroom data, string text) =>
+        data.Groups.Any(g => g.Name == text)
             ? text
             : throw new UsageException($"Skupina {text} neexistuje. Pridaj ju: skupina {text} PROFIL");
 
-    private static int KnownPeriod(CentreData data, string text)
+    private static int KnownPeriod(Classroom data, string text)
     {
         var n = Number(text, "číslo hodiny");
         return data.Timetable.Periods.Any(p => p.Number == n)
@@ -669,7 +770,7 @@ public static partial class Commands
             : throw new UsageException($"{n}. hodina nie je v zvonení. Pridaj ju: zvonenie {n} OD DO");
     }
 
-    private static IEnumerable<string> Groups(CentreData data, List<string> a)
+    private static IEnumerable<string> Groups(Classroom data, List<string> a)
     {
         if (a.Count == 1)
         {
@@ -681,8 +782,8 @@ public static partial class Commands
             throw new UsageException("Uveď najviac jednu skupinu.");
         }
 
-        return data.Fleet.Groups.Count > 0
-            ? data.Fleet.Groups.Select(g => g.Name).Order(StringComparer.Ordinal)
+        return data.Groups.Count > 0
+            ? data.Groups.Select(g => g.Name).Order(StringComparer.Ordinal)
             : throw new UsageException("Nie je žiadna skupina PC. Pridaj ju: skupina ucebna PROFIL");
     }
 
