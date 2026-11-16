@@ -169,6 +169,9 @@ public static class EngineChecks
                 JournalPath = Path.Combine(dir, "dennik.jsonl"),
                 Clock = () => T,
                 Confirm = _ => answer,
+                Trusted = () => [],
+                AddTrusted = _ => { },
+                RemoveTrusted = _ => false,
             };
 
             (int Code, string Text) Run(params string[] args)

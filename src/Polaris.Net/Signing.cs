@@ -22,6 +22,26 @@ public sealed class SigningKey : IDisposable
 
     public byte[] ExportPrivate() => _key.ExportPkcs8PrivateKey();
 
+    /// <summary>The private key encrypted by a password (PKCS#8 with AES-256 and PBKDF2-SHA256, 600 000 rounds).</summary>
+    public byte[] ExportEncrypted(string password) =>
+        _key.ExportEncryptedPkcs8PrivateKey(password, new PbeParameters(PbeEncryptionAlgorithm.Aes256Cbc, HashAlgorithmName.SHA256, 600_000));
+
+    /// <summary>Opens a key encrypted by <see cref="ExportEncrypted"/>; a wrong password gives a <see cref="CryptographicException"/>.</summary>
+    public static SigningKey FromEncrypted(ReadOnlySpan<byte> encrypted, string password)
+    {
+        var key = ECDsa.Create();
+        try
+        {
+            key.ImportEncryptedPkcs8PrivateKey(password, encrypted, out _);
+            return new SigningKey(key);
+        }
+        catch
+        {
+            key.Dispose();
+            throw;
+        }
+    }
+
     public VerifyingKey Public() => VerifyingKey.FromSubjectPublicKeyInfo(_key.ExportSubjectPublicKeyInfo());
 
     public byte[] Sign(ReadOnlySpan<byte> data) => _key.SignData(data, HashAlgorithmName.SHA256);

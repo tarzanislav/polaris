@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text;
 using Polaris.Core;
 using Polaris.Net;
+using Polaris.Recipes;
 
 namespace Polaris.Centrum;
 
@@ -10,7 +11,7 @@ public sealed class UsageException(string message) : Exception(message);
 
 /// <summary>The commands of polaris-centrum. Every command loads the settings file; commands that change something save
 /// it (safely, with a numbered backup). Nothing else is touched.</summary>
-public static class Commands
+public static partial class Commands
 {
     public const string DefaultFile = "nastavenia.json";
 
@@ -37,12 +38,53 @@ public static class Commands
           rozvrh [SKUPINA]                    týždenný rozvrh
           den [DÁTUM] [SKUPINA]               kedy sa PC v daný deň prepnú (inak dnes)
           kontrola                            nájde chyby v nastaveniach (návratový kód 1, keď nejaké sú)
+          kluc novy MENO                      nový kľúč konzoly: MENO.kluc (súkromný, chránený heslom) a MENO.verejny.json
+          podpisat RECEPT KLUC                podpíše recept (vznikne RECEPT.podpis); PC s dôverou k tejto konzole ho prijmú
 
         DEŇ: po ut st št pi so ne (alebo 1–7)   DÁTUM: dnes, zajtra, 16.11.2026, 16.11., 2026-11-16
         """;
 
     /// <summary>Runs one command. Returns 0 = done, 1 = the check found problems, 2 = wrong input or unreadable file.</summary>
-    public static int Run(string[] args, TextWriter output, DateTime localNow, DateTimeOffset utcNow)
+    public const int MinPassword = 12;
+
+    /// <summary>The password from POLARIS_HESLO, or typed without showing it.</summary>
+    public static string? ReadSecret(string prompt)
+    {
+        if (Environment.GetEnvironmentVariable("POLARIS_HESLO") is { Length: > 0 } fromEnvironment)
+        {
+            return fromEnvironment;
+        }
+
+        Console.Write(prompt);
+        if (Console.IsInputRedirected)
+        {
+            return Console.ReadLine();
+        }
+
+        var typed = new StringBuilder();
+        while (true)
+        {
+            var key = Console.ReadKey(intercept: true);
+            if (key.Key == ConsoleKey.Enter)
+            {
+                break;
+            }
+
+            if (key.Key == ConsoleKey.Backspace)
+            {
+                typed.Length = Math.Max(0, typed.Length - 1);
+            }
+            else if (!char.IsControl(key.KeyChar))
+            {
+                typed.Append(key.KeyChar);
+            }
+        }
+
+        Console.WriteLine();
+        return typed.ToString();
+    }
+
+    public static int Run(string[] args, TextWriter output, DateTime localNow, DateTimeOffset utcNow, Func<string, string?>? secret = null)
     {
         var words = args.ToList();
         var file = DefaultFile;
@@ -67,6 +109,11 @@ public static class Commands
 
         try
         {
+            if (words[0] is "kluc" or "podpisat")
+            {
+                return Keys(words, output, utcNow, secret ?? ReadSecret);
+            }
+
             var store = new CentreDataStore(file);
             var (data, note) = store.Load();
             if (note is not null)
@@ -498,6 +545,71 @@ public static class Commands
 
         return 1;
     }
+
+    // ---- keys and signatures ----
+
+    private static int Keys(List<string> w, TextWriter o, DateTimeOffset utcNow, Func<string, string?> secret)
+    {
+        if (w[0] == "kluc")
+        {
+            var name = w.Count == 3 ? Path.GetFileName(w[2]) : "";
+            if (w.Count != 3 || w[1] != "novy" || !KeyNamePattern().IsMatch(name))
+            {
+                throw new UsageException("Použitie: kluc novy [PRIEČINOK/]MENO (meno: písmená bez diakritiky, číslice, - a _)");
+            }
+
+            var folder = Path.GetDirectoryName(w[2]) is { Length: > 0 } d ? d : ".";
+            var privateFile = Path.Combine(folder, name + ".kluc");
+            var publicFile = Path.Combine(folder, name + ".verejny.json");
+            if (File.Exists(privateFile) || File.Exists(publicFile))
+            {
+                throw new UsageException($"Súbor {privateFile} alebo {publicFile} už existuje – kľúč neprepíšem.");
+            }
+
+            var password = secret("Heslo ku kľúču (aspoň 12 znakov): ") ?? "";
+            if (password.Length < MinPassword)
+            {
+                throw new UsageException($"Heslo musí mať aspoň {MinPassword} znakov.");
+            }
+
+            if (secret("Heslo ešte raz: ") != password)
+            {
+                throw new UsageException("Heslá sa nezhodujú.");
+            }
+
+            var (secretKey, publicKey) = RecipeSigning.NewConsoleKey(name, password);
+            File.WriteAllText(privateFile, RecipeSigning.ToJson(secretKey));
+            File.WriteAllText(publicFile, RecipeSigning.ToJson(publicKey));
+            o.WriteLine($"Kľúč konzoly {name} (odtlačok {publicKey.Fingerprint}):");
+            o.WriteLine($"  {privateFile} – SÚKROMNÝ, chránený heslom. Drž ho len u seba (napr. USB v trezore), nikdy nie na PC žiakov ani na GitHube.");
+            o.WriteLine($"  {publicFile} – verejný. Na PC: polaris-agent doverovat {publicFile}");
+            return 0;
+        }
+
+        if (w.Count != 3)
+        {
+            throw new UsageException("Použitie: podpisat RECEPT KLUC");
+        }
+
+        var recipe = RecipeText.Load(w[1]);
+        var problems = RecipeCheck.Problems(recipe);
+        if (problems.Count > 0)
+        {
+            throw new UsageException($"Recept má problémy ({problems.Count}), nepodpíšem ho. Prvý: {problems[0]}");
+        }
+
+        var keyFile = RecipeSigning.KeyFromJson(File.ReadAllText(w[2]));
+        using var key = RecipeSigning.OpenPrivate(keyFile, secret($"Heslo ku kľúču {keyFile.Name}: ") ?? "");
+        var signature = RecipeSigning.Sign(recipe, key, keyFile.Name, utcNow);
+        var target = RecipeSigning.SignatureFileOf(w[1]);
+        File.WriteAllText(target, RecipeSigning.ToJson(signature));
+        o.WriteLine($"Recept {recipe.Name} v{recipe.Version} podpísaný konzolou {keyFile.Name}: {target}");
+        o.WriteLine($"Odtlačok receptu: {signature.Fingerprint}");
+        return 0;
+    }
+
+    [System.Text.RegularExpressions.GeneratedRegex("^[A-Za-z0-9_-]{1,40}$")]
+    private static partial System.Text.RegularExpressions.Regex KeyNamePattern();
 
     // ---- helpers ----
 

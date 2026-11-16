@@ -14,10 +14,32 @@ polaris-agent odtlacok RECEPT        SHA-256 receptu (na schválenie verzie prof
 polaris-agent kontrola RECEPT        čo sa na tomto PC líši od receptu – nič nemení
 polaris-agent pouzi RECEPT [--ano]   urobí zmeny a každú overí (len správca)
 polaris-agent dennik [POČET]         posledné behy na tomto PC
+polaris-agent doverovat KLUC         PC prijme recepty podpísané touto konzolou (pozri Podpis receptu)
 ```
 
 Návratový kód: `0` = v poriadku / PC je podľa receptu, `1` = rozdiely alebo chyby, `2` = zlý vstup, recept
 s problémami alebo chýbajúce práva.
+
+## Podpis receptu
+
+Na PC sa má dostať len recept, ktorý schválil správca. Preto má každá konzola **vlastný kľúč** (ECDSA P-256) a recept
+podpíše:
+
+```
+polaris-centrum kluc novy spravca                       vznikne spravca.kluc (súkromný, chránený heslom)
+                                                        a spravca.verejny.json (verejný)
+polaris-centrum podpisat recept.json spravca.kluc       vznikne recept.json.podpis
+polaris-agent doverovat spravca.verejny.json            na PC (správca): odteraz len podpísané recepty
+polaris-agent konzoly | nedoverovat ODTLACOK            zoznam a zrušenie dôvery
+```
+
+- Podpis platí pre **odtlačok receptu**. Ktorákoľvek zmena receptu (aj jedna hodnota) ho zneplatní.
+- Kým PC nedôveruje žiadnej konzole, recept sa použije aj bez podpisu a agent na to upozorní. Keď dôveruje aspoň jednej,
+  **nepodpísaný, zmenený alebo cudzí recept odmietne**.
+- Dôverované konzoly sú v časti registra `HKLM\SOFTWARE\POLARIS\Agent`, ktorú môžu meniť len správcovia a recept ju
+  meniť nesmie.
+- Súkromný kľúč je zašifrovaný heslom (aspoň 12 znakov; AES-256, PBKDF2 600 000 kôl). Drž ho len u seba, napríklad na
+  USB v trezore, nikdy nie na PC žiakov ani na GitHube. Heslo sa dá zadať aj premennou prostredia `POLARIS_HESLO`.
 
 ## Tvar receptu
 

@@ -146,6 +146,28 @@ public static class WindowsAgentChecks
         Expect.True(plan.Items.Single().Kind == ChangeKind.Cannot && plan.Items.Single().Before.Contains("neexistuje", StringComparison.Ordinal), "neznáma súčasť: " + plan.Items.Single().Before);
     }
 
+    [Check]
+    public static void TrustedConsolesLiveInTheProtectedRegistry()
+    {
+        if (!OperatingSystem.IsWindows() || !IsAdmin())
+        {
+            return;
+        }
+
+        var (_, pub) = Polaris.Net.RecipeSigning.NewConsoleKey("SkuskaCI", "heslo pre skusku CI");
+        try
+        {
+            TrustStore.Add(pub);
+            Expect.True(TrustStore.Read().Any(t => t.Fingerprint == pub.Fingerprint && t.Name == "SkuskaCI"), "konzola v zozname");
+            Expect.True(TrustStore.Remove(pub.Fingerprint), "odstránenie");
+            Expect.True(TrustStore.Read().All(t => t.Fingerprint != pub.Fingerprint), "po odstránení nie je");
+        }
+        finally
+        {
+            TrustStore.Remove(pub.Fingerprint);
+        }
+    }
+
     private static void Sc(params string[] args)
     {
         var info = new System.Diagnostics.ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "sc.exe")) { UseShellExecute = false, RedirectStandardOutput = true };

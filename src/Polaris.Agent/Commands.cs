@@ -2,6 +2,7 @@ using System.Runtime.Versioning;
 using System.Security.Principal;
 using System.Text;
 using Polaris.Core;
+using Polaris.Net;
 using Polaris.Recipes;
 
 namespace Polaris.Agent;
@@ -21,6 +22,13 @@ public sealed class AgentHost
     /// <summary>Asks the person whether to go on (true = yes).</summary>
     public required Func<string, bool> Confirm { get; init; }
 
+    /// <summary>The consoles this PC trusts; when there is at least one, only recipes signed by them are applied.</summary>
+    public required Func<IReadOnlyList<TrustedConsole>> Trusted { get; init; }
+
+    public required Action<ConsoleKeyFile> AddTrusted { get; init; }
+
+    public required Func<string, bool> RemoveTrusted { get; init; }
+
     [SupportedOSPlatform("windows")]
     public static AgentHost Windows() => new()
     {
@@ -37,6 +45,9 @@ public sealed class AgentHost
             Console.Write(question + " [a/n] ");
             return Console.ReadLine()?.Trim().ToLowerInvariant() is "a" or "ano" or "áno" or "y" or "yes";
         },
+        Trusted = TrustStore.Read,
+        AddTrusted = TrustStore.Add,
+        RemoveTrusted = TrustStore.Remove,
     };
 }
 
@@ -54,6 +65,11 @@ public static class Commands
           kontrola RECEPT        čo sa na tomto PC líši od receptu (nič nemení)
           pouzi RECEPT [--ano]   urobí zmeny a každú overí (správca; bez --ano sa najprv opýta)
           dennik [POČET]         posledné behy na tomto PC (predvolene 10)
+          doverovat KLUC         toto PC bude prijímať recepty podpísané touto konzolou (KONZOLA.verejny.json; správca)
+          nedoverovat ODTLACOK   zruší dôveru ku konzole (správca)
+          konzoly                konzoly, ktorým toto PC dôveruje
+
+        Keď PC dôveruje aspoň jednej konzole, použije len recept s platným podpisom (RECEPT.podpis vedľa receptu).
           verzia
 
         Recept je súbor JSON s prvkami: program (WinGet alebo inštalátor zo zásoby), registry (hodnota v HKLM),
@@ -78,6 +94,9 @@ public static class Commands
                 "odtlacok" => Fingerprint(Need(args, "odtlacok RECEPT"), output),
                 "kontrola" => Check(Need(args, "kontrola RECEPT"), output, host ?? DefaultHost()),
                 "pouzi" => Apply(Need(args, "pouzi RECEPT [--ano]"), args.Contains("--ano"), output, host ?? DefaultHost()),
+                "doverovat" => AddTrust(Need(args, "doverovat KONZOLA.verejny.json"), output, host ?? DefaultHost()),
+                "nedoverovat" => RemoveTrust(Need(args, "nedoverovat ODTLACOK"), output, host ?? DefaultHost()),
+                "konzoly" => ListTrust(output, host ?? DefaultHost()),
                 "dennik" => Journal(args.Length > 1 && int.TryParse(args[1], out var n) && n > 0 ? n : 10, output, host ?? DefaultHost()),
                 _ => Wrong($"Neznámy príkaz „{args[0]}“. Zoznam príkazov: polaris-agent pomoc", output),
             };
@@ -124,6 +143,12 @@ public static class Commands
         var simple = Expansion.ExpandAll(recipe.Elements).Count();
         output.WriteLine($"Recept {recipe.Name} v{recipe.Version} je v poriadku: {recipe.Elements.Count} prvkov ({simple} po rozložení).");
         output.WriteLine($"Odtlačok: {RecipeText.Fingerprint(recipe)}");
+        var signature = ReadSignature(file);
+        output.WriteLine(signature is null
+            ? "Podpis: žiadny."
+            : RecipeSigning.Check(recipe, signature, []).State == SignatureState.ContentChanged
+                ? "Podpis: NEPLATÍ – recept sa po podpísaní zmenil."
+                : $"Podpis: konzola {signature.Console} ({signature.ConsoleKey}); dôveru overí PC pri použití.");
         return 0;
     }
 
@@ -142,6 +167,7 @@ public static class Commands
         }
 
         output.WriteLine(RunReport.PlanText(plan, recipe));
+        output.WriteLine("Podpis: " + RecipeSigning.Check(recipe, ReadSignature(file), host.Trusted()).Message + ".");
         return plan.InDesiredState ? 0 : 1;
     }
 
@@ -158,6 +184,16 @@ public static class Commands
             return 2;
         }
 
+        var trusted = host.Trusted();
+        var check = RecipeSigning.Check(recipe, ReadSignature(file), trusted);
+        if (trusted.Count > 0 && check.State != SignatureState.Valid)
+        {
+            return Wrong($"Recept sa nepoužije: {check.Message}. Toto PC prijíma len recepty podpísané konzolami, ktorým dôveruje.", output);
+        }
+
+        output.WriteLine(trusted.Count == 0
+            ? "Pozor: toto PC zatiaľ nedôveruje žiadnej konzole – recept sa použije bez overenia podpisu (nastav: polaris-agent doverovat)."
+            : "Podpis: " + check.Message + ".");
         output.WriteLine(RunReport.PlanText(plan, recipe));
         if (!plan.Changes.Any())
         {
@@ -192,6 +228,62 @@ public static class Commands
         }
 
         return 0;
+    }
+
+    private static int AddTrust(string file, TextWriter output, AgentHost host)
+    {
+        if (!host.IsAdmin())
+        {
+            return Wrong("Dôveru ku konzole smie nastaviť len správca.", output);
+        }
+
+        var key = RecipeSigning.KeyFromJson(File.ReadAllText(file, Encoding.UTF8));
+        if (key.EncryptedPrivateKey is not null)
+        {
+            return Wrong("Toto je SÚKROMNÝ kľúč konzoly – na PC patrí len verejný (.verejny.json). Súkromný kľúč z tohto PC zmaž.", output);
+        }
+
+        host.AddTrusted(key);
+        output.WriteLine($"Toto PC dôveruje konzole {key.Name} (odtlačok {key.Fingerprint}). Odteraz prijme len recepty s platným podpisom.");
+        return 0;
+    }
+
+    private static int RemoveTrust(string fingerprint, TextWriter output, AgentHost host)
+    {
+        if (!host.IsAdmin())
+        {
+            return Wrong("Dôveru ku konzole smie zrušiť len správca.", output);
+        }
+
+        if (!host.RemoveTrusted(fingerprint))
+        {
+            return Wrong($"Konzolu s odtlačkom {fingerprint} toto PC nepozná (zoznam: polaris-agent konzoly).", output);
+        }
+
+        output.WriteLine($"Dôvera ku konzole {fingerprint} zrušená.");
+        return 0;
+    }
+
+    private static int ListTrust(TextWriter output, AgentHost host)
+    {
+        var list = host.Trusted();
+        if (list.Count == 0)
+        {
+            output.WriteLine("Toto PC nedôveruje žiadnej konzole – recepty sa používajú bez overenia podpisu.");
+        }
+
+        foreach (var t in list)
+        {
+            output.WriteLine($"{t.Fingerprint}  {t.Name}");
+        }
+
+        return 0;
+    }
+
+    private static RecipeSignature? ReadSignature(string recipeFile)
+    {
+        var path = RecipeSigning.SignatureFileOf(recipeFile);
+        return File.Exists(path) ? RecipeSigning.SignatureFromJson(File.ReadAllText(path, Encoding.UTF8)) : null;
     }
 
     private static (Recipe Recipe, Engine Engine, Plan? Plan) Prepare(string file, TextWriter output, AgentHost host)
