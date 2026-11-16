@@ -80,13 +80,43 @@ polaris-agent konzoly | nedoverovat ODTLACOK            zoznam a zrušenie dôve
 | `match` | `Exact` (predvolené) alebo `Prefix`, keď meno obsahuje verziu (napr. `7-Zip 25.01 (x64)` → `7-Zip`) |
 | `winget` | balík WinGet (`Vydavateľ.Názov`), inštaluje sa pre celé PC a potichu |
 | `version` | verzia z WinGet (prázdne = najnovšia a stačí hocijaká nainštalovaná). S verziou sa iná verzia aktualizuje (`winget upgrade`), a keď sa tam WinGet nedostane (staršia verzia), odinštaluje sa a nainštaluje sa želaná. Verzia sa porovnáva so zoznamom programov: `25.8.3` sedí aj na `25.8.3.2` |
-| `installer` | alebo inštalátor zo zásoby: `file` (cesta vnútri priečinka receptu), `sha256`, `arguments`, `uninstallArguments` |
+| `installer` | alebo inštalátor vedľa receptu: `file` (cesta vnútri priečinka receptu), `sha256`, `arguments`, `uninstallArguments` |
+| `package` | alebo **balík zo Zásoby balíkov**: `{ "id": "…", "fingerprint": "…" }` – presne to vypíše `polaris-centrum zasoba pridat`. `displayName` je pri balíku nepovinné |
 
 - Inštalátor s iným odtlačkom, než je v recepte, sa **nikdy nespustí**.
-- Súbor `.msi` dostane `/qn /norestart`, ak `arguments` chýba.
+- Balíky MSI inštaluje a odinštaluje **priamo Windows Installer** (msi.dll), bez okna a bez reštartu; záznam každého behu
+  je v `ProgramData\POLARIS\agent\msi`.
 - Odstránenie: cez WinGet, alebo tichou odinštaláciou, ktorú pozná Windows (Windows Installer, `QuietUninstallString`).
   Ak ju program nemá, doplň `installer.uninstallArguments` (napr. `/S`).
 - Kódy 3010 a 1641 (hotovo, treba reštart) sa berú ako úspech. O výsledku rozhoduje vždy opätovné prečítanie stavu.
+
+### Zásoba balíkov
+
+Zásoba je priečinok (na PC alebo zdieľaný priečinok školského servera, pre PC len na čítanie). Každý balík má v nej
+priečinok `baliky/ID` s inštalátorom a popisom `balik.json`: ako inštalovať, ako spoznať, že je nainštalovaný, ako ho
+odstrániť a kto ho podpísal.
+
+```
+polaris-centrum zasoba pridat \\server\zasoba Audacity-3.7.4.exe --argumenty "/VERYSILENT /NORESTART" --meno Audacity --zaciatok
+polaris-centrum zasoba pridat \\server\zasoba LibreOffice_25.8.3_Win_x86-64.msi      (MSI sa prečíta sám, vo Windows)
+polaris-centrum zasoba zoznam \\server\zasoba
+polaris-centrum zasoba overit \\server\zasoba                                        (odtlačky všetkých inštalátorov)
+polaris-agent zasoba \\server\zasoba                                                  (na PC, správca; inak priečinok zasoba vedľa receptu)
+```
+
+- `pridat` vypíše úryvok do receptu: `"package": {"id":"…","fingerprint":"…"}`. **Odtlačok popisu obsahuje aj odtlačok
+  inštalátora**, takže podpísaný recept pripne každý bajt, ktorý sa na PC spustí, aj jeho argumenty.
+- MSI: ProductCode, názov a verziu prečíta Windows Installer. Agent potom pozná balík **podľa ProductCode**, nie podľa
+  mena v zozname programov.
+- `.exe` potrebuje `--argumenty` tichej inštalácie a `--meno` (ako ho Windows ukazuje v zozname programov,
+  `--zaciatok` = meno začína týmto textom); pre odinštalovanie prípadne `--odinstalovanie`.
+- **Podpis vydavateľa** (Authenticode) overí pri pridaní Windows. Podpísaný balík si pamätá vydavateľa a agent pri
+  inštalácii trvá na platnom podpise toho istého vydavateľa. Neplatne podpísaný inštalátor sa do zásoby nedostane.
+- Agent si inštalátor najprv skopíruje do chráneného priečinka `ProgramData\POLARIS\agent\balicky`, tam overí
+  odtlačok (a podpis) a spustí **len túto kópiu**. Kópia popisu tam ostane, takže program zo zásoby sa dá odinštalovať
+  aj vtedy, keď server nie je dostupný.
+- Balík v zásobe sa nikdy neprepíše: nová verzia = nové id (napr. `libreoffice-25.8.4`).
+- Balíky zo zásoby môže ponúkať aj Školský obchod (položka s `package`).
 
 ### `registry`: hodnota v časti registra pre počítač (HKLM)
 
@@ -217,8 +247,8 @@ polaris-agent konzoly | nedoverovat ODTLACOK            zoznam a zrušenie dôve
 - Obchod odmietne: správcu (ten inštaluje receptom), konto mimo `accounts`, konto, ktorého relácia sa nečistí
   (program by sa nemal kedy odstrániť), program, ktorý je už na PC natrvalo, a viac ako `maxPerSession` programov
   (1 až 10) v jednej relácii.
-- Zatiaľ **len programy z WinGet**. Inštalátory zo zásoby prinesie centrum (K3). Program v obchode nesmie byť zároveň
-  trvalým prvkom `program` toho istého receptu.
+- Programy z WinGet alebo **balíky zo Zásoby** (`package`). Program v obchode nesmie byť zároveň trvalým prvkom
+  `program` toho istého receptu.
 - Každá inštalácia sa zapíše do denníka (`polaris-agent dennik`). Katalóg a záznamy sú v
   `HKLM\SOFTWARE\POLARIS\Agent\Obchod`.
 - Žiak obchod používa cez **ikonu POLARIS** pri hodinách (pozri nižšie), alebo príkazom v termináli.

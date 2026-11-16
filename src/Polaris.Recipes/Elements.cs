@@ -60,14 +60,24 @@ public sealed class ProgramElement : Element
     /// <summary>Or an installer file from the store.</summary>
     public InstallerSource? Installer { get; set; }
 
+    /// <summary>Or a package of the School supply (Zásoba), pinned by the fingerprint of its description.</summary>
+    public PackageRef? Package { get; set; }
+
     /// <summary>How Windows names the program in the installed programs – this is how it is recognised.</summary>
     public string DisplayName { get; set; } = "";
 
     public NameMatch Match { get; set; } = NameMatch.Exact;
 
-    public override string Key => "program:" + DisplayName.Trim().ToLowerInvariant();
+    public override string Key => Package is { } package && DisplayName.Trim().Length == 0
+        ? "package:" + package.Id
+        : "program:" + DisplayName.Trim().ToLowerInvariant();
 
-    public override string Title => Winget is { Length: > 0 } ? $"program {DisplayName} (WinGet {Winget})" : $"program {DisplayName}";
+    public override string Title => (Winget, Package) switch
+    {
+        ({ Length: > 0 } w, _) => $"program {DisplayName} (WinGet {w})",
+        (_, { } p) => DisplayName.Trim().Length > 0 ? $"program {DisplayName} (balík {p.Id})" : $"balík {p.Id}",
+        _ => $"program {DisplayName}",
+    };
 }
 
 public enum RegistryKind

@@ -107,8 +107,8 @@ public static class RecipeChecks
         }
 
         Bad(Reg("Velke-Pismena"), "malé písmená");
-        Bad(Prog("p", winget: null), "práve jeden zdroj");
-        Bad(new ProgramElement { Id = "p", DisplayName = "X", Winget = "A.B", Installer = new InstallerSource { File = "a.msi", Sha256 = new string('a', 64) } }, "práve jeden zdroj");
+        Bad(Prog("p", winget: null), "potrebuje zdroj");
+        Bad(new ProgramElement { Id = "p", DisplayName = "X", Winget = "A.B", Installer = new InstallerSource { File = "a.msi", Sha256 = new string('a', 64) } }, "viac zdrojov");
         Bad(Prog("p", winget: "bezbodky"), "platný balík WinGet");
         Bad(Prog("p", display: ""), "displayName");
         Bad(new ProgramElement { Id = "p", DisplayName = "Ab", Match = NameMatch.Prefix, Winget = "A.B" }, "aspoň 3 znaky");

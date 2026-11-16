@@ -15,7 +15,8 @@ podpísaných receptov.** Etapy **K1 a K2** sú vo vývoji: `polaris-agent` poro
 alebo overený inštalátor, hodnoty registra, záložky, služby, súčasti Windows, klávesnice a predloha profilov), zmeny
 urobí a každú overí. Služba POLARIS agent čistí relácie spoločného konta žiaka a prevádzkuje **Školský obchod**
 (žiak si nainštaluje schválený program, po relácii zmizne). Na plochu dáva **šablóny Pieskoviska** (Windows Sandbox). Žiak má **ikonu POLARIS** pri hodinách (obchod na klik,
-upozornenie na čistenie profilu); služba ju udržiava v chode a žiak ju ukončiť nemôže.
+upozornenie na čistenie profilu); služba ju udržiava v chode a žiak ju ukončiť nemôže. **Zásoba balíkov** drží
+schválené inštalátory (MSI aj EXE) s odtlačkom a podpisom vydavateľa; MSI inštaluje priamo Windows Installer.
 Popis formátu: [docs/recept.md](docs/recept.md), ukážky: [recepty/](recepty/).
 
 Pôvodný smer v1 (vrstvy disku) je pozastavený:

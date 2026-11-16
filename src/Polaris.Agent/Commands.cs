@@ -83,6 +83,7 @@ public static class Commands
           instalovat-sluzbu      skopíruje agenta do Program Files a spustí službu POLARIS agent (čistí relácie; správca)
           odinstalovat-sluzbu    zastaví a odstráni službu (správca)
           vycistit KONTO         hneď zmaže profil zdieľaného konta, ak na ňom nikto nie je prihlásený (správca)
+          zasoba [CESTA | -]     Zásoba balíkov tohto PC (napr. \\server\polaris-zasoba); bez cesty ju vypíše, - zruší
           obchod                 Školský obchod pre žiaka: zoznam programov a inštalácia na túto reláciu
           obchod zoznam | obchod instalovat ID
 
@@ -118,6 +119,7 @@ public static class Commands
                 "odinstalovat-sluzbu" => Service(install: false, output, host ?? DefaultHost()),
                 "vycistit" => CleanNow(Need(args, "vycistit KONTO"), output, host ?? DefaultHost()),
                 "obchod" => Store(args, output, host ?? DefaultHost()),
+                "zasoba" => Supply(args, output, host ?? DefaultHost()),
                 "dennik" => Journal(args.Length > 1 && int.TryParse(args[1], out var n) && n > 0 ? n : 10, output, host ?? DefaultHost()),
                 _ => Wrong($"Neznámy príkaz „{args[0]}“. Zoznam príkazov: polaris-agent pomoc", output),
             };
@@ -354,6 +356,44 @@ public static class Commands
         }
 
         return result.Cleaned || result.Message.Contains("čistý", StringComparison.Ordinal) ? 0 : 1;
+    }
+
+    private static int Supply(string[] args, TextWriter output, AgentHost host)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            throw new PlatformNotSupportedException();
+        }
+
+        if (args.Length == 1)
+        {
+            output.WriteLine(Packages.Configured() is { } path
+                ? $"Zásoba balíkov: {path}"
+                : "Zásoba balíkov nie je nastavená – použije sa priečinok zasoba vedľa receptu, ak existuje.");
+            return 0;
+        }
+
+        if (!host.IsAdmin())
+        {
+            return Wrong("Zásobu smie nastaviť len správca.", output);
+        }
+
+        if (args[1] == "-")
+        {
+            Packages.Configure(null);
+            output.WriteLine("Zásoba balíkov zrušená.");
+            return 0;
+        }
+
+        var root = args[1];
+        if (!Directory.Exists(Path.Combine(root, "baliky")))
+        {
+            return Wrong($"V {root} nie je zásoba (chýba priečinok baliky). Vytvára ju polaris-centrum zasoba pridat.", output);
+        }
+
+        Packages.Configure(root);
+        output.WriteLine($"Zásoba balíkov: {root} ({new PackageStore(root).Ids().Count()} balíkov).");
+        return 0;
     }
 
     /// <summary>The School store for the pupil: who they are, the service learns from Windows, not from this program.</summary>

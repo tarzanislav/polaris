@@ -182,6 +182,12 @@ public static class RecipeFormat
             DisplayName = f.String("displayName"),
             Match = f.Enum("match", NameMatch.Exact),
         };
+        if (f.Fields("package", $"balík ({f.What})") is { } k)
+        {
+            p.Package = new PackageRef { Id = k.String("id"), Fingerprint = k.String("fingerprint") };
+            k.End();
+        }
+
         if (f.Fields("installer", $"inštalátor ({f.What})") is { } i)
         {
             p.Installer = new InstallerSource
@@ -209,7 +215,12 @@ public static class RecipeFormat
                 .AddIf(i.UninstallArguments is not null, "uninstallArguments", i.UninstallArguments ?? ""));
         }
 
-        return o.Add("displayName", p.DisplayName).AddIf(p.Match != NameMatch.Exact, "match", p.Match.ToString());
+        if (p.Package is { } k)
+        {
+            o.Add("package", new JsonObject().Add("id", k.Id).Add("fingerprint", k.Fingerprint));
+        }
+
+        return o.AddIf(p.DisplayName.Length > 0 || p.Package is null, "displayName", p.DisplayName).AddIf(p.Match != NameMatch.Exact, "match", p.Match.ToString());
     }
 
     private static BookmarksElement Bookmarks(JsonFields f)

@@ -153,21 +153,37 @@ public static partial class RecipeCheck
     {
         if (string.IsNullOrWhiteSpace(p.DisplayName))
         {
-            yield return "chýba displayName – meno, pod ktorým program vidno v zozname nainštalovaných programov.";
+            if (p.Package is null)
+            {
+                yield return "chýba displayName – meno, pod ktorým program vidno v zozname nainštalovaných programov.";
+            }
         }
         else if (p.Match == NameMatch.Prefix && p.DisplayName.Trim().Length < 3)
         {
             yield return "začiatok mena (match: Prefix) musí mať aspoň 3 znaky, inak by sa pomýlil s inými programami.";
         }
 
-        var sources = (p.Winget is { Length: > 0 } ? 1 : 0) + (p.Installer is not null ? 1 : 0);
-        if (p.Present && sources != 1)
+        var sources = (p.Winget is { Length: > 0 } ? 1 : 0) + (p.Installer is not null ? 1 : 0) + (p.Package is not null ? 1 : 0);
+        if (sources > 1)
         {
-            yield return "program na inštaláciu potrebuje práve jeden zdroj: winget, alebo installer.";
+            yield return "program má viac zdrojov (winget, installer, package) – zvoľ jeden.";
         }
-        else if (sources > 1)
+        else if (p.Present && sources == 0)
         {
-            yield return "program má aj winget, aj installer – zvoľ jeden.";
+            yield return "program na inštaláciu potrebuje zdroj: winget, installer alebo package (balík zo zásoby).";
+        }
+
+        if (p.Package is { } package)
+        {
+            if (!PackageFormat.IdPattern().IsMatch(package.Id))
+            {
+                yield return $"package.id „{package.Id}“ nie je platné id balíka.";
+            }
+
+            if (!Sha256Pattern().IsMatch(package.Fingerprint))
+            {
+                yield return "package.fingerprint musí byť odtlačok popisu balíka (64 znakov 0-9 a-f; vypíše ho polaris-centrum zasoba pridat).";
+            }
         }
 
         if (p.Winget is { Length: > 0 } id && !WingetPattern().IsMatch(id))
@@ -404,7 +420,7 @@ public static partial class RecipeCheck
 
             if (item.Program.Installer is not null)
             {
-                yield return $"položka {label}: Školský obchod zatiaľ inštaluje len programy z WinGet (inštalátory zo zásoby prinesie centrum).";
+                yield return $"položka {label}: v Školskom obchode len programy z WinGet alebo balíky zo zásoby (package), nie installer.";
             }
 
             foreach (var p in ProgramProblems(item.Program))

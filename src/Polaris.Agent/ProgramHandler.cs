@@ -1,5 +1,6 @@
 using System.Runtime.Versioning;
 using Microsoft.Win32;
+using Polaris.Install;
 using Polaris.Recipes;
 
 namespace Polaris.Agent;
@@ -55,7 +56,7 @@ public static class InstalledPrograms
 /// <summary>Programs for the whole PC: recognised in the list of installed programs, installed by WinGet or by a checked
 /// installer from the store, removed by WinGet or by the silent uninstaller Windows knows.</summary>
 [SupportedOSPlatform("windows")]
-public sealed class ProgramHandler(string recipeFolder) : IElementHandler, IReadsInBatches
+public sealed class ProgramHandler(string recipeFolder, string? supply = null) : IElementHandler, IReadsInBatches
 {
     public static readonly TimeSpan InstallerLimit = TimeSpan.FromMinutes(60);
 
@@ -118,6 +119,11 @@ public sealed class ProgramHandler(string recipeFolder) : IElementHandler, IRead
     public Observation Observe(Element element)
     {
         var p = (ProgramElement)element;
+        if (p.Package is { } link)
+        {
+            return ObservePackage(Packages.Resolve(link, recipeFolder, supply));
+        }
+
         var found = Installed().Where(i => ProgramMatch.Matches(p, i.DisplayName)).ToList();
         if (found.Count == 0)
         {
@@ -155,8 +161,72 @@ public sealed class ProgramHandler(string recipeFolder) : IElementHandler, IRead
         }
     }
 
+    private Observation ObservePackage(Package package)
+    {
+        if (package.Kind == PackageKind.Msi)
+        {
+            var (installed, version) = Msi.State(package.ProductCode!);
+            return installed
+                ? new Observation(Observed.Present, $"{package.Title} {version}".Trim())
+                : new Observation(Observed.Absent, "nie je nainštalovaný");
+        }
+
+        var name = new ProgramElement { DisplayName = package.DisplayName, Match = package.Match };
+        var found = Installed().FirstOrDefault(i => ProgramMatch.Matches(name, i.DisplayName));
+        return found is null
+            ? new Observation(Observed.Absent, "nie je nainštalovaný")
+            : new Observation(Observed.Present, found.Version is { Length: > 0 } v ? $"{found.DisplayName}, verzia {v}" : found.DisplayName);
+    }
+
+    private void InstallPackage(ProgramElement p, PackageRef link)
+    {
+        var package = Packages.Resolve(link, recipeFolder, supply);
+        var installer = Packages.Fetch(package, recipeFolder, supply);
+        if (package.Kind == PackageKind.Msi)
+        {
+            var result = Msi.Install(installer, package.Arguments, Packages.LogOf(package.Id));
+            if (!result.Ok)
+            {
+                throw new InvalidOperationException($"Windows Installer: {result.Message} (kód {result.Code}).");
+            }
+
+            return;
+        }
+
+        Finish(p, Processes.RunRaw(installer, package.Arguments, InstallerLimit), "Inštalácia skončila");
+    }
+
+    private void RemovePackage(PackageRef link)
+    {
+        var package = Packages.Resolve(link, recipeFolder, supply);
+        if (package.Kind == PackageKind.Msi)
+        {
+            var result = Msi.Remove(package.ProductCode!, Packages.LogOf(package.Id));
+            if (!result.Ok && result.Code != 1605 /* not installed */)
+            {
+                throw new InvalidOperationException($"Windows Installer: {result.Message} (kód {result.Code}).");
+            }
+
+            return;
+        }
+
+        Remove(new ProgramElement
+        {
+            DisplayName = package.DisplayName,
+            Match = package.Match,
+            Present = false,
+            Installer = new InstallerSource { UninstallArguments = package.UninstallArguments },
+        });
+    }
+
     private void Install(ProgramElement p)
     {
+        if (p.Package is { } link)
+        {
+            InstallPackage(p, link);
+            return;
+        }
+
         ProcessResult result;
         if (p.Winget is { Length: > 0 } wid && Observe(p).State == Observed.Different)
         {
@@ -196,9 +266,18 @@ public sealed class ProgramHandler(string recipeFolder) : IElementHandler, IRead
                 throw new InvalidDataException($"Inštalátor {installer.File} má iný odtlačok, než je v recepte – nespustil som ho (je {actual[..12]}…).");
             }
 
-            result = file.EndsWith(".msi", StringComparison.OrdinalIgnoreCase)
-                ? Processes.RunRaw(MsiExec, $"/i \"{file}\" {(installer.Arguments.Length > 0 ? installer.Arguments : "/qn /norestart")}", InstallerLimit)
-                : Processes.RunRaw(file, installer.Arguments, InstallerLimit);
+            if (file.EndsWith(".msi", StringComparison.OrdinalIgnoreCase))
+            {
+                var msi = Msi.Install(file, installer.Arguments, Packages.LogOf(Path.GetFileNameWithoutExtension(file)));
+                if (!msi.Ok && Observe(p).State != Observed.Present)
+                {
+                    throw new InvalidOperationException($"Windows Installer: {msi.Message} (kód {msi.Code}).");
+                }
+
+                return;
+            }
+
+            result = Processes.RunRaw(file, installer.Arguments, InstallerLimit);
         }
 
         Finish(p, result, "Inštalácia skončila");
@@ -206,6 +285,12 @@ public sealed class ProgramHandler(string recipeFolder) : IElementHandler, IRead
 
     private void Remove(ProgramElement p)
     {
+        if (p.Package is { } link)
+        {
+            RemovePackage(link);
+            return;
+        }
+
         if (p.Winget is { Length: > 0 } id)
         {
             Finish(p, Processes.Run(Winget.Find(), Winget.UninstallArguments(id), Winget.Limit), "Odinštalovanie skončilo");
@@ -218,7 +303,13 @@ public sealed class ProgramHandler(string recipeFolder) : IElementHandler, IRead
             if (ProgramMatch.MsiProductCode(entry.KeyName, entry.UninstallString) is { } code
                 && (entry.WindowsInstaller || entry.UninstallString?.Contains("msiexec", StringComparison.OrdinalIgnoreCase) == true))
             {
-                result = Processes.RunRaw(MsiExec, $"/x {code} /qn /norestart", InstallerLimit);
+                var msi = Msi.Remove(code, Packages.LogOf(code.Trim('{', '}')));
+                if (!msi.Ok && msi.Code != 1605)
+                {
+                    throw new InvalidOperationException($"Odinštalovanie {entry.DisplayName}: {msi.Message} (kód {msi.Code}).");
+                }
+
+                continue;
             }
             else if (ProgramMatch.SplitCommand(entry.QuietUninstallString) is { } quiet)
             {
@@ -261,6 +352,4 @@ public sealed class ProgramHandler(string recipeFolder) : IElementHandler, IRead
 
     /// <summary>0 = done; 3010 = done, a restart is needed; 1641 = done, the installer starts a restart.</summary>
     private static bool Accepted(int code) => code is 0 or 3010 or 1641;
-
-    private static string MsiExec => Path.Combine(Environment.SystemDirectory, "msiexec.exe");
 }

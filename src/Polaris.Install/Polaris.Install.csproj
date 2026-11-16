@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Installing through Windows itself: Windows Installer (msi.dll) called directly – install, recognise by product
+       code, remove, read the properties of a package, even build a small package – and the check of a publisher's
+       signature (Authenticode). Used by the agent and by the centre; no packages. -->
+  <PropertyGroup>
+    <RootNamespace>Polaris.Install</RootNamespace>
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+</Project>

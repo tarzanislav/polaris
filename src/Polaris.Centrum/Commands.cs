@@ -18,7 +18,7 @@ public static partial class Commands
     private static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
 
     public const string Help = """
-        polaris-centrum – nastavenia centra POLARIS (zvonenie, skupiny, profily, rozvrh, voľné dni)
+        polaris-centrum – nastavenia centra POLARIS (zvonenie, skupiny, profily, rozvrh, voľné dni, kľúče, zásoba)
         Pracuje len so súborom nastavení – nič neposiela po sieti a žiadne PC nemení.
 
           [--subor CESTA]                     súbor nastavení (inak nastavenia.json v aktuálnom priečinku)
@@ -40,6 +40,12 @@ public static partial class Commands
           kontrola                            nájde chyby v nastaveniach (návratový kód 1, keď nejaké sú)
           kluc novy MENO                      nový kľúč konzoly: MENO.kluc (súkromný, chránený heslom) a MENO.verejny.json
           podpisat RECEPT KLUC                podpíše recept (vznikne RECEPT.podpis); PC s dôverou k tejto konzole ho prijmú
+
+          zasoba pridat ZÁSOBA SÚBOR [voľby]  pridá inštalátor (.msi alebo .exe) do Zásoby balíkov a vypíše, čo dať do receptu
+              --id ID  --nazov NÁZOV  --verzia V  --argumenty "…"  --odinstalovanie "…"  --meno MENO [--zaciatok]
+              (.exe potrebuje --argumenty tichej inštalácie a --meno z ponuky Programy; .msi sa číta sám, len vo Windows)
+          zasoba zoznam ZÁSOBA                balíky v zásobe
+          zasoba overit ZÁSOBA                overí popisy a odtlačky všetkých inštalátorov (kód 1 pri probléme)
 
         DEŇ: po ut st št pi so ne (alebo 1–7)   DÁTUM: dnes, zajtra, 16.11.2026, 16.11., 2026-11-16
         """;
@@ -112,6 +118,11 @@ public static partial class Commands
             if (words[0] is "kluc" or "podpisat")
             {
                 return Keys(words, output, utcNow, secret ?? ReadSecret);
+            }
+
+            if (words[0] is "zasoba")
+            {
+                return Supply(words, output, utcNow);
             }
 
             var store = new CentreDataStore(file);
