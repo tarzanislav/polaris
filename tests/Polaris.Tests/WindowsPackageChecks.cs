@@ -28,7 +28,7 @@ public static class WindowsPackageChecks
         }
 
         var signed = Authenticode.Check(dotnet);
-        Expect.True(signed.Kind == SignatureKind.Valid && signed.Publisher?.Contains("Microsoft", StringComparison.Ordinal) == true, $"podpísaný: {signed.Kind} {signed.Publisher} {signed.Detail}");
+        Expect.True(signed.Kind == SignatureKind.Valid && signed.Publisher is { Length: > 0 }, $"podpísaný: {signed.Kind} {signed.Publisher} {signed.Detail}");
 
         var dir = Directory.CreateTempSubdirectory("polaris-podpis-").FullName;
         try

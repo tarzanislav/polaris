@@ -46,6 +46,40 @@ public static unsafe partial class Msi
         }
     }
 
+    /// <summary>The lines of a log that explain a failure: around the first action that returned 3 (failed), with the
+    /// notes of Windows Installer just before it. Empty when the log says nothing useful.</summary>
+    public static string Why(string? log)
+    {
+        if (log is null || !File.Exists(log))
+        {
+            return "";
+        }
+
+        string[] lines;
+        try
+        {
+            using var reader = new StreamReader(log, detectEncodingFromByteOrderMarks: true);
+            lines = reader.ReadToEnd().Split('\n');
+        }
+        catch (IOException)
+        {
+            return "";
+        }
+
+        var failed = Array.FindLastIndex(lines, l => l.Contains("Return value 3", StringComparison.Ordinal));
+        if (failed < 0)
+        {
+            return "";
+        }
+
+        var start = Array.FindLastIndex(lines, failed, failed + 1, l => l.Contains("Action start", StringComparison.Ordinal));
+        var picked = lines[Math.Max(start, failed - 12)..(failed + 1)]
+            .Select(l => l.Trim())
+            .Where(l => l.Contains("Note:", StringComparison.Ordinal) || l.Contains("Error", StringComparison.Ordinal) || l.Contains("Chyba", StringComparison.Ordinal) || l.Contains("Return value 3", StringComparison.Ordinal) || l.Contains("Action start", StringComparison.Ordinal))
+            .TakeLast(6);
+        return string.Join(" | ", picked);
+    }
+
     /// <summary>Whether a product is installed for the PC (INSTALLSTATE_DEFAULT), and its version.</summary>
     public static (bool Installed, string? Version) State(string productCode)
     {

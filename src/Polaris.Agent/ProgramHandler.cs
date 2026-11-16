@@ -184,10 +184,11 @@ public sealed class ProgramHandler(string recipeFolder, string? supply = null) :
         var installer = Packages.Fetch(package, recipeFolder, supply);
         if (package.Kind == PackageKind.Msi)
         {
-            var result = Msi.Install(installer, package.Arguments, Packages.LogOf(package.Id));
+            var log = Packages.LogOf(package.Id);
+            var result = Msi.Install(installer, package.Arguments, log);
             if (!result.Ok)
             {
-                throw new InvalidOperationException($"Windows Installer: {result.Message} (kód {result.Code}).");
+                throw new InvalidOperationException($"Windows Installer: {result.Message} (kód {result.Code}). {Msi.Why(log)}".Trim());
             }
 
             return;
