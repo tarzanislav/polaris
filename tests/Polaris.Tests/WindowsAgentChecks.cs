@@ -218,7 +218,7 @@ public static class WindowsAgentChecks
         }
 
         var account = "polskuska" + Guid.NewGuid().ToString("N")[..4];
-        Run("net.exe", "user", account, "Ab1-" + Guid.NewGuid().ToString("N"), "/add");
+        Run("net.exe", "user", account, "Ab1-" + Guid.NewGuid().ToString("N")[..10], "/add"); // 14 characters: net asks nothing
         try
         {
             var sid = Profiles.SidOf(account) ?? throw new CheckFailed("konto sa nevytvorilo");

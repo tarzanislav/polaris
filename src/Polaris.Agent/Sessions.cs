@@ -3,38 +3,37 @@ using System.Runtime.Versioning;
 using System.Security.Principal;
 using Microsoft.Win32;
 using Polaris.Recipes;
-using Polaris.Windows;
 
 namespace Polaris.Agent;
 
 /// <summary>Values written into the template of profiles (the profile "Default"): every new profile gets them – the pupil's
-/// after every cleaning too. The registry file of the template is loaded once for a run and unloaded at its end.</summary>
+/// after every cleaning too. The registry file of the template is opened privately for this process (an application hive,
+/// no special privileges, nothing mounted for others) once for a run, and closed at its end.</summary>
 [SupportedOSPlatform("windows")]
-public sealed class ProfileTemplateHandler(string? hiveFile = null) : IElementHandler, IDisposable
+public sealed partial class ProfileTemplateHandler(string? hiveFile = null) : IElementHandler, IDisposable
 {
-    public const string HiveName = "POLARIS_PREDLOHA";
-    private LoadedHive? _hive;
+    private RegistryKey? _root;
 
     public bool CanHandle(Element element) => element is UserRegistryElement;
 
     public Observation Observe(Element element)
     {
         var u = (UserRegistryElement)element;
-        using var root = Root();
-        return RegistryValues.Observe(root, UserRegistryPath.Normalize(u.Path), u.Name, u.Present, u.Kind, u.Data);
+        return RegistryValues.Observe(Root(), UserRegistryPath.Normalize(u.Path), u.Name, u.Present, u.Kind, u.Data);
     }
 
     public void Apply(Element element)
     {
         var u = (UserRegistryElement)element;
-        using var root = Root();
+        var root = Root();
         RegistryValues.Apply(root, UserRegistryPath.Normalize(u.Path), u.Name, u.Present, u.Kind, u.Data);
+        root.Flush();
     }
 
     public void Dispose()
     {
-        _hive?.Dispose();
-        _hive = null;
+        _root?.Dispose(); // closing the last handle unloads the file
+        _root = null;
     }
 
     /// <summary>NTUSER.DAT of the profile "Default", as Windows says where it is.</summary>
@@ -48,10 +47,24 @@ public sealed class ProfileTemplateHandler(string? hiveFile = null) : IElementHa
 
     private RegistryKey Root()
     {
-        _hive ??= LoadedHive.Load(hiveFile ?? DefaultHiveFile(), HiveName);
-        return Registry.LocalMachine.OpenSubKey(HiveName, writable: true)
-            ?? throw new InvalidOperationException("Predloha profilov sa nenačítala.");
+        if (_root is null)
+        {
+            var file = hiveFile ?? DefaultHiveFile();
+            var status = RegLoadAppKey(file, out var handle, 0xF003F /* KEY_ALL_ACCESS */, 0x1 /* REG_PROCESS_APPKEY */, 0);
+            if (status != 0)
+            {
+                handle.Dispose();
+                throw new SystemCallException($"Otvorenie predlohy profilov {file} (nemá ju otvorenú iný program?)", status);
+            }
+
+            _root = RegistryKey.FromHandle(handle);
+        }
+
+        return _root;
     }
+
+    [LibraryImport("advapi32.dll", EntryPoint = "RegLoadAppKeyW", StringMarshalling = StringMarshalling.Utf16)]
+    private static partial int RegLoadAppKey(string file, out Microsoft.Win32.SafeHandles.SafeRegistryHandle key, uint access, uint options, uint reserved);
 }
 
 /// <summary>Accounts and their profiles: who is an administrator, whether a profile exists, is loaded, when it was used, and
