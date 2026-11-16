@@ -24,7 +24,7 @@ public sealed class AgentHost
     [SupportedOSPlatform("windows")]
     public static AgentHost Windows() => new()
     {
-        Handlers = folder => [new RegistryHandler(), new ProgramHandler(folder)],
+        Handlers = folder => [new RegistryHandler(), new ProgramHandler(folder), new ServiceHandler(), new FeatureHandler()],
         IsAdmin = () =>
         {
             using var identity = WindowsIdentity.GetCurrent();
@@ -57,7 +57,8 @@ public static class Commands
           verzia
 
         Recept je súbor JSON s prvkami: program (WinGet alebo inštalátor zo zásoby), registry (hodnota v HKLM),
-        bookmarks (záložky pre Edge a Chrome). Popis formátu: docs/recept.md v repozitári.
+        bookmarks (záložky pre Edge a Chrome), service (spúšťanie služby), feature (súčasť Windows, napr. Sandbox).
+        Popis formátu: docs/recept.md v repozitári.
         """;
 
     public static int Run(string[] args, TextWriter output, AgentHost? host = null)

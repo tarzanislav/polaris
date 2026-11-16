@@ -8,6 +8,8 @@ namespace Polaris.Recipes;
 [JsonDerivedType(typeof(ProgramElement), "program")]
 [JsonDerivedType(typeof(RegistryValueElement), "registry")]
 [JsonDerivedType(typeof(BookmarksElement), "bookmarks")]
+[JsonDerivedType(typeof(ServiceElement), "service")]
+[JsonDerivedType(typeof(FeatureElement), "feature")]
 public abstract class Element
 {
     /// <summary>Unique name of the element within a recipe (small letters, digits, '-', '.', '_').</summary>
@@ -61,7 +63,8 @@ public sealed class ProgramElement : Element
     /// <summary>Package of WinGet (e.g. "VideoLAN.VLC").</summary>
     public string? Winget { get; set; }
 
-    /// <summary>The version WinGet installs; empty = the newest. (K1 recognises only whether the program is there.)</summary>
+    /// <summary>The version WinGet installs; empty = the newest and any installed version is fine. With a version, a
+    /// program with another version is upgraded (or reinstalled when WinGet cannot go there).</summary>
     public string? Version { get; set; }
 
     /// <summary>Or an installer file from the store.</summary>
@@ -140,6 +143,44 @@ public sealed class BookmarksElement : Element
     public override string Key => "bookmarks:" + string.Join(",", Browsers.Distinct().Order().Select(b => b.ToString().ToLowerInvariant()));
 
     public override string Title => $"záložky „{Folder}“ ({string.Join(", ", Browsers.Distinct().Order())})";
+}
+
+public enum ServiceStart
+{
+    Automatic,
+
+    /// <summary>Automatic, but a little after the start of Windows.</summary>
+    AutomaticDelayed,
+    Manual,
+    Disabled,
+}
+
+/// <summary>How a Windows service starts and whether it runs. A service cannot be removed by a recipe – it is disabled.</summary>
+public sealed class ServiceElement : Element
+{
+    /// <summary>Name of the service (its key name, e.g. "Spooler"), not the name shown in the list.</summary>
+    public string Name { get; set; } = "";
+
+    public ServiceStart Start { get; set; } = ServiceStart.Manual;
+
+    /// <summary>true = must run, false = must be stopped, empty = no matter.</summary>
+    public bool? Running { get; set; }
+
+    public override string Key => "service:" + Name.Trim().ToLowerInvariant();
+
+    public override string Title => $"služba {Name}";
+}
+
+/// <summary>An optional part of Windows switched on (present) or off (absent), e.g. Windows Sandbox
+/// ("Containers-DisposableClientVM").</summary>
+public sealed class FeatureElement : Element
+{
+    /// <summary>Name of the feature as Windows knows it.</summary>
+    public string Name { get; set; } = "";
+
+    public override string Key => "feature:" + Name.Trim().ToLowerInvariant();
+
+    public override string Title => $"súčasť Windows {Name}";
 }
 
 /// <summary>Paths of the registry in one written form.</summary>

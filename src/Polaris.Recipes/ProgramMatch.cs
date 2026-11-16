@@ -13,6 +13,21 @@ public static class ProgramMatch
             : name.StartsWith(wanted, StringComparison.OrdinalIgnoreCase));
     }
 
+    /// <summary>Whether the version in the list of installed programs is the wanted one: the same, or the same with more
+    /// parts (WinGet "25.8.3" and Windows "25.8.3.2"). An entry without a version cannot be judged and passes.</summary>
+    public static bool VersionMatches(string? wanted, string? installed)
+    {
+        static string Clean(string v) => v.Trim().TrimStart('v', 'V');
+        if (wanted is not { Length: > 0 } || installed is not { Length: > 0 })
+        {
+            return true;
+        }
+
+        var w = Clean(wanted);
+        var i = Clean(installed);
+        return i.Equals(w, StringComparison.OrdinalIgnoreCase) || i.StartsWith(w + ".", StringComparison.OrdinalIgnoreCase);
+    }
+
     /// <summary>Splits "C:\…\uninst.exe" /S or C:\…\uninst.exe /S into the program and the rest; null when no program
     /// can be found in the text.</summary>
     public static (string Program, string Arguments)? SplitCommand(string? command)

@@ -149,7 +149,9 @@ public sealed class Engine(IReadOnlyList<IElementHandler> handlers)
                 item.Handler!.Apply(item.Element);
                 var after = item.Handler.Observe(item.Element);
                 ok = item.Element.Present ? after.State == Observed.Present : after.State == Observed.Absent;
-                message = ok ? RunReport.Done(item.Kind) : "zmena sa neprejavila – stav po nej: " + RunReport.State(after);
+                message = ok
+                    ? RunReport.Done(item.Kind) + (after.Detail.Length > 0 ? $" ({after.Detail})" : "")
+                    : "zmena sa neprejavila – stav po nej: " + RunReport.State(after);
             }
             catch (Exception e) when (e is not OutOfMemoryException)
             {

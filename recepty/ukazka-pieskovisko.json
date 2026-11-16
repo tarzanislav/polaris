@@ -1,0 +1,24 @@
+{
+  // Ukážkový recept: Windows Sandbox (Pieskovisko) a tlač. Zapnutie Sandboxu sa dokončí po reštarte
+  // a vyžaduje zapnutú virtualizáciu v UEFI.
+  "schema": 1,
+  "name": "LABORATORIUM",
+  "version": 1,
+  "note": "Ukážka: Pieskovisko a služba tlače",
+  "elements": [
+    {
+      "type": "feature",
+      "id": "pieskovisko",
+      "name": "Containers-DisposableClientVM",
+      "note": "Windows Sandbox – jednorazový Windows na pokusy"
+    },
+    {
+      "type": "service",
+      "id": "tlac",
+      "name": "Spooler",
+      "start": "Automatic",
+      "running": true,
+      "note": "v učebni sa tlačí"
+    }
+  ]
+}

@@ -64,6 +64,22 @@ public static class Winget
         return args;
     }
 
+    public static IReadOnlyList<string> UpgradeArguments(string id, string? version)
+    {
+        var args = new List<string>
+        {
+            "upgrade", "--id", id, "--exact", "--source", "winget", "--silent",
+            "--accept-package-agreements", "--accept-source-agreements", "--disable-interactivity",
+        };
+        if (version is { Length: > 0 })
+        {
+            args.Add("--version");
+            args.Add(version);
+        }
+
+        return args;
+    }
+
     public static IReadOnlyList<string> UninstallArguments(string id) =>
         ["uninstall", "--id", id, "--exact", "--source", "winget", "--silent", "--accept-source-agreements", "--disable-interactivity"];
 }

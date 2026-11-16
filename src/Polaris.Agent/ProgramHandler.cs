@@ -72,7 +72,13 @@ public sealed class ProgramHandler(string recipeFolder) : IElementHandler
 
         var first = found[0];
         var detail = first.Version is { Length: > 0 } v ? $"{first.DisplayName}, verzia {v}" : first.DisplayName;
-        return new Observation(Observed.Present, found.Count > 1 ? $"{detail} a ďalšie ({found.Count})" : detail);
+        detail = found.Count > 1 ? $"{detail} a ďalšie ({found.Count})" : detail;
+        if (p.Present && !found.Any(i => ProgramMatch.VersionMatches(p.Version, i.Version)))
+        {
+            return new Observation(Observed.Different, $"{detail}, má byť verzia {p.Version}");
+        }
+
+        return new Observation(Observed.Present, detail);
     }
 
     public void Apply(Element element)
@@ -91,7 +97,20 @@ public sealed class ProgramHandler(string recipeFolder) : IElementHandler
     private void Install(ProgramElement p)
     {
         ProcessResult result;
-        if (p.Winget is { Length: > 0 } id)
+        if (p.Winget is { Length: > 0 } wid && Observe(p).State == Observed.Different)
+        {
+            // another version: upgrade; when WinGet cannot get there (an older version), remove and install the wanted one
+            result = Processes.Run(Winget.Find(), Winget.UpgradeArguments(wid, p.Version), Winget.Limit);
+            if (Observe(p).State == Observed.Present)
+            {
+                return;
+            }
+
+            Finish(new ProgramElement { DisplayName = p.DisplayName, Match = p.Match, Winget = wid, Present = false },
+                Processes.Run(Winget.Find(), Winget.UninstallArguments(wid), Winget.Limit), "Odinštalovanie starej verzie skončilo");
+            result = Processes.Run(Winget.Find(), Winget.InstallArguments(wid, p.Version), Winget.Limit);
+        }
+        else if (p.Winget is { Length: > 0 } id)
         {
             result = Processes.Run(Winget.Find(), Winget.InstallArguments(id, p.Version), Winget.Limit);
         }

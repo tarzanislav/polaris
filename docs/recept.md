@@ -51,7 +51,7 @@ s problémami alebo chýbajúce práva.
 | `displayName` | meno v zozname nainštalovaných programov. **Podľa neho agent program rozpozná.** |
 | `match` | `Exact` (predvolené) alebo `Prefix`, keď meno obsahuje verziu (napr. `7-Zip 25.01 (x64)` → `7-Zip`) |
 | `winget` | balík WinGet (`Vydavateľ.Názov`), inštaluje sa pre celé PC a potichu |
-| `version` | verzia z WinGet (prázdne = najnovšia). K1 rozpoznáva len, či program je, nie jeho verziu |
+| `version` | verzia z WinGet (prázdne = najnovšia a stačí hocijaká nainštalovaná). S verziou sa iná verzia aktualizuje (`winget upgrade`), a keď sa tam WinGet nedostane (staršia verzia), odinštaluje sa a nainštaluje sa želaná. Verzia sa porovnáva so zoznamom programov: `25.8.3` sedí aj na `25.8.3.2` |
 | `installer` | alebo inštalátor zo zásoby: `file` (cesta vnútri priečinka receptu), `sha256`, `arguments`, `uninstallArguments` |
 
 - Inštalátor s iným odtlačkom, než je v recepte, sa **nikdy nespustí**.
@@ -89,13 +89,39 @@ s problémami alebo chýbajúce práva.
 - `showBar` zapne lištu záložiek pod riadkom adresy.
 - Adresy len `http` a `https`, priečinky najviac 4 úrovne, spolu najviac 500 záložiek.
 
-## Ukážka
+### `service`: služba Windows
 
-`recepty/ukazka-kancelarsky.json`: LibreOffice, 7-Zip, VLC, dve nastavenia Edge a školské záložky. Je to len otvorený
-softvér, vhodný pre školy.
+```json
+{ "type": "service", "id": "tlac", "name": "Spooler", "start": "Automatic", "running": true }
+```
+
+- `name` je meno kľúča služby (nie meno zobrazené v zozname služieb).
+- `start`: `Automatic`, `AutomaticDelayed`, `Manual`, `Disabled`. `running`: `true`, `false`, alebo vynechať, keď na
+  tom nezáleží.
+- Službu recept nevytvára ani neodstraňuje. Ak služba neexistuje, plán to oznámi.
+- **Chránené služby** (Defender, firewall, aktualizácie Windows, RPC, denník udalostí, plánovač úloh, profily
+  používateľov, sieť, POLARIS a ďalšie) sa receptom nedajú vypnúť ani zastaviť, zapnúť áno.
+
+### `feature`: súčasť Windows
+
+```json
+{ "type": "feature", "id": "pieskovisko", "name": "Containers-DisposableClientVM" }
+```
+
+- `present: true` súčasť zapne, `false` vypne. Volá sa priamo rozhranie DISM Windows, žiadny text nástrojov sa nečíta.
+- Zmena, ktorá čaká na reštart, sa počíta ako hotová a výsledok to povie („dokončí sa po reštarte“).
+- Užitočné mená: `Containers-DisposableClientVM` (Windows Sandbox, potrebuje zapnutú virtualizáciu v UEFI),
+  `Microsoft-Hyper-V-All`, `TelnetClient`, `SMB1Protocol` (v škole vypnuté).
+
+## Ukážky
+
+- `recepty/ukazka-kancelarsky.json`: LibreOffice, 7-Zip, VLC, dve nastavenia Edge a školské záložky. Je to len
+  otvorený softvér, vhodný pre školy.
+- `recepty/ukazka-pieskovisko.json`: Windows Sandbox a služba tlače.
 
 ## Pripravuje sa
 
-Ďalšie typy prvkov: klávesnice a jazyky, služby, tlačiarne, Wi-Fi, súbory, kontá s heslom ako tajomstvom. Priradenia
+Ďalšie typy prvkov: klávesnice a jazyky (spolu s predlohou profilu žiaka v etape K2), tlačiarne, Wi-Fi, súbory,
+kontá s heslom ako tajomstvom. Priradenia
 receptov skupinám a PC s životnosťou (do konca hodiny, dňa, týždňa) sú už naprogramované v `Polaris.Recipes`
 (`Assignments`). Do prevádzky ich uvedie centrum v etape K3.

@@ -97,6 +97,72 @@ public static class WindowsAgentChecks
         Expect.Equal(Observed.Absent, handler.Observe(element).State, "po zmazaní nie je");
     }
 
+    [Check]
+    public static void ServiceStartIsSetAndChecked()
+    {
+        if (!OperatingSystem.IsWindows() || !IsAdmin())
+        {
+            return;
+        }
+
+        // an own service that never runs (its program does not exist) – only its settings are changed
+        var name = "PolarisSkuska" + Guid.NewGuid().ToString("N")[..8];
+        Sc("create", name, "binPath=", @"C:\neexistuje\polaris-skuska.exe", "start=", "demand");
+        try
+        {
+            var handler = new ServiceHandler();
+            var manual = new ServiceElement { Id = "s", Name = name, Start = ServiceStart.Manual, Running = false };
+            Expect.Equal(Observed.Present, handler.Observe(manual).State, "na začiatku ručne a nebeží");
+            foreach (var start in new[] { ServiceStart.Disabled, ServiceStart.AutomaticDelayed, ServiceStart.Automatic, ServiceStart.Manual })
+            {
+                var wanted = new ServiceElement { Id = "s", Name = name, Start = start };
+                Expect.Equal(Observed.Different, handler.Observe(wanted).State, $"{start}: pred zmenou iné (každý krok mení spúšťanie)");
+                handler.Apply(wanted);
+                var seen = handler.Observe(wanted);
+                Expect.Equal(Observed.Present, seen.State, $"{start}: po zmene ({seen.Detail})");
+            }
+
+            var missing = new Engine([handler]).Plan([new ServiceElement { Id = "x", Name = name + "x" }]);
+            Expect.True(missing.Items.Single().Kind == ChangeKind.Cannot && missing.Items.Single().Before.Contains("neexistuje", StringComparison.Ordinal), "neexistujúca služba");
+        }
+        finally
+        {
+            Sc("delete", name);
+        }
+    }
+
+    [Check]
+    public static void FeatureStateIsReadThroughDism()
+    {
+        if (!OperatingSystem.IsWindows() || !IsAdmin())
+        {
+            return;
+        }
+
+        var handler = new FeatureHandler();
+        var smb1 = handler.Observe(new FeatureElement { Id = "f", Name = "SMB1Protocol" });
+        Expect.True(smb1.State is Observed.Absent or Observed.Present, "stav SMB1: " + smb1.Detail);
+        var plan = new Engine([handler]).Plan([new FeatureElement { Id = "x", Name = "PolarisNeexistujucaSucast" }]);
+        Expect.True(plan.Items.Single().Kind == ChangeKind.Cannot && plan.Items.Single().Before.Contains("neexistuje", StringComparison.Ordinal), "neznáma súčasť: " + plan.Items.Single().Before);
+    }
+
+    private static void Sc(params string[] args)
+    {
+        var info = new System.Diagnostics.ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "sc.exe")) { UseShellExecute = false, RedirectStandardOutput = true };
+        foreach (var a in args)
+        {
+            info.ArgumentList.Add(a);
+        }
+
+        using var p = System.Diagnostics.Process.Start(info)!;
+        p.StandardOutput.ReadToEnd();
+        p.WaitForExit();
+        if (p.ExitCode != 0 && args[0] != "delete")
+        {
+            throw new CheckFailed($"sc {string.Join(' ', args)} skončil kódom {p.ExitCode}");
+        }
+    }
+
     private static bool IsAdmin()
     {
         if (!OperatingSystem.IsWindows())

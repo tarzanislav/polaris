@@ -132,6 +132,37 @@ public static class RecipeChecks
     }
 
     [Check]
+    public static void ServicesAndFeaturesAreCheckedToo()
+    {
+        static List<string> P(Element e) => RecipeCheck.Problems(new Recipe { Name = "S", Elements = [e] });
+
+        Expect.Sequence(Array.Empty<string>(), P(new ServiceElement { Id = "s", Name = "Spooler", Start = ServiceStart.Automatic, Running = true }), "tlač");
+        Expect.True(P(new ServiceElement { Id = "s", Name = "WinDefend", Start = ServiceStart.Disabled }).Any(p => p.Contains("chránená", StringComparison.Ordinal)), "Defender sa nevypne");
+        Expect.True(P(new ServiceElement { Id = "s", Name = "wuauserv", Running = false }).Any(p => p.Contains("chránená", StringComparison.Ordinal)), "aktualizácie sa nezastavia");
+        Expect.Sequence(Array.Empty<string>(), P(new ServiceElement { Id = "s", Name = "WinDefend", Start = ServiceStart.Automatic }), "chránenú službu zapnúť smie");
+        Expect.True(P(new ServiceElement { Id = "s", Name = "Spooler", Start = ServiceStart.Disabled, Running = true }).Any(p => p.Contains("nemôže bežať", StringComparison.Ordinal)), "vypnutá a beží");
+        Expect.True(P(new ServiceElement { Id = "s", Name = "Spooler", Present = false }).Any(p => p.Contains("Disabled", StringComparison.Ordinal)), "služba sa neodstraňuje");
+        Expect.True(P(new ServiceElement { Id = "s", Name = "zlé meno" }).Any(p => p.Contains("meno služby", StringComparison.Ordinal)), "meno služby");
+        Expect.Sequence(Array.Empty<string>(), P(new FeatureElement { Id = "f", Name = "Containers-DisposableClientVM" }), "Sandbox");
+        Expect.True(P(new FeatureElement { Id = "f", Name = "" }).Any(p => p.Contains("súčasti Windows", StringComparison.Ordinal)), "bez mena súčasti");
+
+        var sample = RecipeText.Load(Path.Combine(Repo.Root, "recepty", "ukazka-pieskovisko.json"));
+        Expect.Sequence(Array.Empty<string>(), RecipeCheck.Problems(sample), "ukážka Pieskoviska");
+        var service = (ServiceElement)RecipeText.FromJson(RecipeText.ToJson(sample)).Elements[1];
+        Expect.True(service.Start == ServiceStart.Automatic && service.Running == true, "služba po zápise a čítaní");
+    }
+
+    [Check]
+    public static void VersionsAreComparedAsWindowsWritesThem()
+    {
+        Expect.True(ProgramMatch.VersionMatches("25.8.3", "25.8.3.2"), "viac častí vo Windows");
+        Expect.True(ProgramMatch.VersionMatches("3.0.21", "v3.0.21"), "písmeno v");
+        Expect.True(!ProgramMatch.VersionMatches("25.8", "25.80.1"), "25.8 nie je 25.80");
+        Expect.True(!ProgramMatch.VersionMatches("140.0", "139.0.4"), "iná verzia");
+        Expect.True(ProgramMatch.VersionMatches(null, "1.0") && ProgramMatch.VersionMatches("1.0", null), "bez verzie sa nesúdi");
+    }
+
+    [Check]
     public static void TwoElementsMustNotManageTheSameThing()
     {
         var p1 = RecipeCheck.Problems(Minimal(Reg("a"), Reg("b", path: @"hklm\software\skuska\")));

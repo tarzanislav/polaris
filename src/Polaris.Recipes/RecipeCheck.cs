@@ -59,6 +59,15 @@ public static partial class RecipeCheck
         @"HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon",
     ];
 
+    /// <summary>Services a recipe must not disable or stop: without them Windows, its protection or POLARIS stop working.</summary>
+    public static readonly IReadOnlySet<string> ProtectedServices = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        "WinDefend", "WdNisSvc", "SecurityHealthService", "Sense", "mpssvc", "BFE", "RpcSs", "RpcEptMapper", "DcomLaunch",
+        "EventLog", "LSM", "SamSs", "Winmgmt", "CryptSvc", "TrustedInstaller", "Schedule", "ProfSvc", "gpsvc", "Power",
+        "PlugPlay", "UserManager", "Dhcp", "Dnscache", "nsi", "BrokerInfrastructure", "CoreMessagingRegistrar", "wuauserv",
+        "WaaSMedicSvc", "PolarisAgent",
+    };
+
     public const int MaxBookmarks = 500;
     public const int MaxBookmarkDepth = 4;
 
@@ -122,6 +131,8 @@ public static partial class RecipeCheck
         ProgramElement p => ProgramProblems(p),
         RegistryValueElement r => RegistryProblems(r),
         BookmarksElement b => BookmarkProblems(b),
+        ServiceElement v => ServiceProblems(v),
+        FeatureElement f => FeatureProblems(f),
         _ => ["neznámy typ prvku."],
     };
 
@@ -203,6 +214,37 @@ public static partial class RecipeCheck
         }
     }
 
+    private static IEnumerable<string> ServiceProblems(ServiceElement v)
+    {
+        if (!SystemNamePattern().IsMatch(v.Name))
+        {
+            yield return "chýba alebo je neplatné meno služby (meno kľúča služby, napr. Spooler).";
+        }
+
+        if (!v.Present)
+        {
+            yield return "službu recept neodstraňuje – na vypnutie nastav start: Disabled.";
+        }
+
+        if (ProtectedServices.Contains(v.Name.Trim()) && (v.Start == ServiceStart.Disabled || v.Running == false))
+        {
+            yield return $"služba {v.Name} je chránená – bez nej by nefungoval Windows, jeho ochrana alebo POLARIS.";
+        }
+
+        if (v.Start == ServiceStart.Disabled && v.Running == true)
+        {
+            yield return "vypnutá služba nemôže bežať.";
+        }
+    }
+
+    private static IEnumerable<string> FeatureProblems(FeatureElement f)
+    {
+        if (!SystemNamePattern().IsMatch(f.Name))
+        {
+            yield return "chýba alebo je neplatné meno súčasti Windows (napr. Containers-DisposableClientVM).";
+        }
+    }
+
     private static IEnumerable<string> BookmarkProblems(BookmarksElement b)
     {
         if (b.Browsers.Count == 0)
@@ -271,6 +313,9 @@ public static partial class RecipeCheck
 
     [GeneratedRegex(@"^[0-9A-Za-z.\-_+]{1,64}$")]
     private static partial Regex VersionPattern();
+
+    [GeneratedRegex(@"^[A-Za-z0-9_.\-]{1,128}$")]
+    private static partial Regex SystemNamePattern();
 
     [GeneratedRegex("^[0-9a-fA-F]{64}$")]
     private static partial Regex Sha256Pattern();
