@@ -3,8 +3,8 @@
   // a vyžaduje zapnutú virtualizáciu v UEFI.
   "schema": 1,
   "name": "LABORATORIUM",
-  "version": 1,
-  "note": "Ukážka: Pieskovisko a služba tlače",
+  "version": 2,
+  "note": "Ukážka: Pieskovisko, jeho šablóny na ploche a služba tlače",
   "elements": [
     {
       "type": "feature",
@@ -19,6 +19,23 @@
       "start": "Automatic",
       "running": true,
       "note": "v učebni sa tlačí"
+    },
+    {
+      "type": "sandbox",
+      "id": "pieskovisko-pokusy",
+      "name": "Pokusy",
+      "note": "prísna šablóna: bez siete, bez schránky, bez mikrofónu a kamery – na skúšanie neznámych programov"
+    },
+    {
+      "type": "sandbox",
+      "id": "pieskovisko-web",
+      "name": "Web a programovanie",
+      "networking": true,
+      "memoryMb": 6144,
+      "folders": [
+        { "hostFolder": "C:\\Users\\Public\\Documents\\Ucivo", "sandboxFolder": "C:\\Users\\WDAGUtilityAccount\\Desktop\\Ucivo" }
+      ],
+      "note": "so sieťou a s učivom len na čítanie; čo žiak v Pieskovisku urobí, po zatvorení zmizne"
     }
   ]
 }

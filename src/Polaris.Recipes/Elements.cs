@@ -13,6 +13,8 @@ namespace Polaris.Recipes;
 [JsonDerivedType(typeof(UserRegistryElement), "user-registry")]
 [JsonDerivedType(typeof(KeyboardsElement), "keyboards")]
 [JsonDerivedType(typeof(SessionElement), "session")]
+[JsonDerivedType(typeof(SandboxElement), "sandbox")]
+[JsonDerivedType(typeof(StoreElement), "store")]
 public abstract class Element
 {
     /// <summary>Unique name of the element within a recipe (small letters, digits, '-', '.', '_').</summary>

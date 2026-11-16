@@ -103,6 +103,14 @@ public static partial class RecipeCheck
             }
         }
 
+        // a program of the store must not be a permanent program of the recipe – removing it after a session would
+        // remove the permanent one
+        var permanent = recipe.Elements.OfType<ProgramElement>().Select(p => p.Key).ToHashSet(StringComparer.Ordinal);
+        foreach (var item in recipe.Elements.OfType<StoreElement>().SelectMany(s => s.Items).Where(i => permanent.Contains(i.Program.Key)))
+        {
+            problems.Add($"Program {item.Program.DisplayName} je v recepte natrvalo aj v Školskom obchode – nechaj ho len na jednom mieste.");
+        }
+
         // only when every element is fine on its own: two elements must not manage the same thing
         if (problems.Count == 0)
         {
@@ -136,6 +144,8 @@ public static partial class RecipeCheck
         UserRegistryElement u => UserRegistryProblems(u),
         KeyboardsElement k => KeyboardProblems(k),
         SessionElement s => SessionProblems(s),
+        SandboxElement x => SandboxProblems(x),
+        StoreElement o => StoreProblems(o),
         _ => ["neznámy typ prvku."],
     };
 
@@ -308,6 +318,102 @@ public static partial class RecipeCheck
         }
     }
 
+    private static IEnumerable<string> SandboxProblems(SandboxElement x)
+    {
+        if (!SandboxNamePattern().IsMatch(x.Name.Trim()))
+        {
+            yield return "šablóna Pieskoviska potrebuje meno (písmená, číslice, medzera, -, najviac 40 znakov).";
+        }
+
+        if (x.MemoryMb < SandboxConfig.MinMemory || x.MemoryMb > SandboxConfig.MaxMemory)
+        {
+            yield return $"pamäť Pieskoviska musí byť {SandboxConfig.MinMemory} až {SandboxConfig.MaxMemory} MB.";
+        }
+
+        foreach (var f in x.Folders)
+        {
+            var host = f.HostFolder.Trim().TrimEnd('\\');
+            if (!WindowsPath().IsMatch(f.HostFolder) || host.Split('\\').Contains(".."))
+            {
+                yield return $"priečinok PC „{f.HostFolder}“ musí byť celá cesta (napr. C:\\Users\\Public\\Documents).";
+            }
+            else if (!f.ReadOnly && SystemFolder(host))
+            {
+                yield return $"priečinok PC „{f.HostFolder}“ je systémový – do Pieskoviska ho možno dať len na čítanie.";
+            }
+
+            if (f.SandboxFolder is { Length: > 0 } inside && !WindowsPath().IsMatch(inside))
+            {
+                yield return $"priečinok v Pieskovisku „{inside}“ musí byť celá cesta (napr. C:\\Users\\WDAGUtilityAccount\\Desktop\\Ucivo).";
+            }
+        }
+
+        if (x.LogonCommand is { Length: > 1000 })
+        {
+            yield return "príkaz po štarte je dlhší ako 1000 znakov.";
+        }
+    }
+
+    /// <summary>The disk root and the folders of Windows and programs: never writable from inside the Sandbox.</summary>
+    private static bool SystemFolder(string host)
+    {
+        var rest = host.Length > 2 ? host[3..] : "";
+        var top = rest.Split('\\')[0];
+        return rest.Length == 0 || top.Equals("Windows", StringComparison.OrdinalIgnoreCase) || top.StartsWith("Program", StringComparison.OrdinalIgnoreCase)
+            || (top.Equals("Users", StringComparison.OrdinalIgnoreCase) && rest.Split('\\').Length <= 2);
+    }
+
+    private static IEnumerable<string> StoreProblems(StoreElement o)
+    {
+        if (o.Accounts.Count == 0)
+        {
+            yield return "Školský obchod nemá žiadne konto, ktoré ho smie používať.";
+        }
+
+        foreach (var a in o.Accounts)
+        {
+            if (!AccountPattern().IsMatch(a) || SessionPolicy.NeverClean.Contains(a))
+            {
+                yield return $"konto „{a}“ nemôže používať Školský obchod.";
+            }
+        }
+
+        if (o.MaxPerSession is < 1 or > 10)
+        {
+            yield return "najviac programov v relácii musí byť 1 až 10.";
+        }
+
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var item in o.Items)
+        {
+            var label = item.Id.Length > 0 ? item.Id : "(bez mena)";
+            if (!IdPattern().IsMatch(item.Id) || !ids.Add(item.Id))
+            {
+                yield return $"položka {label}: chýba, je neplatné alebo dvakrát použité id.";
+            }
+
+            if (string.IsNullOrWhiteSpace(item.Title))
+            {
+                yield return $"položka {label}: chýba názov pre žiakov.";
+            }
+
+            if (!item.Program.Present)
+            {
+                yield return $"položka {label}: program v obchode sa inštaluje, nemôže byť present: false.";
+            }
+
+            if (item.Program.Installer is not null)
+            {
+                yield return $"položka {label}: Školský obchod zatiaľ inštaluje len programy z WinGet (inštalátory zo zásoby prinesie centrum).";
+            }
+
+            foreach (var p in ProgramProblems(item.Program))
+            {
+                yield return $"položka {label}: {p}";
+            }
+        }
+    }
+
     private static IEnumerable<string> BookmarkProblems(BookmarksElement b)
     {
         if (b.Browsers.Count == 0)
@@ -382,6 +488,12 @@ public static partial class RecipeCheck
 
     [GeneratedRegex(@"^[A-Za-z0-9._\- ]{1,20}$")]
     private static partial Regex AccountPattern();
+
+    [GeneratedRegex(@"^[\p{L}0-9 \-]{1,40}$")]
+    private static partial Regex SandboxNamePattern();
+
+    [GeneratedRegex(@"^[A-Za-z]:\\")]
+    private static partial Regex WindowsPath();
 
     [GeneratedRegex("^[0-9a-fA-F]{64}$")]
     private static partial Regex Sha256Pattern();

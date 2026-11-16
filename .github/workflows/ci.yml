@@ -90,6 +90,8 @@ jobs:
           "::notice title=kontrola receptu na runneri::$($plan -replace '%', '%25' -replace "`n", '%0A')"
           & ./out/agent/polaris-agent.exe kontrola recepty/ukazka-relacia.json
           if ($LASTEXITCODE -gt 1) { exit $LASTEXITCODE }
+          & ./out/agent/polaris-agent.exe kontrola recepty/ukazka-pieskovisko.json
+          if ($LASTEXITCODE -gt 1) { exit $LASTEXITCODE }
           # the service: installed into Program Files, running, then removed
           & ./out/agent/polaris-agent.exe instalovat-sluzbu
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -97,6 +99,10 @@ jobs:
           if ($svc.Status -ne 'Running') { "služba nebeží: $($svc.Status)"; exit 1 }
           Start-Sleep -Seconds 3
           if ((Get-Service PolarisAgent).Status -ne 'Running') { "služba spadla"; exit 1 }
+          # the School store answers through the service's pipe; this PC has no catalogue, so it is closed
+          $store = (& ./out/agent/polaris-agent.exe obchod zoznam) -join "`n"
+          $store
+          if ($store -notmatch 'zatvorený') { "Školský obchod neodpovedal ako má"; exit 1 }
           & ./out/agent/polaris-agent.exe odinstalovat-sluzbu
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           if (Get-Service PolarisAgent -ErrorAction SilentlyContinue) { "služba ostala"; exit 1 }

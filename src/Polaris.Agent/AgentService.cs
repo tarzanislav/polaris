@@ -27,6 +27,12 @@ public static class AgentService
     /// written to the journal once (not every round) and the next round tries again.</summary>
     public static void Loop(AgentHost host, CancellationToken stop)
     {
+        var journal = (RunRecord run) => Commands.WriteJournal(host.JournalPath, run);
+        var state = new StoreState();
+        var store = Store(host, state);
+        var door = new Thread(() => StorePipe.Serve(store, Log, stop)) { IsBackground = true, Name = "Školský obchod" };
+        door.Start();
+
         var lastMessage = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         while (!stop.IsCancellationRequested)
         {
@@ -36,7 +42,12 @@ public static class AgentService
                 SessionCleaner.Result result;
                 try
                 {
-                    result = SessionCleaner.Clean(account, mode, DateTime.Now);
+                    result = SessionCleaner.Clean(account, mode, DateTime.Now, beforeDelete: store.RemoveFor);
+                    if (!result.Cleaned && result.Message == SessionCleaner.AlreadyClean && Leftovers(state, account) && store.RemoveFor(account) is { } note)
+                    {
+                        // a removal that failed before the profile was deleted is tried again (the profile is gone already)
+                        result = note.Contains("neodstránené", StringComparison.Ordinal) ? new SessionCleaner.Result(false, "chyba: " + note) : new SessionCleaner.Result(true, note);
+                    }
                 }
                 catch (Exception e) when (e is not OutOfMemoryException)
                 {
@@ -60,7 +71,25 @@ public static class AgentService
 
             stop.WaitHandle.WaitOne(Interval);
         }
+
+        door.Join(TimeSpan.FromSeconds(10));
+
+        void Log(string message) => journal(new RunRecord
+        {
+            StartedUtc = host.Clock(),
+            FinishedUtc = host.Clock(),
+            Recipe = "(Školský obchod)",
+            Results = [new ChangeResult("obchod", "Školský obchod", ChangeKind.Change, false, message, 0)],
+        });
     }
+
+    /// <summary>The School store of this PC, as the service runs it.</summary>
+    public static StoreWork Store(AgentHost host, StoreState state) =>
+        new(state, new ProgramHandler(AppContext.BaseDirectory), run => Commands.WriteJournal(host.JournalPath, run), host.Clock,
+            account => SessionRules.Read().TryGetValue(account, out var rule) && rule != SessionCleaning.Never);
+
+    private static bool Leftovers(StoreState state, string account) =>
+        state.Installed().Any(i => string.Equals(i.Account, account, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>Copies this program to Program Files and registers the service (or updates it).</summary>
     public static string Install(string currentProgram, TextWriter output)

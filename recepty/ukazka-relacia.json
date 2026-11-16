@@ -4,8 +4,8 @@
   // (polaris-agent instalovat-sluzbu).
   "schema": 1,
   "name": "RELACIA",
-  "version": 1,
-  "note": "Ukážka: čistý profil žiaka po každom odhlásení, klávesnice, prípony súborov",
+  "version": 2,
+  "note": "Ukážka: čistý profil žiaka po každom odhlásení, klávesnice, prípony súborov, Školský obchod",
   "elements": [
     {
       "type": "session",
@@ -28,6 +28,27 @@
       "kind": "DWord",
       "data": "0",
       "note": "prípony súborov sú vidno – faktura.pdf.exe sa neschová (kyberbezpečnosť)"
+    },
+    {
+      "type": "store",
+      "id": "skolsky-obchod",
+      "accounts": [ "ziak" ],
+      "maxPerSession": 2,
+      "note": "žiak si program nainštaluje sám (polaris-agent obchod), po odhlásení sa odstráni",
+      "items": [
+        {
+          "id": "audacity",
+          "title": "Audacity",
+          "description": "nahrávanie a strih zvuku",
+          "program": { "type": "program", "id": "audacity", "winget": "Audacity.Audacity", "displayName": "Audacity", "match": "Prefix" }
+        },
+        {
+          "id": "inkscape",
+          "title": "Inkscape",
+          "description": "vektorová grafika",
+          "program": { "type": "program", "id": "inkscape", "winget": "Inkscape.Inkscape", "displayName": "Inkscape", "match": "Prefix" }
+        }
+      ]
     }
   ]
 }

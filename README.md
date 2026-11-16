@@ -11,9 +11,11 @@ aby predvolený štart nikdy neukazoval na vrstvu, ktorá už bežala.
 ## Stav
 
 **Smer v2 (od 16. 11. 2026): POLARIS nezasahuje pod systém, ale riadi zabudované mechanizmy Windows a Linuxu podľa
-podpísaných receptov.** Etapa **K1** je vo vývoji: `polaris-agent` porovná PC s receptom (programy cez WinGet alebo
-overený inštalátor, hodnoty registra v HKLM, záložky pre Edge a Chrome), zmeny urobí a každú overí. Popis formátu:
-[docs/recept.md](docs/recept.md), ukážka: [recepty/ukazka-kancelarsky.json](recepty/ukazka-kancelarsky.json).
+podpísaných receptov.** Etapy **K1 a K2** sú vo vývoji: `polaris-agent` porovná PC s receptom (programy cez WinGet
+alebo overený inštalátor, hodnoty registra, záložky, služby, súčasti Windows, klávesnice a predloha profilov), zmeny
+urobí a každú overí. Služba POLARIS agent čistí relácie spoločného konta žiaka a prevádzkuje **Školský obchod**
+(žiak si nainštaluje schválený program, po relácii zmizne). Na plochu dáva **šablóny Pieskoviska** (Windows Sandbox).
+Popis formátu: [docs/recept.md](docs/recept.md), ukážky: [recepty/](recepty/).
 
 Pôvodný smer v1 (vrstvy disku) je pozastavený:
 

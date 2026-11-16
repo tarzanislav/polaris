@@ -6,7 +6,7 @@ a **odtlačok SHA-256**, takže každé PC vie preukázať, že má presne schv�
 Agent recept nikdy nepoužije, kým nie je bez problémov (`polaris-agent overit`). Každú zmenu po vykonaní **overí
 opätovným prečítaním stavu**. Chyba jedného prvku nezastaví ostatné.
 
-## Príkazy (etapa K1: spúšťa správca na PC, bez siete)
+## Príkazy (etapy K1 a K2: spúšťa správca na PC, bez siete)
 
 ```
 polaris-agent overit RECEPT          kontrola receptu – nič nemení, funguje aj na Linuxe
@@ -17,6 +17,7 @@ polaris-agent dennik [POČET]         posledné behy na tomto PC
 polaris-agent doverovat KLUC         PC prijme recepty podpísané touto konzolou (pozri Podpis receptu)
 polaris-agent instalovat-sluzbu      služba PolarisAgent (čistí relácie), z Program Files; odinstalovat-sluzbu ju odstráni
 polaris-agent vycistit KONTO         hneď zmaže profil zdieľaného konta (nie správcu, nie keď je niekto prihlásený)
+polaris-agent obchod                 Školský obchod pre žiaka (spúšťa žiak, nie správca)
 ```
 
 Návratový kód: `0` = v poriadku / PC je podľa receptu, `1` = rozdiely alebo chyby, `2` = zlý vstup, recept
@@ -174,16 +175,61 @@ polaris-agent konzoly | nedoverovat ODTLACOK            zoznam a zrušenie dôve
 
 - Hodnota v časti registra používateľa (bez `HKCU\`), zapísaná do predlohy profilov. Údaje ako pri `registry`.
 
+### `sandbox`: šablóna Pieskoviska na ploche
+
+```json
+{ "type": "sandbox", "id": "pieskovisko-web", "name": "Web a programovanie", "networking": true, "memoryMb": 6144,
+  "folders": [ { "hostFolder": "C:\\Users\\Public\\Documents\\Ucivo" } ] }
+```
+
+- Na spoločnú plochu (všetci používatelia ju vidia, meniť ju môže len správca) sa zapíše súbor
+  `Pieskovisko – MENO.wsb`. Dvojklik spustí Windows Sandbox s týmito nastaveniami. Čo žiak v Pieskovisku urobí, po
+  zatvorení zmizne.
+- Sandbox musí byť zapnutý prvkom `feature` (`Containers-DisposableClientVM`).
+- **Predvolene prísne:** bez siete, bez schránky, bez mikrofónu, kamery a tlačiarne, s chráneným klientom
+  (`protectedClient`), 4096 MB pamäte. Zapína sa len to, čo hodina potrebuje: `networking`, `clipboard`, `microphone`,
+  `camera`, `printer`, `gpu`, `memoryMb` (2048 až 65536).
+- `folders`: priečinky PC v Pieskovisku. `hostFolder` je celá cesta, `sandboxFolder` miesto vnútri (prázdne = na
+  ploche Pieskoviska), `readOnly` je predvolene `true`. **Koreň disku, Windows, Program Files, ProgramData a celé
+  profily** sa dajú dať len na čítanie.
+- `logonCommand`: príkaz, ktorý sa spustí vnútri po štarte (napríklad inštalácia nástrojov hodiny).
+
+### `store`: Školský obchod
+
+```json
+{ "type": "store", "id": "skolsky-obchod", "accounts": ["ziak"], "maxPerSession": 2,
+  "items": [
+    { "id": "audacity", "title": "Audacity", "description": "nahrávanie a strih zvuku",
+      "program": { "id": "audacity", "winget": "Audacity.Audacity", "displayName": "Audacity", "match": "Prefix" } }
+  ] }
+```
+
+- Žiak spoločného konta si zo zoznamu, ktorý schválil správca, **sám nainštaluje program bez hesla správcu**:
+  `polaris-agent obchod` (zoznam a číslo programu), alebo `polaris-agent obchod zoznam` a
+  `polaris-agent obchod instalovat ID`.
+- Inštaluje služba POLARIS agent pre celé PC. **Pri čistení relácie konta program odinštaluje**, ešte pred zmazaním
+  profilu. Keď odinštalovanie zlyhá, záznam ostane a služba to skúša znova.
+- Kto žiada, zistí služba z Windows (identita klienta pomenovanej rúry `\\.\pipe\polaris-obchod`), nie z
+  požiadavky. Požiadavka nesie len `id` z katalógu, takže žiak nemôže podstrčiť vlastný program ani parametre.
+- Obchod odmietne: správcu (ten inštaluje receptom), konto mimo `accounts`, konto, ktorého relácia sa nečistí
+  (program by sa nemal kedy odstrániť), program, ktorý je už na PC natrvalo, a viac ako `maxPerSession` programov
+  (1 až 10) v jednej relácii.
+- Zatiaľ **len programy z WinGet**. Inštalátory zo zásoby prinesie centrum (K3). Program v obchode nesmie byť zároveň
+  trvalým prvkom `program` toho istého receptu.
+- Každá inštalácia sa zapíše do denníka (`polaris-agent dennik`). Katalóg a záznamy sú v
+  `HKLM\SOFTWARE\POLARIS\Agent\Obchod`.
+- Ikona v oblasti oznámení pre žiaka príde neskôr. Teraz je obchod príkaz v termináli (dá sa naň dať odkaz na plochu).
+
 ## Ukážky
 
 - `recepty/ukazka-kancelarsky.json`: LibreOffice, 7-Zip, VLC, dve nastavenia Edge a školské záložky. Je to len
   otvorený softvér, vhodný pre školy.
-- `recepty/ukazka-pieskovisko.json`: Windows Sandbox a služba tlače.
-- `recepty/ukazka-relacia.json`: čistenie relácie konta `ziak`, klávesnice SK, CZ, EN, DE a viditeľné prípony súborov.
+- `recepty/ukazka-pieskovisko.json`: Windows Sandbox, dve šablóny na ploche (prísna a so sieťou) a služba tlače.
+- `recepty/ukazka-relacia.json`: čistenie relácie konta `ziak`, klávesnice SK, CZ, EN, DE, viditeľné prípony súborov
+  a Školský obchod s Audacity a Inkscape.
 
 ## Pripravuje sa
 
-Ďalšie typy prvkov: tlačiarne, Wi-Fi, súbory, kontá s heslom ako tajomstvom. Ďalej v K2: Školský obchod, šablóny
-Pieskoviska, ikona pre žiaka. Priradenia
-receptov skupinám a PC s životnosťou (do konca hodiny, dňa, týždňa) sú už naprogramované v `Polaris.Recipes`
-(`Assignments`). Do prevádzky ich uvedie centrum v etape K3.
+Ďalšie typy prvkov: tlačiarne, Wi-Fi, súbory, kontá s heslom ako tajomstvom. Ikona Školského obchodu pre žiaka.
+Priradenia receptov skupinám a PC s životnosťou (do konca hodiny, dňa, týždňa) sú už naprogramované
+v `Polaris.Recipes` (`Assignments`). Do prevádzky ich uvedie centrum v etape K3.

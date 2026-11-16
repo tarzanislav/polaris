@@ -263,9 +263,13 @@ public sealed class SessionRuleHandler : IElementHandler
 [SupportedOSPlatform("windows")]
 public static class SessionCleaner
 {
+    public const string AlreadyClean = "profil je už čistý";
+
     public sealed record Result(bool Cleaned, string Message);
 
-    public static Result Clean(string account, SessionCleaning mode, DateTime now, bool force = false)
+    /// <param name="beforeDelete">Runs just before the profile is deleted (the programs of the School store of the session
+    /// are removed there); its failure is reported, the profile is deleted anyway.</param>
+    public static Result Clean(string account, SessionCleaning mode, DateTime now, bool force = false, Func<string, string?>? beforeDelete = null)
     {
         if (SessionPolicy.NeverClean.Contains(account))
         {
@@ -285,7 +289,7 @@ public static class SessionCleaner
         var state = Profiles.State(sid);
         if (!state.Exists)
         {
-            return new Result(false, "profil je už čistý");
+            return new Result(false, AlreadyClean);
         }
 
         if (state.Loaded)
@@ -298,7 +302,8 @@ public static class SessionCleaner
             return new Result(false, "podľa pravidla ešte nie je čas");
         }
 
+        var note = beforeDelete?.Invoke(account);
         Profiles.Delete(sid);
-        return new Result(true, $"profil konta {account} zmazaný, ďalšie prihlásenie začne načisto");
+        return new Result(true, $"profil konta {account} zmazaný, ďalšie prihlásenie začne načisto{(note is { Length: > 0 } ? "; " + note : "")}");
     }
 }

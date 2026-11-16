@@ -29,13 +29,19 @@ public sealed class AgentHost
 
     public required Func<string, bool> RemoveTrusted { get; init; }
 
+    /// <summary>One request to the School store of this PC (the agent's service answers).</summary>
+    public Func<StoreRequest, StoreAnswer>? Store { get; init; }
+
+    /// <summary>A line typed by the person (null = end of input).</summary>
+    public Func<string?> ReadLine { get; init; } = Console.ReadLine;
+
     [SupportedOSPlatform("windows")]
     public static AgentHost Windows() => new()
     {
         Handlers = folder =>
         [
             new RegistryHandler(), new ProgramHandler(folder), new ServiceHandler(), new FeatureHandler(),
-            new ProfileTemplateHandler(), new SessionRuleHandler(),
+            new ProfileTemplateHandler(), new SessionRuleHandler(), new SandboxHandler(), new StoreHandler(),
         ],
         IsAdmin = () =>
         {
@@ -52,6 +58,7 @@ public sealed class AgentHost
         Trusted = TrustStore.Read,
         AddTrusted = TrustStore.Add,
         RemoveTrusted = TrustStore.Remove,
+        Store = request => StorePipe.Ask(request, StorePipe.ClientLimit),
     };
 }
 
@@ -59,10 +66,10 @@ public sealed class AgentHost
 /// 2 = wrong input, a recipe with problems or missing rights.</summary>
 public static class Commands
 {
-    public const string Stage = "K1";
+    public const string Stage = "K2";
 
     public const string Help = """
-        polaris-agent – uvedie toto PC do stavu podľa receptu (etapa K1: spúšťa správca na PC, bez siete)
+        polaris-agent – uvedie toto PC do stavu podľa receptu (etapa K2: spúšťa správca na PC, bez siete)
 
           overit RECEPT          skontroluje recept (nič nemení, funguje kdekoľvek)
           odtlacok RECEPT        odtlačok SHA-256 receptu (na schválenie verzie profilu)
@@ -75,12 +82,14 @@ public static class Commands
           instalovat-sluzbu      skopíruje agenta do Program Files a spustí službu POLARIS agent (čistí relácie; správca)
           odinstalovat-sluzbu    zastaví a odstráni službu (správca)
           vycistit KONTO         hneď zmaže profil zdieľaného konta, ak na ňom nikto nie je prihlásený (správca)
+          obchod                 Školský obchod pre žiaka: zoznam programov a inštalácia na túto reláciu
+          obchod zoznam | obchod instalovat ID
 
         Keď PC dôveruje aspoň jednej konzole, použije len recept s platným podpisom (RECEPT.podpis vedľa receptu).
           verzia
 
-        Recept je súbor JSON s prvkami: program (WinGet alebo inštalátor zo zásoby), registry (hodnota v HKLM),
-        bookmarks (záložky pre Edge a Chrome), service (spúšťanie služby), feature (súčasť Windows, napr. Sandbox).
+        Recept je súbor JSON s prvkami: program, registry, bookmarks, service, feature, session, keyboards,
+        user-registry, sandbox (šablóna Pieskoviska) a store (Školský obchod).
         Popis formátu: docs/recept.md v repozitári.
         """;
 
@@ -107,6 +116,7 @@ public static class Commands
                 "instalovat-sluzbu" => Service(install: true, output, host ?? DefaultHost()),
                 "odinstalovat-sluzbu" => Service(install: false, output, host ?? DefaultHost()),
                 "vycistit" => CleanNow(Need(args, "vycistit KONTO"), output, host ?? DefaultHost()),
+                "obchod" => Store(args, output, host ?? DefaultHost()),
                 "dennik" => Journal(args.Length > 1 && int.TryParse(args[1], out var n) && n > 0 ? n : 10, output, host ?? DefaultHost()),
                 _ => Wrong($"Neznámy príkaz „{args[0]}“. Zoznam príkazov: polaris-agent pomoc", output),
             };
@@ -328,7 +338,7 @@ public static class Commands
             throw new PlatformNotSupportedException();
         }
 
-        var result = SessionCleaner.Clean(account, SessionCleaning.AtSignOut, DateTime.Now, force: true);
+        var result = SessionCleaner.Clean(account, SessionCleaning.AtSignOut, DateTime.Now, force: true, AgentService.Store(host, new StoreState()).RemoveFor);
         output.WriteLine(char.ToUpperInvariant(result.Message[0]) + result.Message[1..] + ".");
         if (result.Cleaned)
         {
@@ -342,6 +352,64 @@ public static class Commands
         }
 
         return result.Cleaned || result.Message.Contains("čistý", StringComparison.Ordinal) ? 0 : 1;
+    }
+
+    /// <summary>The School store for the pupil: who they are, the service learns from Windows, not from this program.</summary>
+    private static int Store(string[] args, TextWriter output, AgentHost host)
+    {
+        var ask = host.Store ?? throw new PlatformNotSupportedException();
+        var sub = args.Length > 1 ? args[1] : null;
+        if (sub is "instalovat")
+        {
+            return Install(Need(args[1..], "obchod instalovat ID"));
+        }
+
+        if (sub is not (null or "zoznam"))
+        {
+            return Wrong("Použitie: polaris-agent obchod [zoznam | instalovat ID]", output);
+        }
+
+        var list = ask(new StoreRequest { Command = "list" });
+        if (!list.Ok)
+        {
+            output.WriteLine(list.Message);
+            return 1;
+        }
+
+        output.WriteLine("Školský obchod – programy, ktoré si môžeš nainštalovať. Po skončení relácie sa samy odstránia.");
+        for (var i = 0; i < list.Items.Count; i++)
+        {
+            var o = list.Items[i];
+            var description = o.Description.Length > 0 ? " – " + o.Description : "";
+            output.WriteLine($"  {i + 1,2}. {o.Title}{description}{(o.Installed ? "  [nainštalovaný]" : "")}   ({o.Id})");
+        }
+
+        if (sub is "zoznam")
+        {
+            return 0;
+        }
+
+        output.Write("Číslo programu na inštaláciu (Enter = koniec): ");
+        var typed = host.ReadLine()?.Trim();
+        if (string.IsNullOrEmpty(typed))
+        {
+            return 0;
+        }
+
+        if (!int.TryParse(typed, out var n) || n < 1 || n > list.Items.Count)
+        {
+            return Wrong($"Zadaj číslo od 1 do {list.Items.Count}.", output);
+        }
+
+        return Install(list.Items[n - 1].Id);
+
+        int Install(string id)
+        {
+            output.WriteLine("Inštalujem, môže to trvať niekoľko minút…");
+            var answer = ask(new StoreRequest { Command = "install", Item = id });
+            output.WriteLine(answer.Message);
+            return answer.Ok ? 0 : 1;
+        }
     }
 
     private static RecipeSignature? ReadSignature(string recipeFile)
@@ -369,6 +437,8 @@ public static class Commands
         return (recipe, engine, engine.Plan(recipe.Elements));
     }
 
+    private static readonly Lock JournalGate = new();
+
     public static void WriteJournal(string path, RunRecord run)
     {
         var folder = Path.GetDirectoryName(path)!;
@@ -378,8 +448,11 @@ public static class Commands
             AgentService.ProtectFolder(folder);
         }
 
-        using var stream = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.Read, 4096, FileOptions.WriteThrough);
-        stream.Write(Encoding.UTF8.GetBytes(RunReport.ToLine(run) + "\n"));
+        lock (JournalGate)
+        {
+            using var stream = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.Read, 4096, FileOptions.WriteThrough);
+            stream.Write(Encoding.UTF8.GetBytes(RunReport.ToLine(run) + "\n"));
+        }
     }
 
     private static string Folder(string file) => Path.GetDirectoryName(Path.GetFullPath(file))!;
