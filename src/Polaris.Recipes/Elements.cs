@@ -10,6 +10,9 @@ namespace Polaris.Recipes;
 [JsonDerivedType(typeof(BookmarksElement), "bookmarks")]
 [JsonDerivedType(typeof(ServiceElement), "service")]
 [JsonDerivedType(typeof(FeatureElement), "feature")]
+[JsonDerivedType(typeof(UserRegistryElement), "user-registry")]
+[JsonDerivedType(typeof(KeyboardsElement), "keyboards")]
+[JsonDerivedType(typeof(SessionElement), "session")]
 public abstract class Element
 {
     /// <summary>Unique name of the element within a recipe (small letters, digits, '-', '.', '_').</summary>
@@ -181,6 +184,74 @@ public sealed class FeatureElement : Element
     public override string Key => "feature:" + Name.Trim().ToLowerInvariant();
 
     public override string Title => $"súčasť Windows {Name}";
+}
+
+/// <summary>A value every new profile gets: it is written into the template of profiles (the profile "Default"), from
+/// which Windows makes the profile of every user at the first sign-in – and of the pupil after every cleaning.</summary>
+public sealed class UserRegistryElement : Element
+{
+    /// <summary>Path in the user part of the registry, without HKCU (e.g. Control Panel\Desktop).</summary>
+    public string Path { get; set; } = "";
+
+    public string Name { get; set; } = "";
+
+    public RegistryKind Kind { get; set; } = RegistryKind.String;
+
+    public string Data { get; set; } = "";
+
+    public override string Key => "user-registry:" + UserRegistryPath.Normalize(Path).ToLowerInvariant() + "|" + Name.ToLowerInvariant();
+
+    public override string Title => $"predloha profilu {UserRegistryPath.Normalize(Path)}\\{(Name.Length == 0 ? "(predvolená)" : Name)}";
+}
+
+/// <summary>Keyboards and languages of input for every new profile, the first is the default one.</summary>
+public sealed class KeyboardsElement : Element
+{
+    /// <summary>Languages as Windows writes them (e.g. sk-SK, cs-CZ, en-US, de-DE, fr-FR, ru-RU).</summary>
+    public List<string> Languages { get; set; } = [];
+
+    /// <summary>Another layout for a language than its usual one, e.g. "sk-SK": "0001041B" (Slovak QWERTY).</summary>
+    public Dictionary<string, string>? Layouts { get; set; }
+
+    public override string Key => "keyboards";
+
+    public override string Title => "klávesnice " + string.Join(", ", Languages);
+}
+
+public enum SessionCleaning
+{
+    /// <summary>The profile is deleted after every sign-out (and at start, if a sign-out was cut by a power loss).</summary>
+    AtSignOut,
+
+    /// <summary>The profile stays the whole day and is deleted at the first chance after midnight.</summary>
+    EndOfDay,
+
+    /// <summary>The profile stays the whole week (until Monday).</summary>
+    EndOfWeek,
+
+    /// <summary>Not cleaned.</summary>
+    Never,
+}
+
+/// <summary>Rules of the session of a shared account: when the agent deletes its profile, so that the next pupil starts
+/// clean. Only a standard account – an account of an administrator is never cleaned.</summary>
+public sealed class SessionElement : Element
+{
+    /// <summary>The local account the pupils sign in with (e.g. ziak).</summary>
+    public string Account { get; set; } = "";
+
+    public SessionCleaning Clean { get; set; } = SessionCleaning.AtSignOut;
+
+    public override string Key => "session:" + Account.Trim().ToLowerInvariant();
+
+    public override string Title => $"relácia konta {Account}";
+}
+
+/// <summary>Paths in the user part of the registry in one written form (no HKCU, no doubled backslashes).</summary>
+public static class UserRegistryPath
+{
+    public static string Normalize(string path) =>
+        string.Join('\\', path.Replace('/', '\\').Split('\\', StringSplitOptions.RemoveEmptyEntries));
 }
 
 /// <summary>Paths of the registry in one written form.</summary>

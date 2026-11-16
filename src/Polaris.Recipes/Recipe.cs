@@ -106,7 +106,7 @@ public static class RecipeText
         var message = e.Message;
         if (message.Contains("discriminator", StringComparison.OrdinalIgnoreCase) || message.Contains("'type'", StringComparison.Ordinal))
         {
-            return "prvok má neznámy alebo chýbajúci typ (\"type\": program, registry, bookmarks, service alebo feature).";
+            return "prvok má neznámy alebo chýbajúci typ (\"type\": program, registry, bookmarks, service, feature, user-registry, keyboards alebo session).";
         }
 
         // the first sentence of the system message is enough; the position is given separately

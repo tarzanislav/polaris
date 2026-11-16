@@ -14,6 +14,7 @@ public static class Expansion
     public static IEnumerable<Element> Expand(Element element) => element switch
     {
         BookmarksElement b => Bookmarks(b),
+        KeyboardsElement k => KeyboardLayouts.Expand(k),
         _ => [element],
     };
 

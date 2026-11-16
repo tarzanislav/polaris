@@ -4,60 +4,52 @@ using Polaris.Recipes;
 
 namespace Polaris.Agent;
 
-/// <summary>Values in the machine part of the registry (always the 64-bit view). Removing a value never deletes keys.</summary>
+/// <summary>Reading, comparing and writing one value under a root key – shared by the machine part of the registry and
+/// the template of profiles.</summary>
 [SupportedOSPlatform("windows")]
-public sealed class RegistryHandler : IElementHandler
+public static class RegistryValues
 {
-    public bool CanHandle(Element element) => element is RegistryValueElement;
-
-    public Observation Observe(Element element)
+    public static Observation Observe(RegistryKey root, string path, string name, bool present, RegistryKind kindWanted, string data)
     {
-        var r = (RegistryValueElement)element;
-        using var root = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64);
-        using var key = root.OpenSubKey(Sub(r));
+        using var key = root.OpenSubKey(path);
         if (key is null)
         {
             return new Observation(Observed.Absent, "kľúč neexistuje");
         }
 
-        if (!key.GetValueNames().Contains(r.Name, StringComparer.OrdinalIgnoreCase))
+        if (!key.GetValueNames().Contains(name, StringComparer.OrdinalIgnoreCase))
         {
             return new Observation(Observed.Absent, "hodnota neexistuje");
         }
 
-        var kind = key.GetValueKind(r.Name);
-        var value = key.GetValue(r.Name, null, RegistryValueOptions.DoNotExpandEnvironmentNames);
+        var kind = key.GetValueKind(name);
+        var value = key.GetValue(name, null, RegistryValueOptions.DoNotExpandEnvironmentNames);
         var now = RegistryData.Show(Readable(value));
-        if (!r.Present)
+        if (!present)
         {
             return new Observation(Observed.Present, "je " + Short(now));
         }
 
-        var wanted = RegistryData.Parse(r.Kind, r.Data);
-        return Same(kind, value, r.Kind, wanted)
+        var wanted = RegistryData.Parse(kindWanted, data);
+        return Same(kind, value, kindWanted, wanted)
             ? new Observation(Observed.Present)
-            : new Observation(Observed.Different, $"je {Short(now)} ({Kind(kind)}), má byť {Short(RegistryData.Show(wanted))} ({r.Kind})");
+            : new Observation(Observed.Different, $"je {Short(now)} ({Kind(kind)}), má byť {Short(RegistryData.Show(wanted))} ({kindWanted})");
     }
 
-    public void Apply(Element element)
+    public static void Apply(RegistryKey root, string path, string name, bool present, RegistryKind kind, string data)
     {
-        var r = (RegistryValueElement)element;
-        using var root = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64);
-        if (r.Present)
+        if (present)
         {
-            var wanted = RegistryData.Parse(r.Kind, r.Data) ?? throw new InvalidDataException($"Neplatné údaje „{r.Data}“ pre {r.Kind}.");
-            using var key = root.CreateSubKey(Sub(r), writable: true);
-            key.SetValue(r.Name, ToRegistry(wanted), Map(r.Kind));
+            var wanted = RegistryData.Parse(kind, data) ?? throw new InvalidDataException($"Neplatné údaje „{data}“ pre {kind}.");
+            using var key = root.CreateSubKey(path, writable: true);
+            key.SetValue(name, ToRegistry(wanted), Map(kind));
         }
         else
         {
-            using var key = root.OpenSubKey(Sub(r), writable: true);
-            key?.DeleteValue(r.Name, throwOnMissingValue: false);
+            using var key = root.OpenSubKey(path, writable: true);
+            key?.DeleteValue(name, throwOnMissingValue: false);
         }
     }
-
-    private static string Sub(RegistryValueElement r) =>
-        RegistryPath.UnderLocalMachine(r.Path) ?? throw new InvalidDataException($"Cesta {r.Path} nie je v HKLM.");
 
     private static bool Same(RegistryValueKind kind, object? value, RegistryKind wantedKind, object? wanted)
     {
@@ -110,4 +102,28 @@ public sealed class RegistryHandler : IElementHandler
     };
 
     private static string Short(string text) => text.Length <= 60 ? text : text[..57] + "…";
+}
+
+/// <summary>Values in the machine part of the registry (always the 64-bit view). Removing a value never deletes keys.</summary>
+[SupportedOSPlatform("windows")]
+public sealed class RegistryHandler : IElementHandler
+{
+    public bool CanHandle(Element element) => element is RegistryValueElement;
+
+    public Observation Observe(Element element)
+    {
+        var r = (RegistryValueElement)element;
+        using var root = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64);
+        return RegistryValues.Observe(root, Sub(r), r.Name, r.Present, r.Kind, r.Data);
+    }
+
+    public void Apply(Element element)
+    {
+        var r = (RegistryValueElement)element;
+        using var root = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64);
+        RegistryValues.Apply(root, Sub(r), r.Name, r.Present, r.Kind, r.Data);
+    }
+
+    private static string Sub(RegistryValueElement r) =>
+        RegistryPath.UnderLocalMachine(r.Path) ?? throw new InvalidDataException($"Cesta {r.Path} nie je v HKLM.");
 }

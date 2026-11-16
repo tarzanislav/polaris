@@ -20,6 +20,11 @@ internal static partial class ServiceManager
     public const int ErrorServiceNotActive = 1062;
 
     private const uint ScManagerConnect = 0x0001;
+    private const uint ScManagerCreateService = 0x0002;
+    private const uint ServiceAllAccess = 0xF01FF;
+    private const uint DeleteAccess = 0x10000;
+    private const uint OwnProcess = 0x10;
+    private const uint ErrorNormal = 1;
     private const uint ServiceQueryConfig = 0x0001;
     private const uint ServiceChangeConfig = 0x0002;
     private const uint ServiceQueryStatus = 0x0004;
@@ -98,6 +103,112 @@ internal static partial class ServiceManager
         }
 
         throw new TimeoutException($"Služba {name} sa do {limit.TotalSeconds:0} s {(run ? "nespustila" : "nezastavila")}.");
+    }
+
+    /// <summary>Creates the service, or updates its program and start when it exists; runs as LocalSystem, starts
+    /// automatically, is restarted by Windows after a failure.</summary>
+    public static void Install(string name, string displayName, string description, string commandLine)
+    {
+        using var manager = OpenManager(ScManagerConnect | ScManagerCreateService);
+        var service = OpenService(manager, name, ServiceAllAccess);
+        if (service.IsInvalid)
+        {
+            var e = Marshal.GetLastPInvokeError();
+            service.Dispose();
+            if (e != ErrorServiceDoesNotExist)
+            {
+                throw new SystemCallException($"Otvorenie služby {name}", e);
+            }
+
+            service = CreateService(manager, name, displayName, ServiceAllAccess, OwnProcess, AutoStart, ErrorNormal, commandLine, null, IntPtr.Zero, null, null, null);
+            if (service.IsInvalid)
+            {
+                var c = Marshal.GetLastPInvokeError();
+                service.Dispose();
+                throw new SystemCallException($"Vytvorenie služby {name}", c);
+            }
+        }
+        else if (!ChangeServiceConfig(service, OwnProcess, AutoStart, ErrorNormal, commandLine, null, IntPtr.Zero, null, "LocalSystem", null, displayName))
+        {
+            var c = Marshal.GetLastPInvokeError();
+            service.Dispose();
+            throw new SystemCallException($"Zmena služby {name}", c);
+        }
+
+        using (service)
+        {
+            var text = Marshal.StringToHGlobalUni(description);
+            var actions = Marshal.AllocHGlobal(3 * 8);
+            var failure = Marshal.AllocHGlobal(8 + (3 * IntPtr.Size) + 8);
+            try
+            {
+                var describe = text;
+                _ = ChangeServiceConfig2Ptr(service, 1 /* SERVICE_CONFIG_DESCRIPTION */, ref describe);
+
+                // three restarts after 10 s, counters reset after a day
+                for (var i = 0; i < 3; i++)
+                {
+                    Marshal.WriteInt32(actions, i * 8, 1 /* SC_ACTION_RESTART */);
+                    Marshal.WriteInt32(actions, (i * 8) + 4, 10_000);
+                }
+
+                // SERVICE_FAILURE_ACTIONSW: DWORD reset, LPWSTR reboot, LPWSTR command, DWORD count, SC_ACTION* actions
+                var offset = 0;
+                Marshal.WriteInt32(failure, offset, 86_400);
+                offset += IntPtr.Size;
+                Marshal.WriteIntPtr(failure, offset, IntPtr.Zero);
+                offset += IntPtr.Size;
+                Marshal.WriteIntPtr(failure, offset, IntPtr.Zero);
+                offset += IntPtr.Size;
+                Marshal.WriteInt32(failure, offset, 3);
+                offset += IntPtr.Size;
+                Marshal.WriteIntPtr(failure, offset, actions);
+                if (!ChangeServiceConfig2Raw(service, 2 /* SERVICE_CONFIG_FAILURE_ACTIONS */, failure))
+                {
+                    throw new SystemCallException($"Obnova služby {name} po páde", Marshal.GetLastPInvokeError());
+                }
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(text);
+                Marshal.FreeHGlobal(actions);
+                Marshal.FreeHGlobal(failure);
+            }
+        }
+    }
+
+    public static bool Exists(string name)
+    {
+        using var manager = OpenManager(ScManagerConnect);
+        using var service = OpenService(manager, name, ServiceQueryStatus);
+        return !service.IsInvalid;
+    }
+
+    public static void Remove(string name)
+    {
+        using var service = Open(name, ServiceQueryStatus | ServiceStop | DeleteAccess);
+        if (QueryServiceStatus(service, out var status) && status.CurrentState != Stopped)
+        {
+            _ = ControlService(service, ControlStop, out _);
+        }
+
+        if (!DeleteService(service))
+        {
+            throw new SystemCallException($"Odstránenie služby {name}", Marshal.GetLastPInvokeError());
+        }
+    }
+
+    private static SafeServiceHandle OpenManager(uint access)
+    {
+        var manager = OpenSCManager(null, null, access);
+        if (manager.IsInvalid)
+        {
+            var e = Marshal.GetLastPInvokeError();
+            manager.Dispose();
+            throw new SystemCallException("Otvorenie správcu služieb", e);
+        }
+
+        return manager;
     }
 
     private static uint QueryStartType(SafeServiceHandle service, string name)
@@ -197,6 +308,23 @@ internal static partial class ServiceManager
     [LibraryImport("advapi32.dll", EntryPoint = "ChangeServiceConfig2W", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static partial bool ChangeServiceConfig2(SafeServiceHandle service, uint level, ref int info);
+
+    [LibraryImport("advapi32.dll", EntryPoint = "CreateServiceW", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
+    private static partial SafeServiceHandle CreateService(
+        SafeServiceHandle manager, string name, string displayName, uint access, uint type, uint start, uint errorControl,
+        string binary, string? group, IntPtr tag, string? dependencies, string? account, string? password);
+
+    [LibraryImport("advapi32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool DeleteService(SafeServiceHandle service);
+
+    [LibraryImport("advapi32.dll", EntryPoint = "ChangeServiceConfig2W", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool ChangeServiceConfig2Ptr(SafeServiceHandle service, uint level, ref IntPtr info);
+
+    [LibraryImport("advapi32.dll", EntryPoint = "ChangeServiceConfig2W", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool ChangeServiceConfig2Raw(SafeServiceHandle service, uint level, IntPtr info);
 
     [LibraryImport("advapi32.dll", EntryPoint = "StartServiceW", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]

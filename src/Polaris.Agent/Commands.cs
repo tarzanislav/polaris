@@ -32,7 +32,11 @@ public sealed class AgentHost
     [SupportedOSPlatform("windows")]
     public static AgentHost Windows() => new()
     {
-        Handlers = folder => [new RegistryHandler(), new ProgramHandler(folder), new ServiceHandler(), new FeatureHandler()],
+        Handlers = folder =>
+        [
+            new RegistryHandler(), new ProgramHandler(folder), new ServiceHandler(), new FeatureHandler(),
+            new ProfileTemplateHandler(), new SessionRuleHandler(),
+        ],
         IsAdmin = () =>
         {
             using var identity = WindowsIdentity.GetCurrent();
@@ -68,6 +72,9 @@ public static class Commands
           doverovat KLUC         toto PC bude prijímať recepty podpísané touto konzolou (KONZOLA.verejny.json; správca)
           nedoverovat ODTLACOK   zruší dôveru ku konzole (správca)
           konzoly                konzoly, ktorým toto PC dôveruje
+          instalovat-sluzbu      skopíruje agenta do Program Files a spustí službu POLARIS agent (čistí relácie; správca)
+          odinstalovat-sluzbu    zastaví a odstráni službu (správca)
+          vycistit KONTO         hneď zmaže profil zdieľaného konta, ak na ňom nikto nie je prihlásený (správca)
 
         Keď PC dôveruje aspoň jednej konzole, použije len recept s platným podpisom (RECEPT.podpis vedľa receptu).
           verzia
@@ -97,6 +104,9 @@ public static class Commands
                 "doverovat" => AddTrust(Need(args, "doverovat KONZOLA.verejny.json"), output, host ?? DefaultHost()),
                 "nedoverovat" => RemoveTrust(Need(args, "nedoverovat ODTLACOK"), output, host ?? DefaultHost()),
                 "konzoly" => ListTrust(output, host ?? DefaultHost()),
+                "instalovat-sluzbu" => Service(install: true, output, host ?? DefaultHost()),
+                "odinstalovat-sluzbu" => Service(install: false, output, host ?? DefaultHost()),
+                "vycistit" => CleanNow(Need(args, "vycistit KONTO"), output, host ?? DefaultHost()),
                 "dennik" => Journal(args.Length > 1 && int.TryParse(args[1], out var n) && n > 0 ? n : 10, output, host ?? DefaultHost()),
                 _ => Wrong($"Neznámy príkaz „{args[0]}“. Zoznam príkazov: polaris-agent pomoc", output),
             };
@@ -160,7 +170,8 @@ public static class Commands
 
     private static int Check(string file, TextWriter output, AgentHost host)
     {
-        var (recipe, _, plan) = Prepare(file, output, host);
+        var (recipe, checkEngine, plan) = Prepare(file, output, host);
+        using var _ = checkEngine;
         if (plan is null)
         {
             return 2;
@@ -179,6 +190,7 @@ public static class Commands
         }
 
         var (recipe, engine, plan) = Prepare(file, output, host);
+        using var __ = engine;
         if (plan is null)
         {
             return 2;
@@ -280,6 +292,58 @@ public static class Commands
         return 0;
     }
 
+    private static int Service(bool install, TextWriter output, AgentHost host)
+    {
+        if (!host.IsAdmin())
+        {
+            return Wrong("Službu smie inštalovať a odstraňovať len správca.", output);
+        }
+
+        if (!OperatingSystem.IsWindows())
+        {
+            throw new PlatformNotSupportedException();
+        }
+
+        if (install)
+        {
+            AgentService.Install(Environment.ProcessPath ?? throw new InvalidOperationException("Cesta k programu sa nedá zistiť."), output);
+        }
+        else
+        {
+            AgentService.Uninstall(output);
+        }
+
+        return 0;
+    }
+
+    private static int CleanNow(string account, TextWriter output, AgentHost host)
+    {
+        if (!host.IsAdmin())
+        {
+            return Wrong("Profil konta smie zmazať len správca.", output);
+        }
+
+        if (!OperatingSystem.IsWindows())
+        {
+            throw new PlatformNotSupportedException();
+        }
+
+        var result = SessionCleaner.Clean(account, SessionCleaning.AtSignOut, DateTime.Now, force: true);
+        output.WriteLine(char.ToUpperInvariant(result.Message[0]) + result.Message[1..] + ".");
+        if (result.Cleaned)
+        {
+            WriteJournal(host.JournalPath, new RunRecord
+            {
+                StartedUtc = host.Clock(),
+                FinishedUtc = host.Clock(),
+                Recipe = "(relácia)",
+                Results = [new ChangeResult(account, $"relácia konta {account}", ChangeKind.Remove, true, result.Message, 0)],
+            });
+        }
+
+        return result.Cleaned || result.Message.Contains("čistý", StringComparison.Ordinal) ? 0 : 1;
+    }
+
     private static RecipeSignature? ReadSignature(string recipeFile)
     {
         var path = RecipeSigning.SignatureFileOf(recipeFile);
@@ -305,9 +369,15 @@ public static class Commands
         return (recipe, engine, engine.Plan(recipe.Elements));
     }
 
-    private static void WriteJournal(string path, RunRecord run)
+    public static void WriteJournal(string path, RunRecord run)
     {
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        var folder = Path.GetDirectoryName(path)!;
+        Directory.CreateDirectory(folder);
+        if (OperatingSystem.IsWindows())
+        {
+            AgentService.ProtectFolder(folder);
+        }
+
         using var stream = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.Read, 4096, FileOptions.WriteThrough);
         stream.Write(Encoding.UTF8.GetBytes(RunReport.ToLine(run) + "\n"));
     }

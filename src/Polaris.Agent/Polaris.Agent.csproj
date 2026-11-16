@@ -13,5 +13,6 @@
     <ProjectReference Include="..\Polaris.Core\Polaris.Core.csproj" />
     <ProjectReference Include="..\Polaris.Recipes\Polaris.Recipes.csproj" />
     <ProjectReference Include="..\Polaris.Net\Polaris.Net.csproj" />
+    <ProjectReference Include="..\Polaris.Windows\Polaris.Windows.csproj" />
   </ItemGroup>
 </Project>

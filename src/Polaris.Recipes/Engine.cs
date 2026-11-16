@@ -85,8 +85,17 @@ internal sealed partial class RunJson : JsonSerializerContext;
 
 /// <summary>Compares the PC with the wanted elements and makes the differences true. Every change is checked by reading
 /// the state again; a failure of one element never stops the others.</summary>
-public sealed class Engine(IReadOnlyList<IElementHandler> handlers)
+public sealed class Engine(IReadOnlyList<IElementHandler> handlers) : IDisposable
 {
+    /// <summary>Lets executors that hold something open (the loaded template of profiles) close it.</summary>
+    public void Dispose()
+    {
+        foreach (var h in handlers.OfType<IDisposable>())
+        {
+            h.Dispose();
+        }
+    }
+
     public Plan Plan(IEnumerable<Element> wanted)
     {
         var items = new List<PlanItem>();

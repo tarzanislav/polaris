@@ -133,6 +133,9 @@ public static partial class RecipeCheck
         BookmarksElement b => BookmarkProblems(b),
         ServiceElement v => ServiceProblems(v),
         FeatureElement f => FeatureProblems(f),
+        UserRegistryElement u => UserRegistryProblems(u),
+        KeyboardsElement k => KeyboardProblems(k),
+        SessionElement s => SessionProblems(s),
         _ => ["neznámy typ prvku."],
     };
 
@@ -245,6 +248,66 @@ public static partial class RecipeCheck
         }
     }
 
+    private static IEnumerable<string> UserRegistryProblems(UserRegistryElement u)
+    {
+        var path = UserRegistryPath.Normalize(u.Path);
+        if (path.Length == 0 || path.StartsWith("HK", StringComparison.OrdinalIgnoreCase))
+        {
+            yield return "cesta je v časti registra používateľa bez HKCU\\ (napr. Control Panel\\Desktop).";
+        }
+
+        if (u.Present && RegistryData.Parse(u.Kind, u.Data) is null)
+        {
+            yield return $"„{u.Data}“ nie je platné číslo pre {u.Kind}.";
+        }
+    }
+
+    private static IEnumerable<string> KeyboardProblems(KeyboardsElement k)
+    {
+        if (k.Languages.Count == 0 || k.Languages.Count > KeyboardLayouts.MaxLanguages)
+        {
+            yield return $"klávesníc musí byť 1 až {KeyboardLayouts.MaxLanguages}.";
+        }
+
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var tag in k.Languages)
+        {
+            if (KeyboardLayouts.Of(tag, k.Layouts) is not { } pair)
+            {
+                yield return $"jazyk {tag} nepoznám – doplň layouts: \"{tag}\": \"LANGID:ROZLOŽENIE\" (napr. \"0422:00020422\").";
+            }
+            else if (!ids.Add(pair.LangId))
+            {
+                yield return $"jazyk s identifikátorom {pair.LangId} je v zozname dvakrát (jeden jazyk = jedna klávesnica).";
+            }
+        }
+
+        foreach (var (tag, layout) in k.Layouts ?? [])
+        {
+            if (!k.Languages.Contains(tag, StringComparer.OrdinalIgnoreCase))
+            {
+                yield return $"layouts uvádza jazyk {tag}, ktorý nie je v languages.";
+            }
+            else if (!KeyboardLayouts.FullPattern().IsMatch(layout) && !KeyboardLayouts.LayoutPattern().IsMatch(layout))
+            {
+                yield return $"rozloženie „{layout}“ musí mať tvar 0001041B alebo 041B:0001041B.";
+            }
+        }
+    }
+
+    private static IEnumerable<string> SessionProblems(SessionElement s)
+    {
+        var account = s.Account.Trim();
+        if (!AccountPattern().IsMatch(account))
+        {
+            yield return "chýba alebo je neplatné meno konta (lokálne konto, najviac 20 znakov).";
+        }
+        else if (SessionPolicy.NeverClean.Contains(account))
+        {
+            yield return $"konto {account} je systémové alebo správcovské – jeho profil sa nikdy nemaže.";
+        }
+    }
+
     private static IEnumerable<string> BookmarkProblems(BookmarksElement b)
     {
         if (b.Browsers.Count == 0)
@@ -316,6 +379,9 @@ public static partial class RecipeCheck
 
     [GeneratedRegex(@"^[A-Za-z0-9_.\-]{1,128}$")]
     private static partial Regex SystemNamePattern();
+
+    [GeneratedRegex(@"^[A-Za-z0-9._\- ]{1,20}$")]
+    private static partial Regex AccountPattern();
 
     [GeneratedRegex("^[0-9a-fA-F]{64}$")]
     private static partial Regex Sha256Pattern();

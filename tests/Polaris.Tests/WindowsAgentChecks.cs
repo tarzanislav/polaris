@@ -168,6 +168,111 @@ public static class WindowsAgentChecks
         }
     }
 
+    [Check]
+    public static void TemplateOfProfilesGetsValues()
+    {
+        if (!OperatingSystem.IsWindows() || !IsAdmin())
+        {
+            return;
+        }
+
+        // a copy of the template of profiles, never the real one
+        var copy = Path.Combine(Path.GetTempPath(), $"polaris-predloha-{Guid.NewGuid():N}.dat");
+        File.Copy(ProfileTemplateHandler.DefaultHiveFile(), copy);
+        try
+        {
+            var value = new UserRegistryElement { Id = "u", Path = @"Software\PolarisSkuska", Name = "Hodnota", Kind = RegistryKind.DWord, Data = "7" };
+            using (var handler = new ProfileTemplateHandler(copy))
+            {
+                Expect.Equal(Observed.Absent, handler.Observe(value).State, "na začiatku nie je");
+                handler.Apply(value);
+                Expect.Equal(Observed.Present, handler.Observe(value).State, "po zápise je");
+            }
+
+            using (var again = new ProfileTemplateHandler(copy))
+            {
+                Expect.Equal(Observed.Present, again.Observe(value).State, "zápis ostal v súbore");
+                var keyboards = new KeyboardsElement { Id = "k", Languages = ["sk-SK", "en-US"] };
+                var engine = new Engine([again]);
+                var run = engine.Apply(engine.Plan([keyboards]), null, () => DateTimeOffset.UtcNow);
+                Expect.True(run.Failed == 0, "klávesnice do predlohy: " + RunReport.RunText(run));
+                Expect.True(engine.Plan([keyboards]).InDesiredState, "klávesnice sedia");
+            }
+        }
+        finally
+        {
+            File.Delete(copy);
+            foreach (var log in Directory.GetFiles(Path.GetTempPath(), Path.GetFileName(copy) + "*"))
+            {
+                File.Delete(log);
+            }
+        }
+    }
+
+    [Check]
+    public static void SharedAccountProfileIsCleanedButNeverAnAdministrator()
+    {
+        if (!OperatingSystem.IsWindows() || !IsAdmin())
+        {
+            return;
+        }
+
+        var account = "polskuska" + Guid.NewGuid().ToString("N")[..4];
+        Run("net.exe", "user", account, "Ab1-" + Guid.NewGuid().ToString("N"), "/add");
+        try
+        {
+            var sid = Profiles.SidOf(account) ?? throw new CheckFailed("konto sa nevytvorilo");
+            Expect.True(!Profiles.IsAdministrator(account), "skúšobné konto nie je správca");
+            Expect.True(Profiles.IsAdministrator(Environment.UserName), "konto runnera je správca");
+            var path = new System.Text.StringBuilder(260);
+            Expect.Equal(0, CreateProfile(sid, account, path, (uint)path.Capacity), "vytvorenie profilu");
+            Expect.True(Profiles.State(sid).Exists, "profil existuje");
+
+            var rule = new SessionElement { Id = "s", Account = account };
+            var handler = new SessionRuleHandler();
+            handler.Apply(rule);
+            Expect.Equal(Observed.Present, handler.Observe(rule).State, "pravidlo zapísané");
+            Expect.True(SessionRules.Read().ContainsKey(account), "pravidlo v registri");
+            Expect.Throws<InvalidOperationException>(
+                () =>
+                {
+                    if (OperatingSystem.IsWindows())
+                    {
+                        handler.Apply(new SessionElement { Id = "a", Account = Environment.UserName });
+                    }
+                },
+                "správcovi pravidlo nedám");
+
+            var cleaned = SessionCleaner.Clean(account, SessionCleaning.AtSignOut, DateTime.Now);
+            Expect.True(cleaned.Cleaned, "vyčistené: " + cleaned.Message);
+            Expect.True(!Profiles.State(sid).Exists && !Directory.Exists(path.ToString()), "profil aj priečinok zmizli");
+            Expect.True(!SessionCleaner.Clean(account, SessionCleaning.AtSignOut, DateTime.Now).Cleaned, "druhýkrát niet čo čistiť");
+            Expect.True(SessionCleaner.Clean(Environment.UserName, SessionCleaning.AtSignOut, DateTime.Now, force: true).Message.Contains("správca", StringComparison.Ordinal), "správcu nikdy");
+        }
+        finally
+        {
+            SessionRules.Set(account, null);
+            Run("net.exe", "user", account, "/delete");
+        }
+    }
+
+    [System.Runtime.InteropServices.DllImport("userenv.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+    private static extern int CreateProfile(string sid, string userName, System.Text.StringBuilder profilePath, uint length);
+
+    private static void Run(string program, params string[] args)
+    {
+        var info = new System.Diagnostics.ProcessStartInfo(Path.Combine(Environment.SystemDirectory, program)) { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true };
+        foreach (var a in args)
+        {
+            info.ArgumentList.Add(a);
+        }
+
+        using var p = System.Diagnostics.Process.Start(info)!;
+        p.StandardOutput.ReadToEnd();
+        p.StandardError.ReadToEnd();
+        p.WaitForExit();
+    }
+
     private static void Sc(params string[] args)
     {
         var info = new System.Diagnostics.ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "sc.exe")) { UseShellExecute = false, RedirectStandardOutput = true };

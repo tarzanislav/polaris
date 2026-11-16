@@ -15,6 +15,8 @@ polaris-agent kontrola RECEPT        čo sa na tomto PC líši od receptu – ni
 polaris-agent pouzi RECEPT [--ano]   urobí zmeny a každú overí (len správca)
 polaris-agent dennik [POČET]         posledné behy na tomto PC
 polaris-agent doverovat KLUC         PC prijme recepty podpísané touto konzolou (pozri Podpis receptu)
+polaris-agent instalovat-sluzbu      služba PolarisAgent (čistí relácie), z Program Files; odinstalovat-sluzbu ju odstráni
+polaris-agent vycistit KONTO         hneď zmaže profil zdieľaného konta (nie správcu, nie keď je niekto prihlásený)
 ```
 
 Návratový kód: `0` = v poriadku / PC je podľa receptu, `1` = rozdiely alebo chyby, `2` = zlý vstup, recept
@@ -135,15 +137,53 @@ polaris-agent konzoly | nedoverovat ODTLACOK            zoznam a zrušenie dôve
 - Užitočné mená: `Containers-DisposableClientVM` (Windows Sandbox, potrebuje zapnutú virtualizáciu v UEFI),
   `Microsoft-Hyper-V-All`, `TelnetClient`, `SMB1Protocol` (v škole vypnuté).
 
+### `session`: relácia spoločného konta žiaka
+
+```json
+{ "type": "session", "id": "relacia-ziak", "account": "ziak", "clean": "AtSignOut" }
+```
+
+- Služba POLARIS agent zmaže **profil** konta (plochu, dokumenty, nastavenia, cookies, programy nainštalované „len pre
+  mňa“). Pri ďalšom prihlásení Windows vytvorí nový profil z predlohy. Konto samo ostáva.
+- `clean`: `AtSignOut` (po každom odhlásení a pri štarte PC), `EndOfDay` (profil vydrží do konca dňa), `EndOfWeek`
+  (do konca týždňa), `Never`.
+- Nikdy sa nečistí, keď je na konte niekto prihlásený, a **nikdy konto správcu** (ani keby to recept chcel).
+- Konto musí na PC existovať. Pozor: pri `EndOfDay` a `EndOfWeek` ďalší žiak uvidí prácu predchádzajúceho, práca
+  patrí do Úschovne.
+- Čistí služba: `polaris-agent instalovat-sluzbu` (skopíruje agenta do Program Files, spustí službu PolarisAgent).
+  Ručne hneď: `polaris-agent vycistit ziak`.
+
+### `keyboards`: klávesnice a jazyky pre nové profily
+
+```json
+{ "type": "keyboards", "id": "klavesnice", "languages": ["sk-SK", "cs-CZ", "en-US", "de-DE"],
+  "layouts": { "sk-SK": "0001041B" } }
+```
+
+- Zapíšu sa do **predlohy profilov**, takže ich má každý nový profil, aj žiak po každom vyčistení. Prvá je predvolená.
+- Známe jazyky: sk-SK, cs-CZ, en-US, en-GB, de-DE, de-AT, fr-FR, ru-RU, hu-HU, pl-PL, es-ES, it-IT. Iný jazyk alebo iné
+  rozloženie sa zapíše do `layouts` (napr. `"uk-UA": "0422:00020422"`, slovenská QWERTY `"sk-SK": "0001041B"`).
+- Najviac 9 jazykov, jeden jazyk = jedna klávesnica. Overí sa pri pilote, že Windows 11 jazyky z predlohy prevezme.
+
+### `user-registry`: nastavenie pre nové profily
+
+```json
+{ "type": "user-registry", "id": "pripony-suborov", "path": "Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced",
+  "name": "HideFileExt", "kind": "DWord", "data": "0" }
+```
+
+- Hodnota v časti registra používateľa (bez `HKCU\`), zapísaná do predlohy profilov. Údaje ako pri `registry`.
+
 ## Ukážky
 
 - `recepty/ukazka-kancelarsky.json`: LibreOffice, 7-Zip, VLC, dve nastavenia Edge a školské záložky. Je to len
   otvorený softvér, vhodný pre školy.
 - `recepty/ukazka-pieskovisko.json`: Windows Sandbox a služba tlače.
+- `recepty/ukazka-relacia.json`: čistenie relácie konta `ziak`, klávesnice SK, CZ, EN, DE a viditeľné prípony súborov.
 
 ## Pripravuje sa
 
-Ďalšie typy prvkov: klávesnice a jazyky (spolu s predlohou profilu žiaka v etape K2), tlačiarne, Wi-Fi, súbory,
-kontá s heslom ako tajomstvom. Priradenia
+Ďalšie typy prvkov: tlačiarne, Wi-Fi, súbory, kontá s heslom ako tajomstvom. Ďalej v K2: Školský obchod, šablóny
+Pieskoviska, ikona pre žiaka. Priradenia
 receptov skupinám a PC s životnosťou (do konca hodiny, dňa, týždňa) sú už naprogramované v `Polaris.Recipes`
 (`Assignments`). Do prevádzky ich uvedie centrum v etape K3.

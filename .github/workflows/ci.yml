@@ -88,13 +88,25 @@ jobs:
           if ($LASTEXITCODE -gt 1) { $plan; exit $LASTEXITCODE }
           $plan
           "::notice title=kontrola receptu na runneri::$($plan -replace '%', '%25' -replace "`n", '%0A')"
+          & ./out/agent/polaris-agent.exe kontrola recepty/ukazka-relacia.json
+          if ($LASTEXITCODE -gt 1) { exit $LASTEXITCODE }
+          # the service: installed into Program Files, running, then removed
+          & ./out/agent/polaris-agent.exe instalovat-sluzbu
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $svc = Get-Service PolarisAgent
+          if ($svc.Status -ne 'Running') { "služba nebeží: $($svc.Status)"; exit 1 }
+          Start-Sleep -Seconds 3
+          if ((Get-Service PolarisAgent).Status -ne 'Running') { "služba spadla"; exit 1 }
+          & ./out/agent/polaris-agent.exe odinstalovat-sluzbu
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (Get-Service PolarisAgent -ErrorAction SilentlyContinue) { "služba ostala"; exit 1 }
           $global:LASTEXITCODE = 0
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: polaris-agent-windows
           path: |
             out/agent/polaris-agent.exe
-            recepty/ukazka-kancelarsky.json
+            recepty/*.json
             docs/recept.md
           retention-days: 14
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

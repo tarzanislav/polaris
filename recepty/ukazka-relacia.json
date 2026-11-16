@@ -1,0 +1,33 @@
+{
+  // Ukážkový recept: relácia spoločného konta žiaka a predloha jeho profilu.
+  // Konto "ziak" musí na PC existovať a nesmie byť správca. Čistí ho služba POLARIS agent
+  // (polaris-agent instalovat-sluzbu).
+  "schema": 1,
+  "name": "RELACIA",
+  "version": 1,
+  "note": "Ukážka: čistý profil žiaka po každom odhlásení, klávesnice, prípony súborov",
+  "elements": [
+    {
+      "type": "session",
+      "id": "relacia-ziak",
+      "account": "ziak",
+      "clean": "AtSignOut",
+      "note": "každý žiak začína načisto"
+    },
+    {
+      "type": "keyboards",
+      "id": "klavesnice",
+      "languages": [ "sk-SK", "cs-CZ", "en-US", "de-DE" ],
+      "note": "prvá je predvolená"
+    },
+    {
+      "type": "user-registry",
+      "id": "pripony-suborov",
+      "path": "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+      "name": "HideFileExt",
+      "kind": "DWord",
+      "data": "0",
+      "note": "prípony súborov sú vidno – faktura.pdf.exe sa neschová (kyberbezpečnosť)"
+    }
+  ]
+}
