@@ -1,5 +1,4 @@
-using System.Text;
-using System.Text.Json;
+using Polaris.Json;
 
 namespace Polaris.Recipes;
 
@@ -62,43 +61,21 @@ public static class Expansion
     /// bookmarks (name + url) and folders (name + children).</summary>
     public static string ManagedBookmarksJson(BookmarksElement b)
     {
-        using var buffer = new MemoryStream();
-        using (var w = new Utf8JsonWriter(buffer))
+        var list = new JsonArray();
+        if (b.Folder.Length > 0)
         {
-            w.WriteStartArray();
-            if (b.Folder.Length > 0)
-            {
-                w.WriteStartObject();
-                w.WriteString("toplevel_name", b.Folder);
-                w.WriteEndObject();
-            }
-
-            WriteItems(w, b.Items);
-            w.WriteEndArray();
+            list.Add(new JsonObject().Add("toplevel_name", b.Folder));
         }
 
-        return Encoding.UTF8.GetString(buffer.ToArray());
-    }
-
-    private static void WriteItems(Utf8JsonWriter w, IEnumerable<Bookmark> items)
-    {
-        foreach (var item in items)
+        foreach (var item in b.Items)
         {
-            w.WriteStartObject();
-            w.WriteString("name", item.Name);
-            if (item.Children is { } children)
-            {
-                w.WritePropertyName("children");
-                w.WriteStartArray();
-                WriteItems(w, children);
-                w.WriteEndArray();
-            }
-            else
-            {
-                w.WriteString("url", item.Url ?? "");
-            }
-
-            w.WriteEndObject();
+            list.Add(Bookmark(item));
         }
+
+        return JsonText.Canonical(list);
     }
+
+    private static JsonObject Bookmark(Bookmark item) => item.Children is { } children
+        ? new JsonObject().Add("name", item.Name).Add("children", JsonArray.Of(children, Bookmark))
+        : new JsonObject().Add("name", item.Name).Add("url", item.Url ?? "");
 }

@@ -10,7 +10,7 @@ opätovným prečítaním stavu**. Chyba jedného prvku nezastaví ostatné.
 
 ```
 polaris-agent overit RECEPT          kontrola receptu – nič nemení, funguje aj na Linuxe
-polaris-agent odtlacok RECEPT        SHA-256 receptu (na schválenie verzie profilu)
+polaris-agent odtlacok RECEPT        SHA-256 receptu (na schválenie verzie profilu); --kanonicky: text, z ktorého sa počíta
 polaris-agent kontrola RECEPT        čo sa na tomto PC líši od receptu – nič nemení
 polaris-agent pouzi RECEPT [--ano]   urobí zmeny a každú overí (len správca)
 polaris-agent dennik [POČET]         posledné behy na tomto PC
@@ -56,7 +56,10 @@ polaris-agent konzoly | nedoverovat ODTLACOK            zoznam a zrušenie dôve
 }
 ```
 
-- Komentáre `//` sú povolené. Odtlačok ich ani formátovanie nezapočítava.
+- Komentáre `//` a `/* */` sú povolené. Odtlačok ich ani formátovanie nezapočítava
+  ([kanonický tvar](kanonicky-tvar.md)).
+- **Neznáme pole je chyba**: agent povie riadok, znak a najbližšie známe meno. Preklep nikdy neprejde potichu.
+- Cesty Windows sa v JSON píšu s dvojitým `\\` (`"C:\\Users\\Public"`).
 - Prvky sa používajú v poradí, v akom sú zapísané. Odstraňovanie ide pred pridávaním.
 - Každý prvok má `type`, `id` (malé písmená bez diakritiky, číslice, `-`, `.`, `_`), voliteľne `note` a `present`
   (`true` = má tam byť, predvolené; `false` = má sa odstrániť).

@@ -7,5 +7,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\Polaris.Core\Polaris.Core.csproj" />
+    <ProjectReference Include="..\Polaris.Json\Polaris.Json.csproj" />
   </ItemGroup>
 </Project>

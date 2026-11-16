@@ -72,7 +72,8 @@ public static class Commands
         polaris-agent – uvedie toto PC do stavu podľa receptu (etapa K2: spúšťa správca na PC, bez siete)
 
           overit RECEPT          skontroluje recept (nič nemení, funguje kdekoľvek)
-          odtlacok RECEPT        odtlačok SHA-256 receptu (na schválenie verzie profilu)
+          odtlacok RECEPT        odtlačok SHA-256 receptu (na schválenie verzie profilu); --kanonicky vypíše text,
+                                 z ktorého sa počíta (docs/kanonicky-tvar.md)
           kontrola RECEPT        čo sa na tomto PC líši od receptu (nič nemení)
           pouzi RECEPT [--ano]   urobí zmeny a každú overí (správca; bez --ano sa najprv opýta)
           dennik [POČET]         posledné behy na tomto PC (predvolene 10)
@@ -107,7 +108,7 @@ public static class Commands
             {
                 "verzia" => Version(output),
                 "overit" => Validate(Need(args, "overit RECEPT"), output),
-                "odtlacok" => Fingerprint(Need(args, "odtlacok RECEPT"), output),
+                "odtlacok" => Fingerprint(Need(args, "odtlacok RECEPT [--kanonicky]"), args.Contains("--kanonicky"), output),
                 "kontrola" => Check(Need(args, "kontrola RECEPT"), output, host ?? DefaultHost()),
                 "pouzi" => Apply(Need(args, "pouzi RECEPT [--ano]"), args.Contains("--ano"), output, host ?? DefaultHost()),
                 "doverovat" => AddTrust(Need(args, "doverovat KONZOLA.verejny.json"), output, host ?? DefaultHost()),
@@ -172,9 +173,10 @@ public static class Commands
         return 0;
     }
 
-    private static int Fingerprint(string file, TextWriter output)
+    private static int Fingerprint(string file, bool canonical, TextWriter output)
     {
-        output.WriteLine(RecipeText.Fingerprint(RecipeText.Load(file)));
+        var recipe = RecipeText.Load(file);
+        output.WriteLine(canonical ? RecipeText.Canonical(recipe) : RecipeText.Fingerprint(recipe));
         return 0;
     }
 

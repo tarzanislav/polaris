@@ -1,20 +1,7 @@
-using System.Text.Json.Serialization;
-
 namespace Polaris.Recipes;
 
 /// <summary>One thing a PC should have (or must not have): a program, a registry value, bookmarks … Every kind has its own
 /// small executor in the agent that can read the real state, compare it and change it.</summary>
-[JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]
-[JsonDerivedType(typeof(ProgramElement), "program")]
-[JsonDerivedType(typeof(RegistryValueElement), "registry")]
-[JsonDerivedType(typeof(BookmarksElement), "bookmarks")]
-[JsonDerivedType(typeof(ServiceElement), "service")]
-[JsonDerivedType(typeof(FeatureElement), "feature")]
-[JsonDerivedType(typeof(UserRegistryElement), "user-registry")]
-[JsonDerivedType(typeof(KeyboardsElement), "keyboards")]
-[JsonDerivedType(typeof(SessionElement), "session")]
-[JsonDerivedType(typeof(SandboxElement), "sandbox")]
-[JsonDerivedType(typeof(StoreElement), "store")]
 public abstract class Element
 {
     /// <summary>Unique name of the element within a recipe (small letters, digits, '-', '.', '_').</summary>
@@ -28,11 +15,9 @@ public abstract class Element
 
     /// <summary>What the element manages. Two elements with the same key manage the same thing; when they come from
     /// several assignments, the narrower scope wins.</summary>
-    [JsonIgnore]
     public abstract string Key { get; }
 
     /// <summary>A short Slovak description for plans and reports.</summary>
-    [JsonIgnore]
     public abstract string Title { get; }
 }
 

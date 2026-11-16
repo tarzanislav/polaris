@@ -1,8 +1,7 @@
 using System.Globalization;
 using System.Security;
 using System.Text;
-using System.Text.Json;
-using System.Text.Json.Serialization;
+using Polaris.Json;
 
 namespace Polaris.Recipes;
 
@@ -173,33 +172,64 @@ public sealed class StoreAnswer
     public List<StoreOffer> Items { get; set; } = [];
 }
 
-[JsonSourceGenerationOptions(WriteIndented = false, UseStringEnumConverter = true, PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase, DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
-[JsonSerializable(typeof(StoreElement))]
-[JsonSerializable(typeof(StoreInstall))]
-[JsonSerializable(typeof(StoreRequest))]
-[JsonSerializable(typeof(StoreAnswer))]
-internal sealed partial class StoreJson : JsonSerializerContext;
-
 /// <summary>What the store allows – the same rules for the agent and the tests.</summary>
 public static class StoreRules
 {
     public const int MaxRequest = 4096;
 
-    public static string ToJson(StoreElement s) => JsonSerializer.Serialize(s, StoreJson.Default.StoreElement);
+    /// <summary>The catalogue as the agent keeps it (the store element in its JSON form).</summary>
+    public static string ToJson(StoreElement s) => JsonText.Canonical(RecipeFormat.WriteElement(s));
 
-    public static StoreElement? CatalogueFromJson(string json) => JsonSerializer.Deserialize(json, StoreJson.Default.StoreElement);
+    public static StoreElement? CatalogueFromJson(string json) => Quiet(() => RecipeFormat.ReadElement(JsonReader.Parse(json), 0) as StoreElement);
 
-    public static string ToJson(StoreInstall s) => JsonSerializer.Serialize(s, StoreJson.Default.StoreInstall);
+    public static string ToJson(StoreInstall s) => JsonText.Canonical(new JsonObject()
+        .Add("item", s.Item)
+        .Add("account", s.Account)
+        .Add("installedUtc", s.InstalledUtc.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture))
+        .Add("program", RecipeFormat.WriteProgramAlone(s.Program)));
 
-    public static StoreInstall? InstallFromJson(string json) => JsonSerializer.Deserialize(json, StoreJson.Default.StoreInstall);
+    public static StoreInstall? InstallFromJson(string json) => Quiet(() =>
+    {
+        var f = new JsonFields(JsonReader.Parse(json), "záznam obchodu");
+        var install = new StoreInstall
+        {
+            Item = f.String("item"),
+            Account = f.String("account"),
+            InstalledUtc = f.Time("installedUtc"),
+            Program = f.Node("program") is { } p ? RecipeFormat.ReadProgram(p, "program záznamu") : new ProgramElement(),
+        };
+        f.End();
+        return install;
+    });
 
-    public static string ToJson(StoreRequest s) => JsonSerializer.Serialize(s, StoreJson.Default.StoreRequest);
+    public static string ToJson(StoreRequest s) => JsonText.Canonical(new JsonObject().Add("command", s.Command).AddIf("item", s.Item is { } item ? (JsonNode)item : null));
 
-    public static string ToJson(StoreAnswer s) => JsonSerializer.Serialize(s, StoreJson.Default.StoreAnswer);
+    public static string ToJson(StoreAnswer s) => JsonText.Canonical(new JsonObject()
+        .Add("ok", s.Ok)
+        .Add("message", s.Message)
+        .Add("items", JsonArray.Of(s.Items, o => new JsonObject()
+            .Add("id", o.Id)
+            .Add("title", o.Title)
+            .AddIf(o.Description.Length > 0, "description", o.Description)
+            .AddIf(o.Installed, "installed", true))));
 
-    public static StoreAnswer? AnswerFromJson(string json) => JsonSerializer.Deserialize(json, StoreJson.Default.StoreAnswer);
+    public static StoreAnswer? AnswerFromJson(string json) => Quiet(() =>
+    {
+        var f = new JsonFields(JsonReader.Parse(json), "odpoveď obchodu");
+        return new StoreAnswer
+        {
+            Ok = f.Bool("ok", false),
+            Message = f.String("message"),
+            Items = f.Array("items").Select(n =>
+            {
+                var o = new JsonFields(n, "ponuka");
+                return new StoreOffer { Id = o.String("id"), Title = o.String("title"), Description = o.String("description"), Installed = o.Bool("installed", false) };
+            }).ToList(),
+        };
+    });
 
-    /// <summary>A request of at most <see cref="MaxRequest"/> characters; anything else is null (refused).</summary>
+    /// <summary>A request of at most <see cref="MaxRequest"/> characters, pure JSON, only the known fields; anything
+    /// else is null (refused).</summary>
     public static StoreRequest? RequestFromJson(string? line)
     {
         if (line is null || line.Length > MaxRequest)
@@ -207,11 +237,28 @@ public static class StoreRules
             return null;
         }
 
+        return Quiet(() =>
+        {
+            var f = new JsonFields(JsonReader.Parse(line), "požiadavka");
+            var request = new StoreRequest { Command = f.String("command"), Item = f.OptionalString("item") };
+            f.End();
+            return request;
+        });
+    }
+
+    /// <summary>Records and messages of programs: a broken one is null, never an exception for the caller.</summary>
+    private static T? Quiet<T>(Func<T?> read)
+        where T : class
+    {
         try
         {
-            return JsonSerializer.Deserialize(line, StoreJson.Default.StoreRequest);
+            return read();
         }
-        catch (JsonException)
+        catch (FormatException)
+        {
+            return null;
+        }
+        catch (InvalidDataException)
         {
             return null;
         }

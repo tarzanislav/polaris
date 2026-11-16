@@ -1,7 +1,6 @@
 using System.Diagnostics;
 using System.Text;
-using System.Text.Json;
-using System.Text.Json.Serialization;
+using Polaris.Json;
 
 namespace Polaris.Recipes;
 
@@ -71,17 +70,8 @@ public sealed class RunRecord
     /// <summary>Elements that could not be handled at all (no executor, state unknown).</summary>
     public List<string> Skipped { get; set; } = [];
 
-    [JsonIgnore]
     public int Failed => Results.Count(r => !r.Ok) + Skipped.Count;
 }
-
-[JsonSourceGenerationOptions(
-    WriteIndented = false,
-    UseStringEnumConverter = true,
-    PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
-    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
-[JsonSerializable(typeof(RunRecord))]
-internal sealed partial class RunJson : JsonSerializerContext;
 
 /// <summary>Compares the PC with the wanted elements and makes the differences true. Every change is checked by reading
 /// the state again; a failure of one element never stops the others.</summary>
@@ -252,10 +242,43 @@ public static class RunReport
         return sb.ToString();
     }
 
-    public static string ToLine(RunRecord run) => JsonSerializer.Serialize(run, RunJson.Default.RunRecord);
+    /// <summary>One line of the journal: compact JSON, newer fields are skipped by older readers.</summary>
+    public static string ToLine(RunRecord run) => JsonText.Canonical(new JsonObject()
+        .Add("startedUtc", Time(run.StartedUtc))
+        .Add("finishedUtc", Time(run.FinishedUtc))
+        .Add("recipe", run.Recipe)
+        .AddIf(run.Version != 0, "version", run.Version)
+        .AddIf(run.Fingerprint.Length > 0, "fingerprint", run.Fingerprint)
+        .Add("results", JsonArray.Of(run.Results, r => new JsonObject()
+            .Add("elementId", r.ElementId)
+            .Add("title", r.Title)
+            .Add("kind", r.Kind.ToString())
+            .Add("ok", r.Ok)
+            .Add("message", r.Message)
+            .Add("seconds", new JsonNumber(Math.Round(r.Seconds, 3)))))
+        .AddIf(run.Skipped.Count > 0, "skipped", JsonArray.Of(run.Skipped, x => x)));
 
-    public static RunRecord FromLine(string line) =>
-        JsonSerializer.Deserialize(line, RunJson.Default.RunRecord) ?? throw new InvalidDataException("Prázdny záznam.");
+    /// <summary>Reads a line of the journal; fields it does not know (from a newer agent) are skipped.</summary>
+    public static RunRecord FromLine(string line)
+    {
+        var f = new JsonFields(JsonReader.Parse(line), "záznam denníka");
+        return new RunRecord
+        {
+            StartedUtc = f.Time("startedUtc"),
+            FinishedUtc = f.Time("finishedUtc"),
+            Recipe = f.String("recipe"),
+            Version = f.Int("version", 0),
+            Fingerprint = f.String("fingerprint"),
+            Results = f.Array("results").Select(n =>
+            {
+                var r = new JsonFields(n, "výsledok");
+                return new ChangeResult(r.String("elementId"), r.String("title"), r.Enum("kind", ChangeKind.None), r.Bool("ok", false), r.String("message"), r.Double("seconds", 0));
+            }).ToList(),
+            Skipped = f.Strings("skipped"),
+        };
+    }
+
+    private static string Time(DateTimeOffset t) => t.ToUniversalTime().ToString("O", System.Globalization.CultureInfo.InvariantCulture);
 
     /// <summary>Reads the journal; a line cut by a power loss is skipped.</summary>
     public static List<RunRecord> ReadJournal(string text)
@@ -273,7 +296,7 @@ public static class RunReport
             {
                 list.Add(FromLine(line));
             }
-            catch (JsonException)
+            catch (JsonError)
             {
                 // a line written only partly
             }

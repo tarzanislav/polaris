@@ -59,12 +59,42 @@ public sealed class ProgramHandler(string recipeFolder) : IElementHandler
 {
     public static readonly TimeSpan InstallerLimit = TimeSpan.FromMinutes(60);
 
+    /// <summary>How long one reading of the list of installed programs serves (a plan of many programs reads it once).
+    /// Every change made here drops it at once, so a check after a change always sees the real state.</summary>
+    public static readonly TimeSpan SnapshotLife = TimeSpan.FromSeconds(5);
+
+    private readonly Lock _gate = new();
+    private List<InstalledProgram>? _snapshot;
+    private long _snapshotTaken;
+
+    private List<InstalledProgram> Installed()
+    {
+        lock (_gate)
+        {
+            if (_snapshot is null || Environment.TickCount64 - _snapshotTaken > SnapshotLife.TotalMilliseconds)
+            {
+                _snapshot = InstalledPrograms.Read();
+                _snapshotTaken = Environment.TickCount64;
+            }
+
+            return _snapshot;
+        }
+    }
+
+    private void Forget()
+    {
+        lock (_gate)
+        {
+            _snapshot = null;
+        }
+    }
+
     public bool CanHandle(Element element) => element is ProgramElement;
 
     public Observation Observe(Element element)
     {
         var p = (ProgramElement)element;
-        var found = InstalledPrograms.Read().Where(i => ProgramMatch.Matches(p, i.DisplayName)).ToList();
+        var found = Installed().Where(i => ProgramMatch.Matches(p, i.DisplayName)).ToList();
         if (found.Count == 0)
         {
             return new Observation(Observed.Absent, "nie je nainštalovaný");
@@ -84,13 +114,20 @@ public sealed class ProgramHandler(string recipeFolder) : IElementHandler
     public void Apply(Element element)
     {
         var p = (ProgramElement)element;
-        if (p.Present)
+        try
         {
-            Install(p);
+            if (p.Present)
+            {
+                Install(p);
+            }
+            else
+            {
+                Remove(p);
+            }
         }
-        else
+        finally
         {
-            Remove(p);
+            Forget();
         }
     }
 
@@ -151,7 +188,7 @@ public sealed class ProgramHandler(string recipeFolder) : IElementHandler
             return;
         }
 
-        foreach (var entry in InstalledPrograms.Read().Where(i => ProgramMatch.Matches(p, i.DisplayName)))
+        foreach (var entry in Installed().Where(i => ProgramMatch.Matches(p, i.DisplayName)))
         {
             ProcessResult result;
             if (ProgramMatch.MsiProductCode(entry.KeyName, entry.UninstallString) is { } code

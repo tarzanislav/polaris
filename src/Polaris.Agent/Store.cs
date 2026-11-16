@@ -58,14 +58,7 @@ public sealed class StoreState(string key = StoreState.DefaultKey)
     public StoreElement? Catalogue()
     {
         using var k = Open(key, false);
-        try
-        {
-            return k?.GetValue("Katalog") is string json ? StoreRules.CatalogueFromJson(json) : null;
-        }
-        catch (System.Text.Json.JsonException)
-        {
-            return null;
-        }
+        return k?.GetValue("Katalog") is string json ? StoreRules.CatalogueFromJson(json) : null;
     }
 
     public string? CatalogueJson()
@@ -93,15 +86,9 @@ public sealed class StoreState(string key = StoreState.DefaultKey)
         var list = new List<StoreInstall>();
         foreach (var name in k?.GetValueNames() ?? [])
         {
-            try
+            if (k!.GetValue(name) is string json && StoreRules.InstallFromJson(json) is { } record)
             {
-                if (k!.GetValue(name) is string json && StoreRules.InstallFromJson(json) is { } record)
-                {
-                    list.Add(record);
-                }
-            }
-            catch (System.Text.Json.JsonException)
-            {
+                list.Add(record);
             }
         }
 

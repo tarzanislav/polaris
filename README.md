@@ -26,6 +26,9 @@ reštartov a píše správu.
 ## Zásady
 
 - Iba vlastný originálny kód, žiadne cudzie knižnice ani balíky NuGet; rozhrania systému Windows sa volajú priamo.
+  Aj JSON je vlastný (`Polaris.Json`): odtlačky a podpisy receptov nezávisia od žiadnej knižnice
+  ([kanonický tvar](docs/kanonicky-tvar.md)). Z cudzieho sa berie len to, čo sa inak nedá: kryptografia a súčasti
+  systému.
 - Konfigurácia štartu sa číta len zo štruktúrovaného tvaru (nikdy z preloženého textu nástrojov).
 - Žiadna telemetria.
 

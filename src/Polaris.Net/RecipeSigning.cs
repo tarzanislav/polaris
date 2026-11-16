@@ -1,7 +1,6 @@
 using System.Globalization;
 using System.Security.Cryptography;
-using System.Text.Json;
-using System.Text.Json.Serialization;
+using Polaris.Json;
 using Polaris.Recipes;
 
 namespace Polaris.Net;
@@ -70,11 +69,6 @@ public enum SignatureState
 }
 
 public sealed record SignatureCheck(SignatureState State, string Message);
-
-[JsonSourceGenerationOptions(WriteIndented = true, PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase, DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
-[JsonSerializable(typeof(RecipeSignature))]
-[JsonSerializable(typeof(ConsoleKeyFile))]
-internal sealed partial class RecipeSigningJson : JsonSerializerContext;
 
 public static class RecipeSigning
 {
@@ -188,21 +182,54 @@ public static class RecipeSigning
         return new TrustedConsole(file.Name, file.Fingerprint, spki);
     }
 
-    public static string ToJson(RecipeSignature s) => JsonSerializer.Serialize(s, RecipeSigningJson.Default.RecipeSignature);
+    public static string ToJson(RecipeSignature s) => JsonText.Readable(new JsonObject()
+        .Add("schema", s.Schema)
+        .Add("recipe", s.Recipe)
+        .Add("version", s.Version)
+        .Add("fingerprint", s.Fingerprint)
+        .Add("signedUtc", s.SignedUtc.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture))
+        .Add("console", s.Console)
+        .Add("consoleKey", s.ConsoleKey)
+        .Add("signature", s.Signature));
 
-    public static string ToJson(ConsoleKeyFile k) => JsonSerializer.Serialize(k, RecipeSigningJson.Default.ConsoleKeyFile);
+    public static string ToJson(ConsoleKeyFile k) => JsonText.Readable(new JsonObject()
+        .Add("schema", k.Schema)
+        .Add("name", k.Name)
+        .Add("fingerprint", k.Fingerprint)
+        .Add("publicKey", k.PublicKey)
+        .AddIf("encryptedPrivateKey", k.EncryptedPrivateKey is { } secret ? (JsonNode)secret : null));
 
-    public static RecipeSignature SignatureFromJson(string json) => Read(json, RecipeSigningJson.Default.RecipeSignature, "podpis");
+    public static RecipeSignature SignatureFromJson(string json) => Read(json, "podpis", f => new RecipeSignature
+    {
+        Schema = f.Int("schema", 1),
+        Recipe = f.String("recipe"),
+        Version = f.Int("version", 0),
+        Fingerprint = f.String("fingerprint"),
+        SignedUtc = f.Time("signedUtc"),
+        Console = f.String("console"),
+        ConsoleKey = f.String("consoleKey"),
+        Signature = f.String("signature"),
+    });
 
-    public static ConsoleKeyFile KeyFromJson(string json) => Read(json, RecipeSigningJson.Default.ConsoleKeyFile, "kľúč konzoly");
+    public static ConsoleKeyFile KeyFromJson(string json) => Read(json, "kľúč konzoly", f => new ConsoleKeyFile
+    {
+        Schema = f.Int("schema", 1),
+        Name = f.String("name"),
+        Fingerprint = f.String("fingerprint"),
+        PublicKey = f.String("publicKey"),
+        EncryptedPrivateKey = f.OptionalString("encryptedPrivateKey"),
+    });
 
-    private static T Read<T>(string json, System.Text.Json.Serialization.Metadata.JsonTypeInfo<T> info, string what)
+    private static T Read<T>(string json, string what, Func<JsonFields, T> map)
     {
         try
         {
-            return JsonSerializer.Deserialize(json, info) ?? throw new InvalidDataException($"Súbor ({what}) je prázdny.");
+            var f = new JsonFields(JsonReader.Parse(json), what);
+            var value = map(f);
+            f.End();
+            return value;
         }
-        catch (JsonException e)
+        catch (JsonError e)
         {
             throw new InvalidDataException($"Súbor ({what}) sa nedá prečítať: {e.Message}", e);
         }

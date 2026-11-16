@@ -194,7 +194,7 @@ public static class RecipeChecks
         Expect.Equal(Expansion.EdgePolicies, edge.Path, "kľúč Edge");
         Expect.Equal("ManagedBookmarks", edge.Name, "politika");
         Expect.Equal(
-            """[{"toplevel_name":"\u0160kola"},{"name":"Wiki","url":"https://sk.wikipedia.org/"},{"name":"Prog","children":[{"name":"Py","url":"https://docs.python.org/3/"}]}]""",
+            """[{"toplevel_name":"Škola"},{"name":"Wiki","url":"https://sk.wikipedia.org/"},{"name":"Prog","children":[{"name":"Py","url":"https://docs.python.org/3/"}]}]""",
             edge.Data,
             "JSON záložiek");
         Expect.Equal("BookmarkBarEnabled", parts.Single(p => p.Id == "zal.chrome.lista").Name, "lišta Chrome");
