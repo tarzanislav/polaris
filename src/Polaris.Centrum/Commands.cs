@@ -40,7 +40,10 @@ public static partial class Commands
           rozvrh [SKUPINA]                    týždenný rozvrh
           den [DÁTUM] [SKUPINA]               kedy sa PC v daný deň prepnú (inak dnes)
           kontrola                            nájde chyby v nastaveniach a receptoch (návratový kód 1, keď nejaké sú)
-          zverejnit KLUC                      podpíše a zverejní plány skupín a ich recepty pre PC (priečinok zverejnene)
+          zverejnit KLUC [--server https://SERVER:8443 ODTLAČOK]
+                                              podpíše a zverejní plány skupín a ich recepty (priečinok zverejnene);
+                                              so --server ich aj odovzdá centru na serveri
+          server doverovat KONZOLA.verejny.json   centrum na serveri prijme odovzdania od tejto konzoly; server konzoly
           server certifikat NÁZOV…            certifikát centra (vypíše odtlačok, ktorý sa zadá na PC)
           server [--port 8443] [--zasoba CESTA]   centrum na sieti: HTTPS, len na čítanie (zverejnené plány, recepty, zásoba)
           kluc novy MENO                      nový kľúč konzoly: MENO.kluc (súkromný, chránený heslom) a MENO.verejny.json

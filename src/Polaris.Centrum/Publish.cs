@@ -20,7 +20,21 @@ public static partial class Commands
     /// <summary>zverejnit KLUC: the plan of every group, signed, and the recipes they need.</summary>
     private static int Publish(Classroom data, ClassroomStore store, List<string> rest, TextWriter o, DateTimeOffset utcNow, Func<string, string?> secret)
     {
-        Need(rest, 1, "zverejnit KLUC");
+        (Uri Address, string Pin)? target = null;
+        var at = rest.IndexOf("--server");
+        if (at >= 0)
+        {
+            if (at + 2 >= rest.Count || !Uri.TryCreate(rest[at + 1], UriKind.Absolute, out var address) || address.Scheme != Uri.UriSchemeHttps
+                || rest[at + 2].Length != 64 || !rest[at + 2].All(char.IsAsciiHexDigit))
+            {
+                throw new UsageException("Použitie: zverejnit KLUC --server https://SERVER:8443 ODTLAČOK");
+            }
+
+            target = (address, rest[at + 2].ToLowerInvariant());
+            rest.RemoveRange(at, 3);
+        }
+
+        Need(rest, 1, "zverejnit KLUC [--server https://SERVER:8443 ODTLAČOK]");
         if (data.Groups.Count == 0)
         {
             throw new UsageException("Nie je žiadna skupina PC – nie je čo zverejniť.");
@@ -85,8 +99,46 @@ public static partial class Commands
             o.WriteLine($"Skupina {group.Name}: plán {plan.Sequence} – profily {string.Join(", ", plan.Profiles.Select(p => p.Name))}.");
         }
 
-        o.WriteLine($"Zverejnené v {root}, podpísala konzola {keyFile.Name}. PC si plán prevezmú pri najbližšom pohľade (do 5 minút).");
-        return 0;
+        o.WriteLine($"Zverejnené v {root}, podpísala konzola {keyFile.Name}.");
+        if (target is not { } server)
+        {
+            o.WriteLine("PC si plán prevezmú od centra, ktoré tento priečinok odovzdáva, pri najbližšom pohľade (do 5 minút).");
+            return 0;
+        }
+
+        // the same publication handed to the centre on the server, signed by this console for that centre only
+        var bundle = new PublicationFolder(root).Bundle(data.Groups.Select(g => g.Name));
+        var body = Utf8NoBom.GetBytes(bundle.ToJson());
+        var headers = UploadSigning.Headers(body, UploadPath, server.Pin, key, DateTimeOffset.UtcNow);
+        var answer = PinnedClient.Post(new Uri(server.Address, UploadPath.TrimStart('/')), server.Pin, body, headers, 1024 * 1024, TimeSpan.FromMinutes(2));
+        if (answer.Status == 0)
+        {
+            o.WriteLine("Odovzdanie na centrum zlyhalo: " + answer.Error + ".");
+            return 1;
+        }
+
+        o.WriteLine($"Centrum {server.Address}:");
+        foreach (var line in Lines(answer.Body))
+        {
+            o.WriteLine("  " + line);
+        }
+
+        return answer.Ok ? 0 : 1;
+    }
+
+    public const string UploadPath = "/v1/zverejnenie";
+
+    private static IEnumerable<string> Lines(byte[] body)
+    {
+        try
+        {
+            var f = new Polaris.Json.JsonFields(Polaris.Json.JsonReader.Parse(Encoding.UTF8.GetString(body)), "odpoveď centra");
+            return f.Strings("lines");
+        }
+        catch (Exception e) when (e is FormatException or InvalidDataException)
+        {
+            return [Encoding.UTF8.GetString(body).Trim()];
+        }
     }
 
     /// <summary>server certifikat NÁZOV… | server [--port N] [--zasoba CESTA]</summary>
@@ -114,6 +166,12 @@ public static partial class Commands
             return 0;
         }
 
+        var trustFolder = Path.Combine(store.Folder, "konzoly");
+        if (rest.Count > 0 && rest[0] is "doverovat" or "konzoly")
+        {
+            return ServerTrust(trustFolder, rest, o);
+        }
+
         var port = DefaultPort;
         string? supply = null;
         for (var i = 0; i < rest.Count; i++)
@@ -128,7 +186,7 @@ public static partial class Commands
                     supply = rest[++i];
                     break;
                 default:
-                    throw new UsageException("Použitie: server [--port ČÍSLO] [--zasoba CESTA] | server certifikat NÁZOV…");
+                    throw new UsageException("Použitie: server [--port ČÍSLO] [--zasoba CESTA] | server certifikat NÁZOV… | server doverovat KONZOLA.verejny.json | server konzoly");
             }
         }
 
@@ -138,7 +196,9 @@ public static partial class Commands
         }
 
         using var certificate = Certificates.Load(certificateFile, keyFile);
-        var server = new WebServer(new IPEndPoint(IPAddress.IPv6Any, port), certificate, Routes(Path.Combine(store.Folder, PublicationFolder), supply), line => o.WriteLine(line));
+        var publication = Path.Combine(store.Folder, PublicationFolder);
+        var upload = Upload(publication, PinnedClient.Pin(certificate), () => Trusted(trustFolder), () => DateTimeOffset.UtcNow);
+        var server = new WebServer(new IPEndPoint(IPAddress.IPv6Any, port), certificate, Routes(publication, supply, upload), line => o.WriteLine(line), path => path == UploadPath);
         o.WriteLine($"POLARIS centrum počúva na porte {port} (HTTPS, len na čítanie). Odtlačok: {PinnedClient.Pin(certificate)}");
         server.RunAsync(stop).GetAwaiter().GetResult();
         o.WriteLine("Centrum zastavené.");
@@ -146,8 +206,13 @@ public static partial class Commands
     }
 
     /// <summary>What the server hands out – nothing else exists for it.</summary>
-    public static Func<ServerRequest, ServerResponse> Routes(string publication, string? supply) => request =>
+    public static Func<ServerRequest, ServerResponse> Routes(string publication, string? supply, Func<ServerRequest, ServerResponse>? upload = null) => request =>
     {
+        if (request.Method == "POST")
+        {
+            return request.Path == UploadPath && upload is not null ? upload(request) : ServerResponse.Text(405, "Sem sa nič neodovzdáva.");
+        }
+
         var parts = request.Path.Split('/', StringSplitOptions.RemoveEmptyEntries);
         switch (parts)
         {
@@ -166,6 +231,93 @@ public static partial class Commands
                 return NotFound();
         }
     };
+
+    /// <summary>An upload from a console: the envelope says which trusted console sent it for this centre now; then every
+    /// plan and recipe in it is checked on its own.</summary>
+    public static Func<ServerRequest, ServerResponse> Upload(string publication, string serverPin, Func<IReadOnlyList<TrustedConsole>> trusted, Func<DateTimeOffset> clock) => request =>
+    {
+        var consoles = trusted();
+        var body = request.Body ?? [];
+        var (console, problem) = UploadSigning.Verify(request.Header, body, request.Path, serverPin, consoles, clock());
+        if (console is null)
+        {
+            return Answer(403, false, [problem]);
+        }
+
+        PublicationBundle bundle;
+        try
+        {
+            bundle = PublicationBundle.FromJson(Encoding.UTF8.GetString(body));
+        }
+        catch (InvalidDataException e)
+        {
+            return Answer(400, false, [e.Message]);
+        }
+
+        var (lines, refused) = new PublicationFolder(publication).Accept(bundle, consoles);
+        lines.Insert(0, $"odovzdala konzola {console.Name}");
+        return Answer(refused ? 409 : 200, !refused, lines);
+    };
+
+    private static ServerResponse Answer(int status, bool ok, List<string> lines) => new()
+    {
+        Status = status,
+        Body = Utf8NoBom.GetBytes(Polaris.Json.JsonText.Canonical(new Polaris.Json.JsonObject()
+            .Add("ok", ok)
+            .Add("lines", Polaris.Json.JsonArray.Of(lines, l => l)))),
+    };
+
+    /// <summary>The consoles the centre accepts uploads from: their public key files in the folder konzoly.</summary>
+    public static List<TrustedConsole> Trusted(string folder)
+    {
+        var list = new List<TrustedConsole>();
+        if (!Directory.Exists(folder))
+        {
+            return list;
+        }
+
+        foreach (var file in Directory.GetFiles(folder, "*.json").Order(StringComparer.Ordinal))
+        {
+            try
+            {
+                list.Add(RecipeSigning.Trust(RecipeSigning.KeyFromJson(File.ReadAllText(file))));
+            }
+            catch (InvalidDataException)
+            {
+                // a damaged file trusts nobody
+            }
+        }
+
+        return list;
+    }
+
+    private static int ServerTrust(string folder, List<string> rest, TextWriter o)
+    {
+        if (rest[0] == "konzoly")
+        {
+            var trusted = Trusted(folder);
+            o.WriteLine(trusted.Count == 0 ? "Centrum neprijíma odovzdania od žiadnej konzoly." : "Centrum prijíma odovzdania od konzol:");
+            foreach (var t in trusted)
+            {
+                o.WriteLine($"  {t.Name} ({t.Fingerprint})");
+            }
+
+            return 0;
+        }
+
+        Need(rest, 2, "server doverovat KONZOLA.verejny.json");
+        var key = RecipeSigning.KeyFromJson(File.ReadAllText(rest[1]));
+        if (key.EncryptedPrivateKey is not null)
+        {
+            throw new UsageException("Toto je súkromný kľúč konzoly – na server patrí len verejný (KONZOLA.verejny.json).");
+        }
+
+        var console = RecipeSigning.Trust(key);
+        Directory.CreateDirectory(folder);
+        File.WriteAllText(Path.Combine(folder, console.Fingerprint + ".json"), RecipeSigning.ToJson(key));
+        o.WriteLine($"Centrum prijíma odovzdania od konzoly {console.Name} ({console.Fingerprint}).");
+        return 0;
+    }
 
     private static ServerResponse Published(string file)
     {

@@ -23,12 +23,19 @@ public static class PinnedClient
     public static string Pin(X509Certificate2 certificate) =>
         Convert.ToHexStringLower(SHA256.HashData(certificate.PublicKey.ExportSubjectPublicKeyInfo()));
 
-    public static ClientResult Get(Uri address, string pin, string? etag, long maxBytes, TimeSpan limit, string? saveTo = null)
+    public static ClientResult Get(Uri address, string pin, string? etag, long maxBytes, TimeSpan limit, string? saveTo = null) =>
+        Send(address, pin, limit, token => GetAsync(address, pin, etag, maxBytes, saveTo, null, null, token));
+
+    /// <summary>An upload: the body and its own headers (e.g. the console's signature). The answer is read like a GET.</summary>
+    public static ClientResult Post(Uri address, string pin, byte[] body, IReadOnlyDictionary<string, string> headers, long maxAnswer, TimeSpan limit) =>
+        Send(address, pin, limit, token => GetAsync(address, pin, null, maxAnswer, null, body, headers, token));
+
+    private static ClientResult Send(Uri address, string pin, TimeSpan limit, Func<CancellationToken, Task<ClientResult>> call)
     {
         using var stop = new CancellationTokenSource(limit);
         try
         {
-            return GetAsync(address, pin, etag, maxBytes, saveTo, stop.Token).GetAwaiter().GetResult();
+            return call(stop.Token).GetAwaiter().GetResult();
         }
         catch (OperationCanceledException)
         {
@@ -44,7 +51,7 @@ public static class PinnedClient
         }
     }
 
-    private static async Task<ClientResult> GetAsync(Uri address, string pin, string? etag, long maxBytes, string? saveTo, CancellationToken token)
+    private static async Task<ClientResult> GetAsync(Uri address, string pin, string? etag, long maxBytes, string? saveTo, byte[]? upload, IReadOnlyDictionary<string, string>? extra, CancellationToken token)
     {
         if (address.Scheme != Uri.UriSchemeHttps)
         {
@@ -63,17 +70,37 @@ public static class PinnedClient
         }, token).ConfigureAwait(false);
 
         var head = new StringBuilder()
-            .Append("GET ").Append(address.AbsolutePath).Append(" HTTP/1.1\r\n")
+            .Append(upload is null ? "GET " : "POST ").Append(address.AbsolutePath).Append(" HTTP/1.1\r\n")
             .Append("Host: ").Append(address.Authority).Append("\r\n")
-            .Append("User-Agent: POLARIS-agent\r\n")
+            .Append("User-Agent: POLARIS\r\n")
             .Append("Connection: close\r\n");
         if (etag is not null)
         {
             head.Append("If-None-Match: ").Append(etag).Append("\r\n");
         }
 
+        foreach (var (name, value) in extra ?? new Dictionary<string, string>())
+        {
+            if (name.Any(c => c is '\r' or '\n' or ':') || value.Any(c => c is '\r' or '\n'))
+            {
+                throw new InvalidDataException("neplatná hlavička");
+            }
+
+            head.Append(name).Append(": ").Append(value).Append("\r\n");
+        }
+
+        if (upload is not null)
+        {
+            head.Append("Content-Type: application/json\r\nContent-Length: ").Append(upload.Length).Append("\r\n");
+        }
+
         head.Append("\r\n");
         await tls.WriteAsync(Encoding.ASCII.GetBytes(head.ToString()), token).ConfigureAwait(false);
+        if (upload is not null)
+        {
+            await tls.WriteAsync(upload, token).ConfigureAwait(false);
+        }
+
 
         var (status, headers) = await ReadHeadAsync(tls, token).ConfigureAwait(false);
         headers.TryGetValue("etag", out var newTag);

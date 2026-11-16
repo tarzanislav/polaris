@@ -2,7 +2,8 @@
 
 `polaris-centrum` je nástroj správcu (konzola) pre nastavenia učebne a zároveň server centra. Beží vo Windows aj na
 Linuxe. Ako konzola pracuje len so súborom nastavení (`centrum.json`) a so súbormi, ktoré mu zadáš; ako server
-(`polaris-centrum server`) odovzdáva PC zverejnené plány – nič neprijíma a žiadne PC nemení.
+(`polaris-centrum server`) odovzdáva PC zverejnené plány – prijíma len podpísané odovzdania od dôverovaných konzol
+a žiadne PC nemení.
 
 ## Učebňa
 
@@ -46,8 +47,8 @@ polaris-centrum zverejnit spravca.kluc                              plány všet
 
 ## Centrum na serveri (Debian)
 
-Server odovzdáva PC len to, čo konzola zverejnila: plány skupín, recepty a Zásobu balíkov. Je **len na čítanie**
-(prijme iba GET), cez **HTTPS** s vlastným certifikátom. PC nepotrebujú certifikačnú autoritu: centrum poznajú podľa
+Server odovzdáva PC len to, čo konzola zverejnila: plány skupín, recepty a Zásobu balíkov. PC od neho len čítajú;
+jediné, čo prijme, je podpísané odovzdanie od dôverovanej konzoly. Beží cez **HTTPS** s vlastným certifikátom. PC nepotrebujú certifikačnú autoritu: centrum poznajú podľa
 **odtlačku jeho kľúča**, ktorý im zadá správca. Iný server s iným kľúčom PC odmietnu skôr, než od neho niečo prečítajú.
 
 ```
@@ -63,8 +64,23 @@ sudo systemctl enable --now polaris-centrum
   Mená a adresy za `certifikat` sú tie, ktorými PC server oslovujú.
 - Služba beží pod vlastným používateľom bez práv, s celým systémom len na čítanie (pozri `tools/debian`). Port 8443
   stačí otvoriť do siete učebne.
-- `zverejnit` a ostatné príkazy spúšťaj ako používateľ polaris (`sudo -u polaris …`), alebo z inej konzoly a priečinok
-  `zverejnene` skopíruj na server.
+- Server **zapisuje len do `zverejnene`**, a to iba odovzdania od konzol, ktorým dôveruje (nižšie).
+
+### Odovzdanie z konzoly na server
+
+Konzola (Windows alebo Linux, kdekoľvek v sieti) zverejní a rovno odovzdá centru:
+
+```
+sudo -u polaris /opt/polaris/polaris-centrum --subor /srv/polaris/centrum.json server doverovat spravca.verejny.json
+polaris-centrum zverejnit spravca.kluc --server https://192.168.1.10:8443 ODTLAČOK          (na konzole)
+```
+
+- Na server patrí **len verejný kľúč** konzoly; súkromný server odmietne. `server konzoly` vypíše, komu centrum verí.
+- Odovzdanie má **obálku podpísanú konzolou**: platí len pre tieto bajty, pre toto centrum (jeho odtlačok) a len
+  10 minút. Cudzia konzola, nepodpísané, zmenené alebo staré odovzdanie centrum odmietne.
+- Centrum potom **každý plán a recept overí znova** a prijme len plán novší, než už má. Odmietnutý kúsok nič
+  nepokazí – zverejnené zostáva, ako bolo.
+- Konzola pozná server rovnako ako PC: podľa odtlačku jeho kľúča.
 
 Na každom PC (správca):
 
@@ -87,5 +103,4 @@ Podpis receptov: [recept.md – Podpis receptu](recept.md#podpis-receptu). Záso
 
 ## Pripravuje sa
 
-Odovzdanie zverejnenia z konzoly na server cez HTTPS (podpísané, server prijme len od konzol, ktorým dôveruje),
-hlásenia PC centru a konzola s prehľadom učebne.
+Hlásenia PC centru (stav, použitý profil, chyby) a konzola s prehľadom učebne.

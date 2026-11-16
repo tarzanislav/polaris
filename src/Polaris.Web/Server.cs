@@ -9,7 +9,7 @@ namespace Polaris.Web;
 
 /// <summary>A request as the server understood it. The path is already checked: it starts with '/', has no "..", no
 /// backslash, no percent-escapes and no query.</summary>
-public sealed record ServerRequest(string Method, string Path, IReadOnlyDictionary<string, string> Headers, IPAddress Remote)
+public sealed record ServerRequest(string Method, string Path, IReadOnlyDictionary<string, string> Headers, IPAddress Remote, byte[]? Body = null)
 {
     public string? Header(string name) => Headers.TryGetValue(name.ToLowerInvariant(), out var v) ? v : null;
 }
@@ -38,9 +38,13 @@ public sealed class ServerResponse
 
 /// <summary>The centre's own web server: TLS 1.2/1.3 by the system, HTTP/1.1, one request per connection, read-only.
 /// Every connection has a time limit and a size limit for its head; at most <see cref="MaxConnections"/> at once.</summary>
-public sealed class WebServer(IPEndPoint endpoint, X509Certificate2 certificate, Func<ServerRequest, ServerResponse> handler, Action<string> log)
+public sealed class WebServer(IPEndPoint endpoint, X509Certificate2 certificate, Func<ServerRequest, ServerResponse> handler, Action<string> log, Func<string, bool>? acceptsBody = null)
 {
     public const int MaxHead = 8 * 1024;
+
+    /// <summary>The only requests with a body are uploads to the paths <c>acceptsBody</c> names, never bigger than this.</summary>
+    public const int MaxBody = 16 * 1024 * 1024;
+    public static readonly TimeSpan BodyLimit = TimeSpan.FromSeconds(60);
     public const int MaxConnections = 64;
     public static readonly TimeSpan HeadLimit = TimeSpan.FromSeconds(15);
 
@@ -103,7 +107,16 @@ public sealed class WebServer(IPEndPoint endpoint, X509Certificate2 certificate,
                 }, limit.Token).ConfigureAwait(false);
 
                 var head = await ReadHeadAsync(tls, limit.Token).ConfigureAwait(false);
-                var (request, refusal) = Parse(head, remote);
+                var (request, refusal) = Parse(head, remote, acceptsBody);
+                if (request is { Method: "POST" })
+                {
+                    limit.CancelAfter(BodyLimit);
+                    var length = int.Parse(request.Header("content-length")!, System.Globalization.CultureInfo.InvariantCulture);
+                    var body = new byte[length];
+                    await tls.ReadExactlyAsync(body, limit.Token).ConfigureAwait(false);
+                    request = request with { Body = body };
+                }
+
                 var response = refusal ?? Answer(request!);
                 await WriteAsync(tls, request, response, stop).ConfigureAwait(false);
             }
@@ -164,7 +177,7 @@ public sealed class WebServer(IPEndPoint endpoint, X509Certificate2 certificate,
         return null; // too long
     }
 
-    public static (ServerRequest? Request, ServerResponse? Refusal) Parse(string? head, IPAddress remote)
+    public static (ServerRequest? Request, ServerResponse? Refusal) Parse(string? head, IPAddress remote, Func<string, bool>? acceptsBody = null)
     {
         if (head is null)
         {
@@ -178,15 +191,16 @@ public sealed class WebServer(IPEndPoint endpoint, X509Certificate2 certificate,
             return (null, ServerResponse.Text(400, "Neplatná požiadavka."));
         }
 
-        if (first[0] is not ("GET" or "HEAD"))
-        {
-            return (null, ServerResponse.Text(405, "Centrum len odpovedá, nič neprijíma."));
-        }
-
         var path = first[1];
         if (!path.StartsWith('/') || path.Contains("..", StringComparison.Ordinal) || path.IndexOfAny(['\\', '%', '?', '#', '\0']) >= 0 || path.Length > 512)
         {
             return (null, ServerResponse.Text(400, "Neplatná cesta."));
+        }
+
+        var upload = first[0] == "POST" && acceptsBody?.Invoke(path) == true;
+        if (first[0] is not ("GET" or "HEAD") && !upload)
+        {
+            return (null, ServerResponse.Text(405, "Centrum tu len odpovedá, nič neprijíma."));
         }
 
         var headers = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -199,6 +213,16 @@ public sealed class WebServer(IPEndPoint endpoint, X509Certificate2 certificate,
             }
 
             headers[line[..colon].Trim().ToLowerInvariant()] = line[(colon + 1)..].Trim();
+        }
+
+        if (upload && !(headers.TryGetValue("content-length", out var lengthText) && int.TryParse(lengthText, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var length) && length is > 0 and <= MaxBody))
+        {
+            return (null, ServerResponse.Text(413, $"Odovzdanie musí mať dĺžku 1 až {MaxBody} bajtov."));
+        }
+
+        if (headers.ContainsKey("transfer-encoding"))
+        {
+            return (null, ServerResponse.Text(400, "Kúskové posielanie centrum neprijíma."));
         }
 
         return (new ServerRequest(first[0], path, headers, remote), null);
@@ -244,6 +268,9 @@ public sealed class WebServer(IPEndPoint endpoint, X509Certificate2 certificate,
         400 => "Bad Request",
         404 => "Not Found",
         405 => "Method Not Allowed",
+        403 => "Forbidden",
+        409 => "Conflict",
+        413 => "Content Too Large",
         _ => "Error",
     };
 }

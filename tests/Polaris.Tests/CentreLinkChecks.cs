@@ -21,7 +21,7 @@ public static class CentreLinkChecks
         private readonly CancellationTokenSource _stop = new();
         private readonly Task _task;
 
-        public Running(Func<ServerRequest, ServerResponse> handler, string folder)
+        public Running(Func<ServerRequest, ServerResponse> handler, string folder, Func<string, bool>? acceptsBody = null)
         {
             using var created = Certificates.Create(["localhost", "127.0.0.1"], T);
             var cert = Path.Combine(folder, "server.pem");
@@ -29,7 +29,7 @@ public static class CentreLinkChecks
             Certificates.Save(created, cert, key);
             Certificate = Certificates.Load(cert, key);
             Pin = PinnedClient.Pin(Certificate);
-            var server = new WebServer(new IPEndPoint(IPAddress.Loopback, 0), Certificate, handler, _ => { });
+            var server = new WebServer(new IPEndPoint(IPAddress.Loopback, 0), Certificate, handler, _ => { }, acceptsBody);
             var started = new TaskCompletionSource();
             _task = server.RunAsync(_stop.Token, started);
             started.Task.Wait(TimeSpan.FromSeconds(10));
@@ -164,6 +164,91 @@ public static class CentreLinkChecks
             File.Delete(RecipeSigning.SignatureFileOf(Path.Combine(dir, "recepty", "zakladny.json")));
             (code, text) = Centrum($"zverejnit {keyFile}");
             Expect.True(code == 1 && text.Contains("nie je podpísaný", StringComparison.Ordinal), "nepodpísaný recept: " + text);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Check]
+    public static void AConsoleHandsThePublicationToTheCentre()
+    {
+        var dir = Directory.CreateTempSubdirectory("polaris-odovzdanie-").FullName;
+        try
+        {
+            var (secret, pub) = RecipeSigning.NewConsoleKey("spravca", Password);
+            var keyFile = Path.Combine(dir, "spravca.kluc");
+            var publicFile = Path.Combine(dir, "spravca.verejny.json");
+            File.WriteAllText(keyFile, RecipeSigning.ToJson(secret));
+            File.WriteAllText(publicFile, RecipeSigning.ToJson(pub));
+            using var key = RecipeSigning.OpenPrivate(secret, Password);
+            var recipe = new Recipe { Name = "ZAKLADNY", Version = 1, Elements = [] };
+            var recipeFile = Path.Combine(dir, "konzola", "zakladny.json");
+            Directory.CreateDirectory(Path.GetDirectoryName(recipeFile)!);
+            File.WriteAllText(recipeFile, RecipeText.ToJson(recipe));
+            File.WriteAllText(RecipeSigning.SignatureFileOf(recipeFile), RecipeSigning.ToJson(RecipeSigning.Sign(recipe, key, "spravca", T)));
+
+            (int Code, string Text) Run(string settings, params string[] words)
+            {
+                var w = new StringWriter();
+                return (Polaris.Centrum.Commands.Run(["--subor", settings, .. words], w, T.LocalDateTime, DateTimeOffset.UtcNow, _ => Password), w.ToString());
+            }
+
+            var console = Path.Combine(dir, "konzola", "centrum.json");
+            Expect.Equal(0, Run(console, "profil", "ZAKLADNY", recipeFile).Code, "profil");
+            Expect.Equal(0, Run(console, "skupina", "ucebna", "ZAKLADNY").Code, "skupina");
+
+            // the centre on the server trusts this console for uploads
+            var serverSettings = Path.Combine(dir, "server", "centrum.json");
+            Directory.CreateDirectory(Path.GetDirectoryName(serverSettings)!);
+            Expect.Equal(0, Run(serverSettings, "server", "doverovat", publicFile).Code, "server dôveruje konzole");
+            Expect.Equal(2, Run(serverSettings, "server", "doverovat", keyFile).Code, "súkromný kľúč na server nepatrí");
+            var publication = Path.Combine(dir, "server", "zverejnene");
+            var trustFolder = Path.Combine(dir, "server", "konzoly");
+            string? pin = null;
+            using var server = new Running(
+                r => Polaris.Centrum.Commands.Routes(publication, null, Polaris.Centrum.Commands.Upload(publication, pin!, () => Polaris.Centrum.Commands.Trusted(trustFolder), () => DateTimeOffset.UtcNow))(r),
+                Path.Combine(dir, "server"),
+                p => p == Polaris.Centrum.Commands.UploadPath);
+            pin = server.Pin;
+
+            var (code, text) = Run(console, "zverejnit", keyFile, "--server", server.Address.ToString(), server.Pin);
+            Expect.True(code == 0 && text.Contains("odovzdala konzola spravca", StringComparison.Ordinal) && text.Contains("plán ucebna: zverejnený", StringComparison.Ordinal), "odovzdanie: " + text);
+            var sync = new CentreSync(new CentreSettings(server.Address, server.Pin, "ucebna"), Path.Combine(dir, "pc"), () => [RecipeSigning.Trust(pub)]);
+            Expect.True(sync.Fetch(0).Changed, "PC si odovzdaný plán prevezme od servera");
+
+            // the same publication again changes nothing; a console the centre does not trust is refused
+            (code, text) = Run(console, "zverejnit", keyFile, "--server", server.Address.ToString(), server.Pin);
+            Expect.True(code == 0, "nové zverejnenie: " + text);
+            var bundle = new PublicationFolder(Path.Combine(dir, "konzola", "zverejnene")).Bundle(["ucebna"]);
+            var body = Encoding.UTF8.GetBytes(bundle.ToJson());
+            var old = new PublicationFolder(publication).Accept(bundle with { Plans = [bundle.Plans[0] with { }] }, [RecipeSigning.Trust(pub)]);
+            Expect.True(old.Lines.Any(l => l.Contains("ponechaný", StringComparison.Ordinal)), "rovnaký plán druhýkrát nič nemení");
+
+            var (otherSecret, _) = RecipeSigning.NewConsoleKey("cudzia", Password);
+            using var otherKey = RecipeSigning.OpenPrivate(otherSecret, Password);
+            var stranger = PinnedClient.Post(new Uri(server.Address, "v1/zverejnenie"), server.Pin, body, UploadSigning.Headers(body, Polaris.Centrum.Commands.UploadPath, server.Pin, otherKey, DateTimeOffset.UtcNow), 100_000, TimeSpan.FromSeconds(20));
+            Expect.True(stranger.Status == 403 && Encoding.UTF8.GetString(stranger.Body).Contains("nedôveruje", StringComparison.Ordinal), "cudzia konzola: " + stranger.Status);
+            var unsigned = PinnedClient.Post(new Uri(server.Address, "v1/zverejnenie"), server.Pin, body, new Dictionary<string, string>(), 100_000, TimeSpan.FromSeconds(20));
+            Expect.Equal(403, unsigned.Status, "bez podpisu");
+            var elsewhere = PinnedClient.Post(new Uri(server.Address, "v1/stav"), server.Pin, body, new Dictionary<string, string>(), 100_000, TimeSpan.FromSeconds(20));
+            Expect.Equal(405, elsewhere.Status, "inde sa nič neodovzdáva");
+
+            // the envelope is bound to the bytes, this centre and the time
+            var trusted = new List<TrustedConsole> { RecipeSigning.Trust(pub) };
+            var headers = UploadSigning.Headers(body, "/v1/zverejnenie", server.Pin, key, T);
+            string? H(string n) => headers.TryGetValue(n, out var v) ? v : null;
+            Expect.True(UploadSigning.Verify(H, body, "/v1/zverejnenie", server.Pin, trusted, T.AddMinutes(5)).Console is not null, "platná obálka");
+            Expect.True(UploadSigning.Verify(H, body, "/v1/zverejnenie", server.Pin, trusted, T.AddMinutes(20)).Problem.Contains("10 minút", StringComparison.Ordinal), "staré odovzdanie");
+            Expect.True(UploadSigning.Verify(H, body, "/v1/zverejnenie", new string('c', 64), trusted, T).Console is null, "pre iné centrum");
+            Expect.True(UploadSigning.Verify(H, [.. body, 32], "/v1/zverejnenie", server.Pin, trusted, T).Console is null, "zmenené bajty");
+
+            // a recipe whose text does not fit its fingerprint is refused, the rest of the centre stays
+            var forged = bundle with { Recipes = [bundle.Recipes[0] with { Recipe = bundle.Recipes[0].Recipe.Replace("ZAKLADNY", "INY", StringComparison.Ordinal) }], Plans = [] };
+            var (lines, refused) = new PublicationFolder(publication).Accept(forged, trusted);
+            Expect.True(refused && lines.Any(l => l.Contains("odmietnutý", StringComparison.Ordinal)), "podvrhnutý recept: " + string.Join("; ", lines));
+            Expect.True(sync.Recipe(bundle.Recipes[0].Fingerprint) is not null, "pôvodný recept ostal");
         }
         finally
         {
