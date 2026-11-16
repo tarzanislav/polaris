@@ -1,0 +1,171 @@
+using System.Text.Json.Serialization;
+
+namespace Polaris.Recipes;
+
+/// <summary>One thing a PC should have (or must not have): a program, a registry value, bookmarks … Every kind has its own
+/// small executor in the agent that can read the real state, compare it and change it.</summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]
+[JsonDerivedType(typeof(ProgramElement), "program")]
+[JsonDerivedType(typeof(RegistryValueElement), "registry")]
+[JsonDerivedType(typeof(BookmarksElement), "bookmarks")]
+public abstract class Element
+{
+    /// <summary>Unique name of the element within a recipe (small letters, digits, '-', '.', '_').</summary>
+    public string Id { get; set; } = "";
+
+    /// <summary>True = the thing must be there; false = it must not be there (it is removed).</summary>
+    public bool Present { get; set; } = true;
+
+    /// <summary>Why the element is in the recipe – for the admin, not used by the agent.</summary>
+    public string? Note { get; set; }
+
+    /// <summary>What the element manages. Two elements with the same key manage the same thing; when they come from
+    /// several assignments, the narrower scope wins.</summary>
+    [JsonIgnore]
+    public abstract string Key { get; }
+
+    /// <summary>A short Slovak description for plans and reports.</summary>
+    [JsonIgnore]
+    public abstract string Title { get; }
+}
+
+public enum NameMatch
+{
+    /// <summary>The name in the list of installed programs is exactly this.</summary>
+    Exact,
+
+    /// <summary>The name starts with this (for names that carry the version, e.g. "7-Zip 25.01 (x64)").</summary>
+    Prefix,
+}
+
+/// <summary>An installer file kept in the store next to the recipe, checked by its fingerprint before it runs.</summary>
+public sealed class InstallerSource
+{
+    /// <summary>Path relative to the folder of the recipe (e.g. "subory/program.msi").</summary>
+    public string File { get; set; } = "";
+
+    /// <summary>SHA-256 of the file; a file with another fingerprint is never run.</summary>
+    public string Sha256 { get; set; } = "";
+
+    /// <summary>Arguments for a silent installation (an .msi gets "/qn /norestart" when this is empty).</summary>
+    public string Arguments { get; set; } = "";
+
+    /// <summary>Arguments for the uninstaller when Windows knows no silent way (e.g. "/S").</summary>
+    public string? UninstallArguments { get; set; }
+}
+
+/// <summary>A program for the whole PC. It is recognised by its name in the list of installed programs, installed from
+/// WinGet or from an installer in the store.</summary>
+public sealed class ProgramElement : Element
+{
+    /// <summary>Package of WinGet (e.g. "VideoLAN.VLC").</summary>
+    public string? Winget { get; set; }
+
+    /// <summary>The version WinGet installs; empty = the newest. (K1 recognises only whether the program is there.)</summary>
+    public string? Version { get; set; }
+
+    /// <summary>Or an installer file from the store.</summary>
+    public InstallerSource? Installer { get; set; }
+
+    /// <summary>How Windows names the program in the installed programs – this is how it is recognised.</summary>
+    public string DisplayName { get; set; } = "";
+
+    public NameMatch Match { get; set; } = NameMatch.Exact;
+
+    public override string Key => "program:" + DisplayName.Trim().ToLowerInvariant();
+
+    public override string Title => Winget is { Length: > 0 } ? $"program {DisplayName} (WinGet {Winget})" : $"program {DisplayName}";
+}
+
+public enum RegistryKind
+{
+    String,
+    ExpandString,
+    DWord,
+    QWord,
+    MultiString,
+}
+
+/// <summary>One value in the machine part of the registry (HKLM).</summary>
+public sealed class RegistryValueElement : Element
+{
+    /// <summary>Full path of the key, e.g. HKLM\SOFTWARE\Policies\Microsoft\Edge.</summary>
+    public string Path { get; set; } = "";
+
+    /// <summary>Name of the value ("" = the default value of the key).</summary>
+    public string Name { get; set; } = "";
+
+    public RegistryKind Kind { get; set; } = RegistryKind.String;
+
+    /// <summary>The data as text: numbers decimal or with 0x, more lines of a multi-string separated by a new line.</summary>
+    public string Data { get; set; } = "";
+
+    public override string Key => "registry:" + RegistryPath.Normalize(Path).ToLowerInvariant() + "|" + Name.ToLowerInvariant();
+
+    public override string Title => $"hodnota registra {RegistryPath.Normalize(Path)}\\{(Name.Length == 0 ? "(predvolená)" : Name)}";
+}
+
+public enum Browser
+{
+    Edge,
+    Chrome,
+}
+
+/// <summary>A bookmark or a folder of bookmarks.</summary>
+public sealed class Bookmark
+{
+    public string Name { get; set; } = "";
+
+    /// <summary>The address; a folder has none.</summary>
+    public string? Url { get; set; }
+
+    /// <summary>Bookmarks inside a folder.</summary>
+    public List<Bookmark>? Children { get; set; }
+}
+
+/// <summary>Bookmarks every user of the PC sees in the browser (managed bookmarks – the pupil cannot delete them, his own
+/// bookmarks stay possible).</summary>
+public sealed class BookmarksElement : Element
+{
+    public List<Browser> Browsers { get; set; } = [Browser.Edge, Browser.Chrome];
+
+    /// <summary>Name of the folder the bookmarks appear in (e.g. "Škola").</summary>
+    public string Folder { get; set; } = "";
+
+    /// <summary>Show the bar with bookmarks under the address line.</summary>
+    public bool ShowBar { get; set; } = true;
+
+    public List<Bookmark> Items { get; set; } = [];
+
+    public override string Key => "bookmarks:" + string.Join(",", Browsers.Distinct().Order().Select(b => b.ToString().ToLowerInvariant()));
+
+    public override string Title => $"záložky „{Folder}“ ({string.Join(", ", Browsers.Distinct().Order())})";
+}
+
+/// <summary>Paths of the registry in one written form.</summary>
+public static class RegistryPath
+{
+    /// <summary>"HKEY_LOCAL_MACHINE\…" and "hklm\…" become "HKLM\…"; doubled and trailing backslashes go away.</summary>
+    public static string Normalize(string path)
+    {
+        var parts = path.Replace('/', '\\').Split('\\', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0)
+        {
+            return "";
+        }
+
+        var root = parts[0].ToUpperInvariant() switch
+        {
+            "HKEY_LOCAL_MACHINE" or "HKLM" => "HKLM",
+            var other => other,
+        };
+        return string.Join('\\', parts.Skip(1).Prepend(root));
+    }
+
+    /// <summary>The part after HKLM\ (for opening the key), or null when the path is not in HKLM.</summary>
+    public static string? UnderLocalMachine(string path)
+    {
+        var normal = Normalize(path);
+        return normal.StartsWith(@"HKLM\", StringComparison.Ordinal) ? normal[5..] : null;
+    }
+}

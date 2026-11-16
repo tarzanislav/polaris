@@ -10,6 +10,13 @@ aby predvolený štart nikdy neukazoval na vrstvu, ktorá už bežala.
 
 ## Stav
 
+**Smer v2 (od 16. 11. 2026): POLARIS nezasahuje pod systém, ale riadi zabudované mechanizmy Windows a Linuxu podľa
+podpísaných receptov.** Etapa **K1** je vo vývoji: `polaris-agent` porovná PC s receptom (programy cez WinGet alebo
+overený inštalátor, hodnoty registra v HKLM, záložky pre Edge a Chrome), zmeny urobí a každú overí. Popis formátu:
+[docs/recept.md](docs/recept.md), ukážka: [recepty/ukazka-kancelarsky.json](recepty/ukazka-kancelarsky.json).
+
+Pôvodný smer v1 (vrstvy disku) je pozastavený:
+
 **Etapa E0 – laboratórium vrstiev (vo vývoji, zatiaľ nie na použitie).** `polaris-lab.exe` prevedie bežiaci Windows do
 vrstiev (bez USB a bez WinPE, pôvodný Windows ostáva ako poistka), striedá čisté vrstvy, spúšťa automatickú skúšku
 reštartov a píše správu.

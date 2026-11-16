@@ -1,0 +1,68 @@
+{
+  // Ukážkový recept profilu KANCELÁRSKY – len otvorený softvér, vhodný pre školy.
+  // Skontrolovať: polaris-agent overit recepty/ukazka-kancelarsky.json
+  "schema": 1,
+  "name": "KANCELARSKY",
+  "version": 1,
+  "note": "Ukážka: kancelária, archívy, médiá, školské záložky",
+  "elements": [
+    {
+      "type": "program",
+      "id": "libreoffice",
+      "winget": "TheDocumentFoundation.LibreOffice",
+      "displayName": "LibreOffice",
+      "match": "Prefix",
+      "note": "kancelársky balík (MPL-2.0)"
+    },
+    {
+      "type": "program",
+      "id": "7zip",
+      "winget": "7zip.7zip",
+      "displayName": "7-Zip",
+      "match": "Prefix",
+      "note": "archívy (LGPL)"
+    },
+    {
+      "type": "program",
+      "id": "vlc",
+      "winget": "VideoLAN.VLC",
+      "displayName": "VLC media player",
+      "note": "prehrávač médií (GPL)"
+    },
+    {
+      "type": "registry",
+      "id": "edge-bez-uvitania",
+      "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge",
+      "name": "HideFirstRunExperience",
+      "kind": "DWord",
+      "data": "1",
+      "note": "Edge nevíta každého nového žiaka sprievodcom (relácia sa po odhlásení maže)"
+    },
+    {
+      "type": "registry",
+      "id": "edge-bez-ukladania-hesiel",
+      "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge",
+      "name": "PasswordManagerEnabled",
+      "kind": "DWord",
+      "data": "0",
+      "note": "na spoločnom PC sa heslá do prehliadača neukladajú"
+    },
+    {
+      "type": "bookmarks",
+      "id": "skolske-zalozky",
+      "browsers": [ "Edge", "Chrome" ],
+      "folder": "Škola",
+      "showBar": true,
+      "items": [
+        { "name": "Slovník (JÚĽŠ SAV)", "url": "https://slovnik.juls.savba.sk/" },
+        { "name": "Wikipédia", "url": "https://sk.wikipedia.org/" },
+        {
+          "name": "Programovanie",
+          "children": [
+            { "name": "Python – dokumentácia", "url": "https://docs.python.org/3/" }
+          ]
+        }
+      ]
+    }
+  ]
+}

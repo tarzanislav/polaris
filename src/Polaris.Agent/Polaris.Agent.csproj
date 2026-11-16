@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- polaris-agent: brings one PC to the state of a recipe (K1: run by the admin on the PC, no network). The Windows
+       executors live here; the recipes, checks and the engine are in Polaris.Recipes. Own code only, no packages. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Polaris.Agent</RootNamespace>
+    <AssemblyName>polaris-agent</AssemblyName>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <PublishAot>true</PublishAot>
+    <OptimizationPreference>Size</OptimizationPreference>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Polaris.Core\Polaris.Core.csproj" />
+    <ProjectReference Include="..\Polaris.Recipes\Polaris.Recipes.csproj" />
+  </ItemGroup>
+</Project>

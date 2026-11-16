@@ -9,5 +9,7 @@
     <ProjectReference Include="..\..\src\Polaris.Core\Polaris.Core.csproj" />
     <ProjectReference Include="..\..\src\Polaris.Net\Polaris.Net.csproj" />
     <ProjectReference Include="..\..\src\Polaris.Centrum\Polaris.Centrum.csproj" />
+    <ProjectReference Include="..\..\src\Polaris.Recipes\Polaris.Recipes.csproj" />
+    <ProjectReference Include="..\..\src\Polaris.Agent\Polaris.Agent.csproj" />
   </ItemGroup>
 </Project>

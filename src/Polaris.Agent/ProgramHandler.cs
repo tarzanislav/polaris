@@ -1,0 +1,186 @@
+using System.Runtime.Versioning;
+using Microsoft.Win32;
+using Polaris.Recipes;
+
+namespace Polaris.Agent;
+
+/// <summary>An entry of the list of installed programs (the machine part, both the 64- and the 32-bit view).</summary>
+public sealed record InstalledProgram(
+    string KeyName,
+    string DisplayName,
+    string? Version,
+    string? UninstallString,
+    string? QuietUninstallString,
+    bool WindowsInstaller);
+
+[SupportedOSPlatform("windows")]
+public static class InstalledPrograms
+{
+    public const string UninstallKey = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall";
+
+    public static List<InstalledProgram> Read()
+    {
+        var list = new List<InstalledProgram>();
+        foreach (var view in new[] { RegistryView.Registry64, RegistryView.Registry32 })
+        {
+            using var root = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, view);
+            using var uninstall = root.OpenSubKey(UninstallKey);
+            if (uninstall is null)
+            {
+                continue;
+            }
+
+            foreach (var name in uninstall.GetSubKeyNames())
+            {
+                using var entry = uninstall.OpenSubKey(name);
+                if (entry?.GetValue("DisplayName") is not string display || display.Trim().Length == 0)
+                {
+                    continue;
+                }
+
+                list.Add(new InstalledProgram(
+                    name,
+                    display.Trim(),
+                    entry.GetValue("DisplayVersion") as string,
+                    entry.GetValue("UninstallString") as string,
+                    entry.GetValue("QuietUninstallString") as string,
+                    entry.GetValue("WindowsInstaller") is int wi && wi == 1));
+            }
+        }
+
+        return list;
+    }
+}
+
+/// <summary>Programs for the whole PC: recognised in the list of installed programs, installed by WinGet or by a checked
+/// installer from the store, removed by WinGet or by the silent uninstaller Windows knows.</summary>
+[SupportedOSPlatform("windows")]
+public sealed class ProgramHandler(string recipeFolder) : IElementHandler
+{
+    public static readonly TimeSpan InstallerLimit = TimeSpan.FromMinutes(60);
+
+    public bool CanHandle(Element element) => element is ProgramElement;
+
+    public Observation Observe(Element element)
+    {
+        var p = (ProgramElement)element;
+        var found = InstalledPrograms.Read().Where(i => ProgramMatch.Matches(p, i.DisplayName)).ToList();
+        if (found.Count == 0)
+        {
+            return new Observation(Observed.Absent, "nie je nainštalovaný");
+        }
+
+        var first = found[0];
+        var detail = first.Version is { Length: > 0 } v ? $"{first.DisplayName}, verzia {v}" : first.DisplayName;
+        return new Observation(Observed.Present, found.Count > 1 ? $"{detail} a ďalšie ({found.Count})" : detail);
+    }
+
+    public void Apply(Element element)
+    {
+        var p = (ProgramElement)element;
+        if (p.Present)
+        {
+            Install(p);
+        }
+        else
+        {
+            Remove(p);
+        }
+    }
+
+    private void Install(ProgramElement p)
+    {
+        ProcessResult result;
+        if (p.Winget is { Length: > 0 } id)
+        {
+            result = Processes.Run(Winget.Find(), Winget.InstallArguments(id, p.Version), Winget.Limit);
+        }
+        else
+        {
+            var installer = p.Installer ?? throw new InvalidDataException("Program nemá zdroj inštalácie.");
+            var folder = Path.GetFullPath(recipeFolder);
+            var file = Path.GetFullPath(Path.Combine(folder, installer.File));
+            if (!file.StartsWith(Path.TrimEndingDirectorySeparator(folder) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidDataException($"Inštalátor {installer.File} nie je vnútri priečinka receptu – nespustil som ho.");
+            }
+
+            if (!File.Exists(file))
+            {
+                throw new FileNotFoundException($"Inštalátor {installer.File} sa v priečinku receptu nenašiel.");
+            }
+
+            var actual = RecipeText.FileFingerprint(file);
+            if (!actual.Equals(installer.Sha256, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidDataException($"Inštalátor {installer.File} má iný odtlačok, než je v recepte – nespustil som ho (je {actual[..12]}…).");
+            }
+
+            result = file.EndsWith(".msi", StringComparison.OrdinalIgnoreCase)
+                ? Processes.RunRaw(MsiExec, $"/i \"{file}\" {(installer.Arguments.Length > 0 ? installer.Arguments : "/qn /norestart")}", InstallerLimit)
+                : Processes.RunRaw(file, installer.Arguments, InstallerLimit);
+        }
+
+        Finish(p, result, "Inštalácia skončila");
+    }
+
+    private void Remove(ProgramElement p)
+    {
+        if (p.Winget is { Length: > 0 } id)
+        {
+            Finish(p, Processes.Run(Winget.Find(), Winget.UninstallArguments(id), Winget.Limit), "Odinštalovanie skončilo");
+            return;
+        }
+
+        foreach (var entry in InstalledPrograms.Read().Where(i => ProgramMatch.Matches(p, i.DisplayName)))
+        {
+            ProcessResult result;
+            if (ProgramMatch.MsiProductCode(entry.KeyName, entry.UninstallString) is { } code
+                && (entry.WindowsInstaller || entry.UninstallString?.Contains("msiexec", StringComparison.OrdinalIgnoreCase) == true))
+            {
+                result = Processes.RunRaw(MsiExec, $"/x {code} /qn /norestart", InstallerLimit);
+            }
+            else if (ProgramMatch.SplitCommand(entry.QuietUninstallString) is { } quiet)
+            {
+                result = Processes.RunRaw(quiet.Program, quiet.Arguments, InstallerLimit);
+            }
+            else if (p.Installer?.UninstallArguments is { Length: > 0 } extra && ProgramMatch.SplitCommand(entry.UninstallString) is { } plain)
+            {
+                result = Processes.RunRaw(plain.Program, $"{plain.Arguments} {extra}".Trim(), InstallerLimit);
+            }
+            else
+            {
+                throw new InvalidOperationException(
+                    $"{entry.DisplayName} nemá tichú odinštaláciu – doplň do receptu installer.uninstallArguments (napr. /S).");
+            }
+
+            if (!Accepted(result.ExitCode))
+            {
+                throw new InvalidOperationException($"Odinštalovanie {entry.DisplayName} skončilo kódom {result.Code}. {result.OutputTail}");
+            }
+        }
+    }
+
+    /// <summary>A program may end with a non-zero code and still have done its work (for example "already installed");
+    /// the state decides, the code only explains a failure.</summary>
+    private void Finish(ProgramElement p, ProcessResult result, string ended)
+    {
+        if (Accepted(result.ExitCode))
+        {
+            return;
+        }
+
+        var now = Observe(p).State;
+        if ((p.Present && now == Observed.Present) || (!p.Present && now == Observed.Absent))
+        {
+            return;
+        }
+
+        throw new InvalidOperationException($"{ended} kódom {result.Code}. {result.OutputTail}".Trim());
+    }
+
+    /// <summary>0 = done; 3010 = done, a restart is needed; 1641 = done, the installer starts a restart.</summary>
+    private static bool Accepted(int code) => code is 0 or 3010 or 1641;
+
+    private static string MsiExec => Path.Combine(Environment.SystemDirectory, "msiexec.exe");
+}
