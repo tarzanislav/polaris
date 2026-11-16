@@ -14,7 +14,8 @@ aby predvolený štart nikdy neukazoval na vrstvu, ktorá už bežala.
 podpísaných receptov.** Etapy **K1 a K2** sú vo vývoji: `polaris-agent` porovná PC s receptom (programy cez WinGet
 alebo overený inštalátor, hodnoty registra, záložky, služby, súčasti Windows, klávesnice a predloha profilov), zmeny
 urobí a každú overí. Služba POLARIS agent čistí relácie spoločného konta žiaka a prevádzkuje **Školský obchod**
-(žiak si nainštaluje schválený program, po relácii zmizne). Na plochu dáva **šablóny Pieskoviska** (Windows Sandbox).
+(žiak si nainštaluje schválený program, po relácii zmizne). Na plochu dáva **šablóny Pieskoviska** (Windows Sandbox). Žiak má **ikonu POLARIS** pri hodinách (obchod na klik,
+upozornenie na čistenie profilu); služba ju udržiava v chode a žiak ju ukončiť nemôže.
 Popis formátu: [docs/recept.md](docs/recept.md), ukážky: [recepty/](recepty/).
 
 Pôvodný smer v1 (vrstvy disku) je pozastavený:

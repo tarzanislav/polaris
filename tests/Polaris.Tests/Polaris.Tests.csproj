@@ -11,5 +11,6 @@
     <ProjectReference Include="..\..\src\Polaris.Centrum\Polaris.Centrum.csproj" />
     <ProjectReference Include="..\..\src\Polaris.Recipes\Polaris.Recipes.csproj" />
     <ProjectReference Include="..\..\src\Polaris.Agent\Polaris.Agent.csproj" />
+    <ProjectReference Include="..\..\src\Polaris.Student\Polaris.Student.csproj" />
   </ItemGroup>
 </Project>

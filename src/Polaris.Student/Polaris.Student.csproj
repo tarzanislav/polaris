@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- polaris-ziak: the icon of POLARIS in the pupil's session (the notification area by the clock): the School store on
+       a click, a reminder that the profile is cleaned, the Sandbox templates. Plain Win32 through own calls – no
+       graphic libraries – and even the picture of the icon is drawn by code. It has no rights of its own: everything
+       is decided by the agent's service. -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <RootNamespace>Polaris.Student</RootNamespace>
+    <AssemblyName>polaris-ziak</AssemblyName>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <PublishAot>true</PublishAot>
+    <OptimizationPreference>Size</OptimizationPreference>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Polaris.Recipes\Polaris.Recipes.csproj" />
+  </ItemGroup>
+</Project>

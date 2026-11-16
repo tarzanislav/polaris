@@ -174,15 +174,15 @@ public static class WindowsStoreChecks
         try
         {
             var limit = TimeSpan.FromSeconds(30);
-            var closed = StorePipe.Ask(new StoreRequest { Command = "list" }, limit, pipe);
+            var closed = StoreClient.Ask(new StoreRequest { Command = "list" }, limit, pipe);
             Expect.True(!closed.Ok && closed.Message.Contains("zatvorený", StringComparison.Ordinal), "bez katalógu: " + closed.Message);
 
             state.SetCatalogue(Catalogue(Environment.UserName));
-            var list = StorePipe.Ask(new StoreRequest { Command = "list" }, limit, pipe);
+            var list = StoreClient.Ask(new StoreRequest { Command = "list" }, limit, pipe);
             Expect.True(list.Ok && list.Items.Count == 3, "zoznam cez rúru: " + list.Message);
 
             // the request cannot say who asks – the runner's account is an administrator and Windows says so
-            var refused = StorePipe.Ask(new StoreRequest { Command = "install", Item = "a" }, limit, pipe);
+            var refused = StoreClient.Ask(new StoreRequest { Command = "install", Item = "a" }, limit, pipe);
             Expect.True(!refused.Ok && refused.Message.Contains("Správca", StringComparison.Ordinal), "správca odmietnutý: " + refused.Message);
             Expect.True(programs.Installed.Count == 0, "nič sa nenainštalovalo");
             Expect.Sequence(Array.Empty<string>(), logged, "rúra bez chýb");

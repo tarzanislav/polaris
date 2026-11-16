@@ -279,8 +279,7 @@ public sealed class StoreWork(StoreState state, IElementHandler programs, Action
 [SupportedOSPlatform("windows")]
 public static class StorePipe
 {
-    public const string Name = "polaris-obchod";
-    public static readonly TimeSpan ClientLimit = TimeSpan.FromMinutes(45);
+    public const string Name = StoreClient.PipeName;
     public static readonly TimeSpan RequestLimit = TimeSpan.FromSeconds(15);
 
     public static void Serve(StoreWork work, Action<string> log, CancellationToken stop, string name = Name)
@@ -378,30 +377,5 @@ public static class StorePipe
         }
 
         return null;
-    }
-
-    /// <summary>The pupil's side: one request, one answer.</summary>
-    public static StoreAnswer Ask(StoreRequest request, TimeSpan limit, string name = Name)
-    {
-        using var pipe = new NamedPipeClientStream(".", name, PipeDirection.InOut, PipeOptions.None, TokenImpersonationLevel.Identification);
-        try
-        {
-            pipe.Connect(10000);
-        }
-        catch (TimeoutException)
-        {
-            return new StoreAnswer { Ok = false, Message = "Školský obchod neodpovedá – služba POLARIS agent nebeží, alebo práve inštaluje iný program. Skús to o chvíľu." };
-        }
-
-        using var writer = new StreamWriter(pipe, new UTF8Encoding(false), 4096, leaveOpen: true) { AutoFlush = true };
-        using var reader = new StreamReader(pipe, Encoding.UTF8, false, 4096, leaveOpen: true);
-        writer.WriteLine(StoreRules.ToJson(request));
-        var read = reader.ReadLineAsync();
-        if (!read.Wait(limit) || read.Result is not { } line)
-        {
-            return new StoreAnswer { Ok = false, Message = "Služba neodpovedala včas." };
-        }
-
-        return StoreRules.AnswerFromJson(line) ?? new StoreAnswer { Ok = false, Message = "Nezrozumiteľná odpoveď služby." };
     }
 }

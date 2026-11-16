@@ -221,7 +221,30 @@ polaris-agent konzoly | nedoverovat ODTLACOK            zoznam a zrušenie dôve
   trvalým prvkom `program` toho istého receptu.
 - Každá inštalácia sa zapíše do denníka (`polaris-agent dennik`). Katalóg a záznamy sú v
   `HKLM\SOFTWARE\POLARIS\Agent\Obchod`.
-- Ikona v oblasti oznámení pre žiaka príde neskôr. Teraz je obchod príkaz v termináli (dá sa naň dať odkaz na plochu).
+- Žiak obchod používa cez **ikonu POLARIS** pri hodinách (pozri nižšie), alebo príkazom v termináli.
+
+## Ikona pre žiaka (`polaris-ziak.exe`)
+
+Ikona POLARIS v oblasti oznámení (pri hodinách) v každej prihlásenej relácii:
+
+- **Školský obchod na klik:** ponuka programov, nainštalované so značkou ✓; po kliknutí oznámenie „Inštalujem…“
+  a potom výsledok.
+- **Upozornenie na čistenie:** pri prihlásení a v popise ikony („Po odhlásení sa tento profil vymaže – prácu si
+  ukladaj do Úschovne alebo na USB“).
+- **Pieskovisko:** spustenie šablón z plochy.
+
+Spúšťa ju **služba POLARIS agent** (nie zoznam programov po prihlásení, ten by žiak vedel obísť):
+
+- Každých 5 sekúnd skontroluje všetky prihlásené relácie. **Ikonu, ktorá chýba alebo padla, spustí znova.** Keď ikona
+  padá hneď po štarte, po troch pádoch počká 5 minút a zapíše to do denníka (raz, nie stále dookola).
+- Ikona beží ako prihlásený žiak, **bez akýchkoľvek práv navyše**. Všetko rozhoduje služba.
+- **Žiak ju nemôže ukončiť:** ikona dostane ochranu, ktorá jej používateľovi dovolí len vidieť ju. Ukončiť ju zo
+  Správcu úloh, cez `taskkill` alebo PowerShell, pozastaviť, ladiť či zmeniť jej ochranu skončí hlásením „prístup
+  odmietnutý“. To isté platí pre vlákna, ktoré ikona vytvorí neskôr. Zatvoriť ju nedá ani správa oknu. Overené testom
+  na Windows: to isté konto bez skupiny Správcovia ikonu ukončiť nemôže, správca áno.
+- Službu samu žiak zastaviť nemôže (beží ako systém). Správca môže ikonu aj službu ukončiť vždy.
+- Inštaluje sa spolu so službou (`polaris-agent instalovat-sluzbu`, keď je `polaris-ziak.exe` vedľa agenta).
+- Obrázok ikony (polárka na tmavomodrom kruhu) kreslí kód, žiadny obrázkový súbor.
 
 ## Ukážky
 
@@ -233,6 +256,6 @@ polaris-agent konzoly | nedoverovat ODTLACOK            zoznam a zrušenie dôve
 
 ## Pripravuje sa
 
-Ďalšie typy prvkov: tlačiarne, Wi-Fi, súbory, kontá s heslom ako tajomstvom. Ikona Školského obchodu pre žiaka.
+Ďalšie typy prvkov: tlačiarne, Wi-Fi, súbory, kontá s heslom ako tajomstvom.
 Priradenia receptov skupinám a PC s životnosťou (do konca hodiny, dňa, týždňa) sú už naprogramované
 v `Polaris.Recipes` (`Assignments`). Do prevádzky ich uvedie centrum v etape K3.

@@ -32,6 +32,8 @@ public static class AgentService
         var store = Store(host, state);
         var door = new Thread(() => StorePipe.Serve(store, Log, stop)) { IsBackground = true, Name = "Školský obchod" };
         door.Start();
+        var icons = new Thread(() => WatchIcons(host, stop)) { IsBackground = true, Name = "Ikona žiaka" };
+        icons.Start();
 
         var lastMessage = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         while (!stop.IsCancellationRequested)
@@ -73,6 +75,7 @@ public static class AgentService
         }
 
         door.Join(TimeSpan.FromSeconds(10));
+        icons.Join(TimeSpan.FromSeconds(10));
 
         void Log(string message) => journal(new RunRecord
         {
@@ -81,6 +84,38 @@ public static class AgentService
             Recipe = "(Školský obchod)",
             Results = [new ChangeResult("obchod", "Školský obchod", ChangeKind.Change, false, message, 0)],
         });
+    }
+
+    /// <summary>Every <see cref="IconWatch.Look"/>: the pupil's icon runs in every signed-in session; a fallen one is
+    /// started again. When the service stops, the icons it started end.</summary>
+    private static void WatchIcons(AgentHost host, CancellationToken stop)
+    {
+        var program = IconLauncher.InstalledProgram;
+        var watch = new IconWatch(
+            session => IconLauncher.Start(session, program),
+            note => Commands.WriteJournal(host.JournalPath, new RunRecord
+            {
+                StartedUtc = host.Clock(),
+                FinishedUtc = host.Clock(),
+                Recipe = "(ikona žiaka)",
+                Results = [new ChangeResult("ikona", "ikona žiaka", ChangeKind.Install, false, note, 0)],
+            }));
+        try
+        {
+            while (!stop.IsCancellationRequested)
+            {
+                if (File.Exists(program))
+                {
+                    watch.Check(IconLauncher.ActiveSessions(), host.Clock());
+                }
+
+                stop.WaitHandle.WaitOne(IconWatch.Look);
+            }
+        }
+        finally
+        {
+            watch.StopAll();
+        }
     }
 
     /// <summary>The School store of this PC, as the service runs it.</summary>
@@ -114,6 +149,12 @@ public static class AgentService
         if (!string.Equals(Path.GetFullPath(currentProgram), Path.GetFullPath(target), StringComparison.OrdinalIgnoreCase))
         {
             File.Copy(currentProgram, target, overwrite: true);
+            var icon = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(currentProgram))!, IconLauncher.ProgramName);
+            if (File.Exists(icon))
+            {
+                File.Copy(icon, IconLauncher.InstalledProgram, overwrite: true);
+                output.WriteLine("Ikona žiaka: služba ju spustí v každej prihlásenej relácii a padnutú spustí znova.");
+            }
         }
 
         ServiceManager.Install(Name, DisplayName, Description, $"\"{target}\" sluzba");

@@ -58,7 +58,7 @@ public sealed class AgentHost
         Trusted = TrustStore.Read,
         AddTrusted = TrustStore.Add,
         RemoveTrusted = TrustStore.Remove,
-        Store = request => StorePipe.Ask(request, StorePipe.ClientLimit),
+        Store = request => StoreClient.Ask(request, StoreClient.InstallLimit),
     };
 }
 
