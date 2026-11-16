@@ -114,14 +114,14 @@ public static class ClassroomFormat
         return Guid.TryParse(text, out var id) ? id : throw JsonError.At(f.Node("id") ?? f.Object, $"„{text}“ nie je platný identifikátor PC.");
     }
 
-    private static JsonObject Timetable(Timetable t) => new JsonObject()
+    internal static JsonObject Timetable(Timetable t) => new JsonObject()
         .Add("switchMinutesBefore", t.SwitchMinutesBefore)
         .Add("periods", JsonArray.Of(t.Periods, p => new JsonObject().Add("number", p.Number).Add("start", Clock(p.Start)).Add("end", Clock(p.End))))
         .Add("lessons", JsonArray.Of(t.Lessons, l => new JsonObject().Add("weekday", l.Weekday).Add("period", l.Period).Add("group", l.Group).Add("profile", l.Profile)))
         .Add("overrides", JsonArray.Of(t.Overrides, o => new JsonObject().Add("date", Day(o.Date)).Add("period", o.Period).Add("group", o.Group).Add("profile", o.Profile)))
         .Add("daysOff", JsonArray.Of(t.DaysOff.Order(), d => Day(d)));
 
-    private static Timetable ReadTimetable(JsonFields f)
+    internal static Timetable ReadTimetable(JsonFields f)
     {
         var t = new Timetable
         {

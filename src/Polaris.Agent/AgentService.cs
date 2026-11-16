@@ -34,6 +34,8 @@ public static class AgentService
         door.Start();
         var icons = new Thread(() => WatchIcons(host, stop)) { IsBackground = true, Name = "Ikona žiaka" };
         icons.Start();
+        var centre = new Thread(() => FollowCentre(host, stop)) { IsBackground = true, Name = "Centrum" };
+        centre.Start();
 
         var lastMessage = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         while (!stop.IsCancellationRequested)
@@ -76,6 +78,7 @@ public static class AgentService
 
         door.Join(TimeSpan.FromSeconds(10));
         icons.Join(TimeSpan.FromSeconds(10));
+        centre.Join(TimeSpan.FromSeconds(10));
 
         void Log(string message) => journal(new RunRecord
         {
@@ -117,6 +120,69 @@ public static class AgentService
             watch.StopAll();
         }
     }
+
+    /// <summary>Every minute: the profile the timetable wants is applied when it should be; every five minutes the plan is
+    /// asked from the centre. A failure is written to the journal once, not every round.</summary>
+    private static void FollowCentre(AgentHost host, CancellationToken stop)
+    {
+        CentreSync? sync = null;
+        CentreSettings? syncFor = null;
+        var lastFetch = DateTimeOffset.MinValue;
+        string? lastProblem = null;
+        while (!stop.IsCancellationRequested)
+        {
+            try
+            {
+                if (Centre.Settings() is { } settings)
+                {
+                    if (sync is null || settings != syncFor)
+                    {
+                        (sync, syncFor, lastFetch) = (Centre.Sync(settings, host), settings, DateTimeOffset.MinValue);
+                    }
+
+                    if (host.Clock() - lastFetch >= Centre.FetchEvery)
+                    {
+                        lastFetch = host.Clock();
+                        var outcome = sync.Fetch(Centre.Sequence());
+                        if (outcome.Changed)
+                        {
+                            Centre.SetSequence(outcome.Sequence);
+                            lastProblem = null;
+                            Note(host, true, outcome.Message);
+                        }
+                        else if (outcome.Message != "plán sa nezmenil" && outcome.Message != lastProblem)
+                        {
+                            lastProblem = outcome.Message;
+                            Note(host, false, outcome.Message);
+                        }
+                    }
+
+                    if (Centre.Tick(sync, host, DateTime.Now) is { } run)
+                    {
+                        Commands.WriteJournal(host.JournalPath, run);
+                    }
+                }
+            }
+            catch (Exception e) when (e is not OutOfMemoryException)
+            {
+                if (e.Message != lastProblem)
+                {
+                    lastProblem = e.Message;
+                    Note(host, false, "chyba: " + e.Message);
+                }
+            }
+
+            stop.WaitHandle.WaitOne(Centre.TickEvery);
+        }
+    }
+
+    private static void Note(AgentHost host, bool ok, string message) => Commands.WriteJournal(host.JournalPath, new RunRecord
+    {
+        StartedUtc = host.Clock(),
+        FinishedUtc = host.Clock(),
+        Recipe = "(centrum)",
+        Results = [new ChangeResult("centrum", "plán z centra", ChangeKind.Change, ok, message, 0)],
+    });
 
     /// <summary>The School store of this PC, as the service runs it.</summary>
     public static StoreWork Store(AgentHost host, StoreState state) =>

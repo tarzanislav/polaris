@@ -1,0 +1,32 @@
+# POLARIS centrum ako služba systemd na Debiane (docs/centrum.md, časť Centrum na serveri).
+# Program: /opt/polaris/polaris-centrum, dáta: /srv/polaris (centrum.json, zverejnene, zasoba, server.pem, server.key).
+[Unit]
+Description=POLARIS centrum (HTTPS, len na čítanie)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=polaris
+Group=polaris
+WorkingDirectory=/srv/polaris
+ExecStart=/opt/polaris/polaris-centrum --subor /srv/polaris/centrum.json server --zasoba /srv/polaris/zasoba
+Restart=on-failure
+RestartSec=5
+# server iba číta: celý systém je preň len na čítanie, žiadne práva navyše
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_INET AF_INET6
+RestrictNamespaces=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

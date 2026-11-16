@@ -3,6 +3,7 @@
     <Project Path="src/Polaris.Core/Polaris.Core.csproj" />
     <Project Path="src/Polaris.Net/Polaris.Net.csproj" />
     <Project Path="src/Polaris.Student/Polaris.Student.csproj" />
+    <Project Path="src/Polaris.Web/Polaris.Web.csproj" />
     <Project Path="src/Polaris.Windows/Polaris.Windows.csproj" />
     <Project Path="src/Polaris.Install/Polaris.Install.csproj" />
     <Project Path="src/Polaris.Json/Polaris.Json.csproj" />

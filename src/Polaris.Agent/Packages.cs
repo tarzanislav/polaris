@@ -4,6 +4,7 @@ using Microsoft.Win32;
 using Polaris.Core;
 using Polaris.Install;
 using Polaris.Recipes;
+using Polaris.Web;
 
 namespace Polaris.Agent;
 
@@ -70,11 +71,11 @@ public static class Packages
         {
             try
             {
-                return new PackageStore(root).Load(link.Id, link.Fingerprint);
+                return Web(root) is { } centre ? FromCentre(centre, link) : new PackageStore(root).Load(link.Id, link.Fingerprint);
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException)
             {
-                failure = e; // the share is not reachable now
+                failure = e; // the share or the centre is not reachable now
             }
         }
 
@@ -91,6 +92,39 @@ public static class Packages
             $"Balík {link.Id}: zásoba nie je nastavená (polaris-agent zasoba CESTA) ani vedľa receptu (priečinok zasoba).");
     }
 
+    /// <summary>A supply given as the centre's address: reached with the centre's pin (polaris-agent centrum).</summary>
+    private static CentreSettings? Web(string root)
+    {
+        if (!root.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        var centre = Centre.Settings() ?? throw new InvalidDataException("Zásoba je na centre, ale PC nie je pripojené k centru (polaris-agent centrum …).");
+        return centre with { Address = new Uri(root.TrimEnd('/') + "/") };
+    }
+
+    private static Package FromCentre(CentreSettings centre, PackageRef link)
+    {
+        var answer = PinnedClient.Get(centre.Of($"v1/baliky/{link.Id}/{PackageFormat.FileName}"), centre.Pin, null, 1024 * 1024, TimeSpan.FromSeconds(30));
+        if (!answer.Ok)
+        {
+            throw answer.Status == 404
+                ? new FileNotFoundException($"Balík {link.Id} na centre nie je.")
+                : new IOException($"Centrum nie je dostupné: {answer.Error ?? answer.Status.ToString(System.Globalization.CultureInfo.InvariantCulture)}.");
+        }
+
+        var p = PackageFormat.FromJson(Encoding.UTF8.GetString(answer.Body), $"balík {link.Id}");
+        if (p.Id != link.Id || PackageFormat.Problems(p).Count > 0)
+        {
+            throw new InvalidDataException($"Centrum poslalo nesprávny popis balíka {link.Id}.");
+        }
+
+        return string.Equals(PackageFormat.Fingerprint(p), link.Fingerprint, StringComparison.OrdinalIgnoreCase)
+            ? p
+            : throw new InvalidDataException($"Popis balíka {link.Id} sa zmenil po schválení receptu (iný odtlačok) – balík nepoužijem.");
+    }
+
     /// <summary>The installer in the agent's protected folder, checked: fingerprint, size and – when the description names
     /// one – the publisher's valid signature. Only this copy ever runs.</summary>
     public static string Fetch(Package p, string recipeFolder, string? supply)
@@ -100,11 +134,22 @@ public static class Packages
         if (!(File.Exists(local) && new FileInfo(local).Length == p.Size && RecipeText.FileFingerprint(local) == p.Sha256))
         {
             var root = SupplyOf(recipeFolder, supply) ?? throw new FileNotFoundException($"Balík {p.Id}: zásoba nie je dostupná.");
-            var source = new PackageStore(root).InstallerOf(p);
             Directory.CreateDirectory(folder);
             AgentService.ProtectFolder(AgentFolder);
             var partial = local + ".kopia";
-            File.Copy(source, partial, overwrite: true);
+            if (Web(root) is { } centre)
+            {
+                var answer = PinnedClient.Get(centre.Of($"v1/baliky/{p.Id}/{p.File}"), centre.Pin, null, p.Size, TimeSpan.FromMinutes(30), partial);
+                if (!answer.Ok)
+                {
+                    throw new IOException($"Balík {p.Id} sa z centra nedá stiahnuť: {answer.Error ?? answer.Status.ToString(System.Globalization.CultureInfo.InvariantCulture)}.");
+                }
+            }
+            else
+            {
+                File.Copy(new PackageStore(root).InstallerOf(p), partial, overwrite: true);
+            }
+
             var actual = RecipeText.FileFingerprint(partial);
             if (actual != p.Sha256)
             {

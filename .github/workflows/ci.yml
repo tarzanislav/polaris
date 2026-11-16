@@ -34,6 +34,26 @@ jobs:
         run: dotnet format whitespace --folder . --verify-no-changes
       - name: Tests
         run: dotnet run --project tests/Polaris.Tests -c Release --no-build
+      - name: polaris-centrum for Linux (natively compiled) and its HTTPS server
+        run: |
+          bash tools/ci/dotnet.sh publish src/Polaris.Centrum -c Release -r linux-x64 -o out/centrum-linux
+          bin=$PWD/out/centrum-linux/polaris-centrum
+          work=$(mktemp -d)
+          "$bin" --subor "$work/centrum.json" server certifikat localhost 127.0.0.1 | tee "$work/cert.txt"
+          test "$(stat -c %a "$work/server.key")" = "600" || { echo "::error::súkromný kľúč nie je chránený"; exit 1; }
+          "$bin" --subor "$work/centrum.json" server --port 18443 & pid=$!
+          for i in $(seq 20); do curl -sk https://127.0.0.1:18443/v1/stav && break; sleep 0.5; done | tee "$work/stav.txt"
+          grep -q '"polaris":"centrum"' "$work/stav.txt" || { echo "::error::centrum neodpovedá"; kill $pid; exit 1; }
+          code=$(curl -sk -o /dev/null -w '%{http_code}' -X POST https://127.0.0.1:18443/v1/stav)
+          test "$code" = "405" || { echo "::error::centrum prijalo zápis ($code)"; kill $pid; exit 1; }
+          kill -TERM $pid; wait $pid; echo "server skončil kódom $?"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: polaris-centrum-linux
+          path: |
+            out/centrum-linux/polaris-centrum
+            tools/debian/polaris-centrum.service
+            docs/centrum.md
 
   windows:
     name: Build, tests, agent and tools (Windows)

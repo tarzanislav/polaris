@@ -83,6 +83,8 @@ public static class Commands
           instalovat-sluzbu      skopíruje agenta do Program Files a spustí službu POLARIS agent (čistí relácie; správca)
           odinstalovat-sluzbu    zastaví a odstráni službu (správca)
           vycistit KONTO         hneď zmaže profil zdieľaného konta, ak na ňom nikto nie je prihlásený (správca)
+          centrum ADRESA ODTLAČOK SKUPINA   PC berie plán skupiny z centra (https://server:8443, odtlačok z centra; správca)
+          centrum [teraz | -]    stav spojenia; teraz = stiahne plán a použije profil hneď; - = odpojí od centra
           zasoba [CESTA | -]     Zásoba balíkov tohto PC (napr. \\server\polaris-zasoba); bez cesty ju vypíše, - zruší
           obchod                 Školský obchod pre žiaka: zoznam programov a inštalácia na túto reláciu
           obchod zoznam | obchod instalovat ID
@@ -120,6 +122,7 @@ public static class Commands
                 "vycistit" => CleanNow(Need(args, "vycistit KONTO"), output, host ?? DefaultHost()),
                 "obchod" => Store(args, output, host ?? DefaultHost()),
                 "zasoba" => Supply(args, output, host ?? DefaultHost()),
+                "centrum" => CentreCommand(args, output, host ?? DefaultHost()),
                 "dennik" => Journal(args.Length > 1 && int.TryParse(args[1], out var n) && n > 0 ? n : 10, output, host ?? DefaultHost()),
                 _ => Wrong($"Neznámy príkaz „{args[0]}“. Zoznam príkazov: polaris-agent pomoc", output),
             };
@@ -358,6 +361,86 @@ public static class Commands
         return result.Cleaned || result.Message.Contains("čistý", StringComparison.Ordinal) ? 0 : 1;
     }
 
+    private static int CentreCommand(string[] args, TextWriter output, AgentHost host)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            throw new PlatformNotSupportedException();
+        }
+
+        if (args.Length == 1)
+        {
+            if (Centre.Settings() is not { } s)
+            {
+                output.WriteLine("PC nie je pripojené k centru.");
+                return 0;
+            }
+
+            var (profile, fingerprint, at) = Centre.Applied();
+            output.WriteLine($"Centrum: {s.Address} (odtlačok {s.Pin[..16]}…), skupina {s.Group}, plán {Centre.Sequence()}.");
+            output.WriteLine(profile is null ? "Profil z centra sa ešte nepoužil." : $"Naposledy použitý profil {profile} ({fingerprint?[..12]}…) {at?.ToLocalTime():d. M. H:mm}.");
+            return 0;
+        }
+
+        if (!host.IsAdmin())
+        {
+            return Wrong("Spojenie s centrom smie meniť len správca.", output);
+        }
+
+        if (args[1] == "-")
+        {
+            Centre.Configure(null);
+            output.WriteLine("PC odpojené od centra. Posledný profil ostáva, kým ho nezmení recept.");
+            return 0;
+        }
+
+        CentreSettings settings;
+        if (args[1] == "teraz")
+        {
+            settings = Centre.Settings() ?? throw new InvalidDataException("PC nie je pripojené k centru: polaris-agent centrum ADRESA ODTLAČOK SKUPINA");
+        }
+        else
+        {
+            if (args.Length != 4 || !Uri.TryCreate(args[1], UriKind.Absolute, out var address) || address.Scheme != Uri.UriSchemeHttps)
+            {
+                return Wrong("Použitie: polaris-agent centrum https://SERVER:8443 ODTLAČOK SKUPINA", output);
+            }
+
+            if (args[2].Length != 64 || !args[2].All(char.IsAsciiHexDigit))
+            {
+                return Wrong("Odtlačok centra má 64 znakov 0-9 a-f (vypíše ho polaris-centrum server certifikat).", output);
+            }
+
+            settings = new CentreSettings(address, args[2].ToLowerInvariant(), args[3]);
+            Centre.Configure(settings);
+            output.WriteLine($"PC pripojené k centru {address}, skupina {args[3]}.");
+        }
+
+        var sync = Centre.Sync(settings, host);
+        var outcome = sync.Fetch(Centre.Sequence());
+        if (outcome.Changed)
+        {
+            Centre.SetSequence(outcome.Sequence);
+        }
+
+        output.WriteLine("Plán: " + outcome.Message + ".");
+        if (args[1] != "teraz")
+        {
+            return sync.Plan() is null ? 1 : 0;
+        }
+
+        var run = Centre.Tick(sync, host, DateTime.Now, force: true);
+        if (run is null)
+        {
+            output.WriteLine("Nie je čo použiť – PC nemá platný plán.");
+            return 1;
+        }
+
+        output.WriteLine(RunReport.RunText(run));
+        WriteJournal(host.JournalPath, run);
+        return run.Failed == 0 ? 0 : 1;
+    }
+
     private static int Supply(string[] args, TextWriter output, AgentHost host)
     {
         if (!OperatingSystem.IsWindows())
@@ -386,6 +469,18 @@ public static class Commands
         }
 
         var root = args[1];
+        if (root.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+        {
+            if (Centre.Settings() is null)
+            {
+                return Wrong("Zásoba na centre potrebuje spojenie s centrom: najprv polaris-agent centrum ADRESA ODTLAČOK SKUPINA.", output);
+            }
+
+            Packages.Configure(root);
+            output.WriteLine($"Zásoba balíkov: {root} (cez centrum, s jeho odtlačkom).");
+            return 0;
+        }
+
         if (!Directory.Exists(Path.Combine(root, "baliky")))
         {
             return Wrong($"V {root} nie je zásoba (chýba priečinok baliky). Vytvára ju polaris-centrum zasoba pridat.", output);

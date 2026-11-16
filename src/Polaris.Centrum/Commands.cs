@@ -40,6 +40,9 @@ public static partial class Commands
           rozvrh [SKUPINA]                    týždenný rozvrh
           den [DÁTUM] [SKUPINA]               kedy sa PC v daný deň prepnú (inak dnes)
           kontrola                            nájde chyby v nastaveniach a receptoch (návratový kód 1, keď nejaké sú)
+          zverejnit KLUC                      podpíše a zverejní plány skupín a ich recepty pre PC (priečinok zverejnene)
+          server certifikat NÁZOV…            certifikát centra (vypíše odtlačok, ktorý sa zadá na PC)
+          server [--port 8443] [--zasoba CESTA]   centrum na sieti: HTTPS, len na čítanie (zverejnené plány, recepty, zásoba)
           kluc novy MENO                      nový kľúč konzoly: MENO.kluc (súkromný, chránený heslom) a MENO.verejny.json
           podpisat RECEPT KLUC                podpíše recept (vznikne RECEPT.podpis); PC s dôverou k tejto konzole ho prijmú
 
@@ -92,7 +95,7 @@ public static partial class Commands
         return typed.ToString();
     }
 
-    public static int Run(string[] args, TextWriter output, DateTime localNow, DateTimeOffset utcNow, Func<string, string?>? secret = null)
+    public static int Run(string[] args, TextWriter output, DateTime localNow, DateTimeOffset utcNow, Func<string, string?>? secret = null, CancellationToken stop = default)
     {
         var words = args.ToList();
         var file = DefaultFile;
@@ -140,6 +143,16 @@ public static partial class Commands
             if (command == "kontrola")
             {
                 return Check(data, store, rest, output);
+            }
+
+            if (command == "zverejnit")
+            {
+                return Publish(data, store, rest, output, utcNow, secret ?? ReadSecret);
+            }
+
+            if (command == "server")
+            {
+                return Server(store, rest, output, utcNow, stop);
             }
 
             var changed = command switch

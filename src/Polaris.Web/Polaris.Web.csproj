@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Own small HTTP/1.1 over the TLS of the system (SslStream): a read-only server for the centre and a client for the
+       agent that trusts the centre by the pinned fingerprint of its key, not by any certificate authority. Only GET and
+       HEAD, no body in requests, strict limits everywhere. No packages, no web framework. -->
+  <PropertyGroup>
+    <RootNamespace>Polaris.Web</RootNamespace>
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+</Project>
