@@ -3,8 +3,8 @@
   // Pracovná skupina rovnaká ako Samba na serveri, časové pásmo, Windows Update a napájanie cez politiky Windows.
   "schema": 1,
   "name": "ZAKLAD",
-  "version": 4,
-  "note": "Ukážka: pracovná skupina SKOLA, stredoeurópsky čas, aktualizácie mimo vyučovania, napájanie pre učebňu, bez OneDrive a zrýchleného Edge, prihlásenie žiaka bez otázok o súkromí a bez uvítania Edge",
+  "version": 5,
+  "note": "Ukážka: pracovná skupina SKOLA, stredoeurópsky čas, aktualizácie mimo vyučovania, napájanie pre učebňu, bez OneDrive a zrýchleného Edge, prihlásenie žiaka bez otázok o súkromí a bez uvítania Edge, vizuálne efekty pre výkon (voľba správcu)",
   "elements": [
     {
       "type": "computer",
@@ -83,6 +83,105 @@
       "kind": "DWord",
       "data": "0",
       "note": "prvé prihlásenie (u žiaka každé) bez animácie „Ahoj“ – rýchlejšie"
+    },
+    {
+      "type": "user-registry",
+      "id": "efekty-vlastne",
+      "path": "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\VisualEffects",
+      "name": "VisualFXSetting",
+      "kind": "DWord",
+      "data": "3",
+      "note": "Výkon – možnosti: Vlastné nastavenie"
+    },
+    {
+      "type": "user-registry",
+      "id": "efekty-maska",
+      "path": "Control Panel\\Desktop",
+      "name": "UserPreferencesMask",
+      "kind": "Binary",
+      "data": "90 12 03 80 10 00 00 00",
+      "note": "bez animácií ovládacích prvkov, ponúk, zoznamov a popisov, bez tieňov okien a ukazovateľa, bez zoslabovania položiek ponuky"
+    },
+    {
+      "type": "user-registry",
+      "id": "efekty-okna",
+      "path": "Control Panel\\Desktop\\WindowMetrics",
+      "name": "MinAnimate",
+      "kind": "String",
+      "data": "0",
+      "note": "bez animácie okien pri minimalizovaní a maximalizovaní"
+    },
+    {
+      "type": "user-registry",
+      "id": "efekty-presuvanie",
+      "path": "Control Panel\\Desktop",
+      "name": "DragFullWindows",
+      "kind": "String",
+      "data": "0",
+      "note": "pri presúvaní sa nezobrazuje obsah okna"
+    },
+    {
+      "type": "user-registry",
+      "id": "efekty-pismo",
+      "path": "Control Panel\\Desktop",
+      "name": "FontSmoothing",
+      "kind": "String",
+      "data": "2",
+      "note": "vyhladzovať okraje písma"
+    },
+    {
+      "type": "user-registry",
+      "id": "efekty-panel",
+      "path": "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+      "name": "TaskbarAnimations",
+      "kind": "DWord",
+      "data": "0",
+      "note": "bez animácií na paneli úloh"
+    },
+    {
+      "type": "user-registry",
+      "id": "efekty-vyber",
+      "path": "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+      "name": "ListviewAlphaSelect",
+      "kind": "DWord",
+      "data": "1",
+      "note": "priesvitný obdĺžnik výberu"
+    },
+    {
+      "type": "user-registry",
+      "id": "efekty-tiene-ikon",
+      "path": "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+      "name": "ListviewShadow",
+      "kind": "DWord",
+      "data": "1",
+      "note": "tiene na označeniach ikon na ploche"
+    },
+    {
+      "type": "user-registry",
+      "id": "efekty-miniatury",
+      "path": "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+      "name": "IconsOnly",
+      "kind": "DWord",
+      "data": "0",
+      "note": "miniatúry namiesto ikon"
+    },
+    {
+      "type": "user-registry",
+      "id": "efekty-peek",
+      "path": "Software\\Microsoft\\Windows\\DWM",
+      "name": "EnableAeroPeek",
+      "kind": "DWord",
+      "data": "1",
+      "note": "funkcia Peek zapnutá"
+    },
+    {
+      "type": "user-registry",
+      "id": "efekty-ukazky",
+      "path": "Software\\Microsoft\\Windows\\DWM",
+      "name": "AlwaysHibernateThumbnails",
+      "kind": "DWord",
+      "data": "0",
+      "note": "neukladať miniatúrne ukážky na paneli úloh"
     }
   ]
 }
