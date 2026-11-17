@@ -261,7 +261,7 @@ internal static partial class ServiceManager
                 var e = Marshal.GetLastPInvokeError();
                 service.Dispose();
                 throw e == ErrorServiceDoesNotExist
-                    ? new InvalidOperationException($"Služba {name} na tomto PC neexistuje.")
+                    ? new ServiceMissingException(name)
                     : new SystemCallException($"Otvorenie služby {name}", e);
             }
 
@@ -362,7 +362,17 @@ public sealed class ServiceHandler : IElementHandler
     public Observation Observe(Element element)
     {
         var s = (ServiceElement)element;
-        var state = ServiceManager.Read(s.Name);
+        ServiceManager.State state;
+        try
+        {
+            state = ServiceManager.Read(s.Name);
+        }
+        catch (ServiceMissingException) when (s.Start == ServiceStart.Disabled && s.Running != true)
+        {
+            // one recipe for every PC: a service this Windows does not have is as off as can be
+            return new Observation(Observed.Present, "služba na tomto PC nie je – nie je čo vypínať");
+        }
+
         var now = Describe(state);
         var startOk = state.StartType == StartType(s.Start) && (s.Start != ServiceStart.Automatic || !state.Delayed)
             && (s.Start != ServiceStart.AutomaticDelayed || state.Delayed);
@@ -428,3 +438,6 @@ public sealed class ServiceHandler : IElementHandler
         };
     }
 }
+
+/// <summary>The service does not exist on this PC.</summary>
+public sealed class ServiceMissingException(string name) : InvalidOperationException($"Služba {name} na tomto PC neexistuje.");

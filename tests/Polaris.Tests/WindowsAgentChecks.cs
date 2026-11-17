@@ -99,6 +99,27 @@ public static class WindowsAgentChecks
     }
 
     [Check]
+    public static void AMissingServiceIsAsOffAsCanBe()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var handler = new ServiceHandler();
+        Expect.Equal(Observed.Present, handler.Observe(new ServiceElement { Id = "s", Name = "PolarisNeexistuje", Start = ServiceStart.Disabled }).State, "vypnutá služba, ktorá na PC nie je, je v poriadku");
+        Expect.Throws<ServiceMissingException>(
+            () =>
+            {
+                if (OperatingSystem.IsWindows())
+                {
+                    handler.Observe(new ServiceElement { Id = "s", Name = "PolarisNeexistuje", Start = ServiceStart.Manual });
+                }
+            },
+            "zapnúť sa neexistujúca služba nedá");
+    }
+
+    [Check]
     public static void ServiceStartIsSetAndChecked()
     {
         if (!OperatingSystem.IsWindows() || !IsAdmin())
