@@ -54,7 +54,7 @@ public static class DriverWork
             {
                 source = DriverStore.Location(published);
             }
-            catch (SystemCallException e)
+            catch (Polaris.Windows.SystemCallException e)
             {
                 output.WriteLine($"  ! {published}: {e.Message} – preskočený");
                 continue;
@@ -138,10 +138,12 @@ public static class DriverWork
                 return new Installed(p, false, false, $"podpis balíka neplatí ({signature.Detail}) – nenainštaloval som ho.");
             }
 
-            var reboot = DriverStore.Install(Path.Combine(stage, p.Inf));
-            return new Installed(p, true, reboot, $"nainštalovaný (podpísal {signature.Publisher})");
+            var done = DriverStore.Install(Path.Combine(stage, p.Inf));
+            return new Installed(p, true, done.Reboot, done.Applied
+                ? $"nainštalovaný (podpísal {signature.Publisher})"
+                : $"je v úložisku ovládačov; zariadenia už majú rovnako dobrý alebo lepší ovládač (podpísal {signature.Publisher})");
         }
-        catch (Exception e) when (e is SystemCallException or IOException or UnauthorizedAccessException)
+        catch (Exception e) when (e is Polaris.Windows.SystemCallException or IOException or UnauthorizedAccessException)
         {
             return new Installed(p, false, false, e.Message);
         }

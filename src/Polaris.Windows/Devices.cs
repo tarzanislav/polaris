@@ -171,6 +171,9 @@ public static unsafe partial class Devices
     private static partial int CM_Get_DevNode_PropertyW(uint node, DevPropKey* key, out uint type, byte* buffer, ref uint size, uint flags);
 }
 
+/// <summary>The result of installing a package: Applied = some device took it; Reboot = Windows needs a restart.</summary>
+public readonly record struct DriverInstall(bool Applied, bool Reboot);
+
 /// <summary>The driver store of Windows: the third-party packages in it and installing a package into it (and onto the
 /// devices it fits better than their present driver).</summary>
 public static unsafe partial class DriverStore
@@ -199,17 +202,22 @@ public static unsafe partial class DriverStore
         }
     }
 
-    /// <summary>Puts the package into the driver store and onto the devices it fits; true when Windows needs a restart.
+    /// <summary>Puts the package into the driver store and onto the devices it fits better than their present driver.
     /// Windows itself refuses a package without a valid signature.</summary>
-    public static bool Install(string inf)
+    public static DriverInstall Install(string inf)
     {
-        if (!DiInstallDriverW(0, Path.GetFullPath(inf), 0, out var reboot))
+        if (DiInstallDriverW(0, Path.GetFullPath(inf), 0, out var reboot))
         {
-            throw new SystemCallException($"Inštalácia ovládača {Path.GetFileName(inf)}", Marshal.GetLastPInvokeError());
+            return new DriverInstall(Applied: true, reboot);
         }
 
-        return reboot;
+        var error = Marshal.GetLastPInvokeError();
+        return error == NoMoreItems
+            ? new DriverInstall(Applied: false, Reboot: false) // in the store; no device takes it (theirs is as good or better)
+            : throw new SystemCallException($"Inštalácia ovládača {Path.GetFileName(inf)}", error);
     }
+
+    private const int NoMoreItems = 259; // ERROR_NO_MORE_ITEMS
 
     [LibraryImport("setupapi.dll", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
     [return: MarshalAs(UnmanagedType.Bool)]
