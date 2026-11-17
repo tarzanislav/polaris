@@ -22,7 +22,7 @@ $State = Join-Path $env:ProgramData 'POLARIS-pilot'
 $Phase = Join-Path $State 'faza.txt'
 $Log = Join-Path ([Environment]::GetFolderPath('Desktop')) 'POLARIS-pilot.txt'
 $Account = 'ziak'
-$Password = 'Ziak-2026'
+$Password = 'Skola-2026' # heslo nesmie obsahovať meno konta (pravidlo zložitosti Windows)
 $script:Bad = 0
 
 function Say($text, $color = 'Gray') {
@@ -73,8 +73,8 @@ if ($phaseNow -eq '0') {
         Say "  konto $Account už existuje (heslo nemením)"
     }
     else {
-        & net user $Account $Password /add /passwordchg:no | Out-Null
-        Say "  konto $Account vytvorené"
+        $out = & net user $Account $Password /add /passwordchg:no 2>&1 | Out-String
+        Result ($null -ne (Get-LocalUser -Name $Account -ErrorAction SilentlyContinue)) "konto $Account vytvorené $($out.Trim() -replace '\s+', ' ')"
     }
     $admins = (Get-LocalGroupMember -SID 'S-1-5-32-544' -ErrorAction SilentlyContinue | Where-Object { $_.Name -match "\\$Account$" })
     Result (-not $admins) "konto $Account nie je správca"
