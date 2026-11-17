@@ -154,10 +154,30 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           if (Get-Service PolarisAgent -ErrorAction SilentlyContinue) { "služba ostala"; exit 1 }
           $global:LASTEXITCODE = 0
+      - name: Helper scripts parse as PowerShell; the pilot goes to the top of the package
+        run: |
+          foreach ($file in 'tools/windows/pilot-k0.cmd', 'tools/windows/doplnit-ovladace.cmd') {
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseInput([IO.File]::ReadAllText($file, [Text.Encoding]::UTF8), [ref]$null, [ref]$errors) | Out-Null
+            if ($errors) { $errors | ForEach-Object { "${file}: $($_.Extent.StartLineNumber): $($_.Message)" }; exit 1 }
+          }
+          Copy-Item tools/windows/pilot-k0.cmd pilot-k0.cmd
+      - name: The pilot script runs both phases on the runner (no restart, no pupil session)
+        run: |
+          $env:POLARIS_PILOT_CI = '1'
+          $console = (cmd /c "pilot-k0.cmd < nul" 2>&1 | Out-String) + (cmd /c "pilot-k0.cmd < nul" 2>&1 | Out-String)
+          $log = Join-Path ([Environment]::GetFolderPath('Desktop')) 'POLARIS-pilot.txt'
+          if (-not (Test-Path $log)) { $console; "záznam pilota chýba"; exit 1 }
+          Get-Content $log -Raw -Encoding utf8
+          if ($console -match 'CategoryInfo|ParserError|is not recognized') { $console; "chyba v skripte pilota"; exit 1 }
+          if ((Get-Content $log -Raw -Encoding utf8) -notmatch 'fáza 2') { "fáza 2 neprebehla"; exit 1 }
+          & ./out/agent/polaris-agent.exe odinstalovat-sluzbu
+          $global:LASTEXITCODE = 0
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: polaris-agent-windows
           path: |
+            pilot-k0.cmd
             out/agent/polaris-agent.exe
             out/agent/polaris-ziak.exe
             recepty/*.json
