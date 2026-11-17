@@ -1,0 +1,203 @@
+{
+  // Ukážkový recept SLUZBY (K6a): služby pre PC žiakov. Najprv na testovacom PC, potom skupina, potom učebňa.
+  // Zakázané = nemá čo bežať; Manual = Windows spustí, keď treba. Chránené služby (Defender, aktualizácie, sieť,
+  // DWAgent, POLARIS) recept nevypne. Služba, ktorú daný Windows nemá, sa ráta ako vypnutá.
+  // Aktualizačné služby programov (Adobe, Google …) sem pribudnú, až keď aktualizácie programov prevezme POLARIS.
+
+  "schema": 1,
+  "name": "SLUZBY",
+  "version": 1,
+  "note": "Služby pre PC žiakov: vypnuté to, čo v učebni nemá čo bežať, ručne to, čo sa môže zísť. Pôvodný stav si POLARIS pamätá (polaris-agent sluzby vratit).",
+  "elements": [
+    {
+      "type": "service",
+      "id": "diagtrack",
+      "name": "DiagTrack",
+      "start": "Disabled",
+      "note": "telemetria – nič sa neposiela do Microsoftu"
+    },
+    {
+      "type": "service",
+      "id": "mapsbroker",
+      "name": "MapsBroker",
+      "start": "Disabled",
+      "note": "sťahovanie máp pre aplikáciu Mapy"
+    },
+    {
+      "type": "service",
+      "id": "trkwks",
+      "name": "TrkWks",
+      "start": "Disabled",
+      "note": "sledovanie prepojení súborov – len v doméne"
+    },
+    {
+      "type": "service",
+      "id": "xblauthmanager",
+      "name": "XblAuthManager",
+      "start": "Disabled",
+      "note": "Xbox"
+    },
+    {
+      "type": "service",
+      "id": "xblgamesave",
+      "name": "XblGameSave",
+      "start": "Disabled",
+      "note": "Xbox"
+    },
+    {
+      "type": "service",
+      "id": "xboxnetapisvc",
+      "name": "XboxNetApiSvc",
+      "start": "Disabled",
+      "note": "Xbox"
+    },
+    {
+      "type": "service",
+      "id": "xboxgipsvc",
+      "name": "XboxGipSvc",
+      "start": "Disabled",
+      "note": "príslušenstvo Xbox"
+    },
+    {
+      "type": "service",
+      "id": "remoteregistry",
+      "name": "RemoteRegistry",
+      "start": "Disabled",
+      "note": "vzdialený register – bezpečnosť"
+    },
+    {
+      "type": "service",
+      "id": "icssvc",
+      "name": "icssvc",
+      "start": "Disabled",
+      "note": "mobilný hotspot – žiak si nevytvorí vlastnú Wi-Fi"
+    },
+    {
+      "type": "service",
+      "id": "fdrespub",
+      "name": "FDResPub",
+      "start": "Disabled",
+      "note": "PC žiaka sa neohlasuje v sieti"
+    },
+    {
+      "type": "service",
+      "id": "upnphost",
+      "name": "upnphost",
+      "start": "Disabled",
+      "note": "PC žiaka neposkytuje zariadenia UPnP"
+    },
+    {
+      "type": "service",
+      "id": "dmwappushservice",
+      "name": "dmwappushservice",
+      "start": "Disabled",
+      "note": "správa cez Intune – nepoužíva sa"
+    },
+    {
+      "type": "service",
+      "id": "retaildemo",
+      "name": "RetailDemo",
+      "start": "Disabled",
+      "note": "ukážková verzia pre predajne"
+    },
+    {
+      "type": "service",
+      "id": "wpcmonsvc",
+      "name": "WpcMonSvc",
+      "start": "Disabled",
+      "note": "rodičovská kontrola Microsoft"
+    },
+    {
+      "type": "service",
+      "id": "phonesvc",
+      "name": "PhoneSvc",
+      "start": "Disabled",
+      "note": "telefonická služba"
+    },
+    {
+      "type": "service",
+      "id": "smsrouter",
+      "name": "SmsRouter",
+      "start": "Disabled",
+      "note": "SMS"
+    },
+    {
+      "type": "service",
+      "id": "wisvc",
+      "name": "wisvc",
+      "start": "Disabled",
+      "note": "program Windows Insider"
+    },
+    {
+      "type": "service",
+      "id": "semgrsvc",
+      "name": "SEMgrSvc",
+      "start": "Disabled",
+      "note": "platby a NFC"
+    },
+    {
+      "type": "service",
+      "id": "walletservice",
+      "name": "WalletService",
+      "start": "Disabled",
+      "note": "peňaženka"
+    },
+    {
+      "type": "service",
+      "id": "pushtoinstall",
+      "name": "PushToInstall",
+      "start": "Disabled",
+      "note": "inštalácia aplikácií na diaľku z webu Store"
+    },
+    {
+      "type": "service",
+      "id": "troubleshootingsvc",
+      "name": "TroubleshootingSvc",
+      "start": "Disabled",
+      "note": "automatické riešenie problémov – PC spravuje POLARIS"
+    },
+    {
+      "type": "service",
+      "id": "fax",
+      "name": "Fax",
+      "start": "Disabled",
+      "note": "fax"
+    },
+    {
+      "type": "service",
+      "id": "ajrouter",
+      "name": "AJRouter",
+      "start": "Disabled",
+      "note": "AllJoyn (IoT)"
+    },
+    {
+      "type": "service",
+      "id": "wsearch",
+      "name": "WSearch",
+      "start": "Disabled",
+      "note": "indexovanie – profil žiaka sa stále vracia, index by sa robil dookola; Štart nájde programy aj bez neho"
+    },
+    {
+      "type": "service",
+      "id": "vmic-vsetky",
+      "name": "vmic*",
+      "start": "Disabled",
+      "note": "integračné služby Hyper-V pre hosťa – na fyzickom PC zbytočné; na virtuálnom PC sa vynechajú",
+      "physicalOnly": true
+    },
+    {
+      "type": "service",
+      "id": "iphlpsvc",
+      "name": "iphlpsvc",
+      "start": "Manual",
+      "note": "Pomocník IP (prechodové technológie IPv6, presmerovanie portov) – Windows ho spustí, keď ho niečo potrebuje"
+    },
+    {
+      "type": "service",
+      "id": "pcasvc",
+      "name": "PcaSvc",
+      "start": "Manual",
+      "note": "asistent kompatibility programov"
+    }
+  ]
+}

@@ -99,7 +99,7 @@ public static partial class RecipeCheck
         "WinDefend", "WdNisSvc", "SecurityHealthService", "Sense", "mpssvc", "BFE", "RpcSs", "RpcEptMapper", "DcomLaunch",
         "EventLog", "LSM", "SamSs", "Winmgmt", "CryptSvc", "TrustedInstaller", "Schedule", "ProfSvc", "gpsvc", "Power",
         "PlugPlay", "UserManager", "Dhcp", "Dnscache", "nsi", "BrokerInfrastructure", "CoreMessagingRegistrar", "wuauserv",
-        "WaaSMedicSvc", "PolarisAgent",
+        "WaaSMedicSvc", "PolarisAgent", "DWAgent", "SgrmBroker", "WdFilter", "WdBoot",
     };
 
     public const int MaxBookmarks = 500;
@@ -183,6 +183,7 @@ public static partial class RecipeCheck
         ComputerElement c => ComputerProblems(c),
         UpdatesElement u => UpdatesProblems(u),
         PowerElement w => PowerProblems(w),
+        SoundsElement z => z.Present ? [] : ["zvuky sa receptom neodstraňujú – vynechaj prvok, ak má rozhodnúť Windows."],
         _ => ["neznámy typ prvku."],
     };
 
@@ -346,7 +347,7 @@ public static partial class RecipeCheck
         }
 
         if (p.Present && p.SleepMinutes is null && p.DisplayMinutes is null && p.HibernateMinutes is null && p.PowerButton is null
-            && p.LidClose is null && p.WakePassword is null && p.FastStartup is null)
+            && p.LidClose is null && p.WakePassword is null && p.FastStartup is null && p.Hibernation is null)
         {
             yield return "prvok power nič nenastavuje.";
         }
@@ -364,9 +365,19 @@ public static partial class RecipeCheck
 
     private static IEnumerable<string> ServiceProblems(ServiceElement v)
     {
-        if (!SystemNamePattern().IsMatch(v.Name))
+        if (!SystemNamePattern().IsMatch(v.Prefix) || v.Name.Trim().Count(c => c == '*') > 1 || (v.IsPrefix && v.Prefix.Length < 4))
         {
-            yield return "chýba alebo je neplatné meno služby (meno kľúča služby, napr. Spooler).";
+            yield return "chýba alebo je neplatné meno služby (meno kľúča služby, napr. Spooler; začiatok mena s * na konci aspoň 4 znaky).";
+        }
+
+        if (v.IsPrefix && v.Start != ServiceStart.Disabled && v.Start != ServiceStart.Manual)
+        {
+            yield return "služby podľa začiatku mena sa dajú len vypnúť alebo prepnúť na manuálne.";
+        }
+
+        if (v.IsPrefix && ProtectedServices.Any(p => p.StartsWith(v.Prefix, StringComparison.OrdinalIgnoreCase)))
+        {
+            yield return $"začiatok mena {v.Prefix} zahŕňa chránenú službu.";
         }
 
         if (!v.Present)

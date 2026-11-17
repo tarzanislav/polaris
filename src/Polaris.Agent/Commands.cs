@@ -88,6 +88,9 @@ public static class Commands
           zasoba [CESTA | -]     Zásoba balíkov tohto PC (napr. \\server\polaris-zasoba); bez cesty ju vypíše, - zruší
           obchod                 Školský obchod pre žiaka: zoznam programov a inštalácia na túto reláciu
           obchod zoznam | obchod instalovat ID
+          sluzby                 služby, ktoré POLARIS zmenil, a ich pôvodné spúšťanie
+          sluzby vratit MENO | --vsetky
+                                 vráti pôvodné spúšťanie služby (správca); recept ju však zmení znova, kým ju obsahuje
           ovladace [--vsetky]    zariadenia bez ovládača (--vsetky: všetky zariadenia s ich ovládačmi)
           ovladace zaloha PRIEČINOK --meno ZOSTAVA [--vsetky]
                                  záloha ovládačov tejto hardvérovej zostavy do prázdneho priečinka (správca); bez
@@ -131,6 +134,7 @@ public static class Commands
                 "zasoba" => Supply(args, output, host ?? DefaultHost()),
                 "centrum" => CentreCommand(args, output, host ?? DefaultHost()),
                 "ovladace" => DriverCommand(args, output, host ?? DefaultHost()),
+                "sluzby" => OperatingSystem.IsWindows() ? ServicesCommand(args, output, host ?? DefaultHost()) : throw new PlatformNotSupportedException(),
                 "skuska-ikony" => OperatingSystem.IsWindows() ? IconCheck(output, host ?? DefaultHost()) : throw new PlatformNotSupportedException(),
                 "dennik" => Journal(args.Length > 1 && int.TryParse(args[1], out var n) && n > 0 ? n : 10, output, host ?? DefaultHost()),
                 _ => Wrong($"Neznámy príkaz „{args[0]}“. Zoznam príkazov: polaris-agent pomoc", output),
@@ -622,6 +626,52 @@ public static class Commands
 
     private static AgentHost DefaultHost() =>
         OperatingSystem.IsWindows() ? AgentHost.Windows() : throw new PlatformNotSupportedException();
+
+    [SupportedOSPlatform("windows")]
+    private static int ServicesCommand(string[] args, TextWriter output, AgentHost host)
+    {
+        var memory = new ServiceMemory();
+        if (args.Length > 1 && args[1] == "vratit")
+        {
+            if (!host.IsAdmin())
+            {
+                return Wrong("Služby vracia správca.", output);
+            }
+
+            var names = args.Contains("--vsetky") ? [.. memory.All().Keys] : args.Skip(2).Where(a => !a.StartsWith("--", StringComparison.Ordinal)).ToList();
+            if (names.Count == 0)
+            {
+                return Wrong("Použitie: polaris-agent sluzby vratit MENO | --vsetky", output);
+            }
+
+            var original = memory.All();
+            foreach (var name in names)
+            {
+                output.WriteLine(memory.Restore(name)
+                    ? $"  ✓ {name}: späť na {original[name]}"
+                    : $"  – {name}: POLARIS ju nemenil, nie je čo vrátiť");
+            }
+
+            output.WriteLine("Ak je služba v recepte, pri ďalšom použití receptu sa zmení znova – uprav recept.");
+            return 0;
+        }
+
+        var all = memory.All();
+        if (all.Count == 0)
+        {
+            output.WriteLine("POLARIS zatiaľ nezmenil žiadnu službu.");
+            return 0;
+        }
+
+        output.WriteLine($"Služby, ktoré POLARIS zmenil ({all.Count}) – pôvodné spúšťanie:");
+        foreach (var (name, start) in all)
+        {
+            output.WriteLine($"  {name,-32} pôvodne {start}");
+        }
+
+        output.WriteLine("Vrátiť: polaris-agent sluzby vratit MENO | --vsetky");
+        return 0;
+    }
 
     [SupportedOSPlatform("windows")]
     private static int IconCheck(TextWriter output, AgentHost host)

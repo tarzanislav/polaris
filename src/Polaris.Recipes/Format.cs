@@ -9,7 +9,7 @@ namespace Polaris.Recipes;
 public static class RecipeFormat
 {
     public static readonly IReadOnlyList<string> Types =
-        ["program", "registry", "bookmarks", "service", "feature", "user-registry", "keyboards", "session", "sandbox", "store", "computer", "updates", "power"];
+        ["program", "registry", "bookmarks", "service", "feature", "user-registry", "keyboards", "session", "sandbox", "store", "computer", "updates", "power", "sounds"];
 
     public static Recipe Read(JsonNode root)
     {
@@ -60,7 +60,7 @@ public static class RecipeFormat
             "program" => Program(f),
             "registry" => new RegistryValueElement { Path = f.String("path"), Name = f.String("name"), Kind = f.Enum("kind", RegistryKind.String), Data = f.String("data") },
             "bookmarks" => Bookmarks(f),
-            "service" => new ServiceElement { Name = f.String("name"), Start = f.Enum("start", ServiceStart.Manual), Running = f.OptionalBool("running") },
+            "service" => new ServiceElement { Name = f.String("name"), Start = f.Enum("start", ServiceStart.Manual), Running = f.OptionalBool("running"), PhysicalOnly = f.Bool("physicalOnly", false) },
             "feature" => new FeatureElement { Name = f.String("name") },
             "user-registry" => new UserRegistryElement { Path = f.String("path"), Name = f.String("name"), Kind = f.Enum("kind", RegistryKind.String), Data = f.String("data") },
             "keyboards" => new KeyboardsElement { Languages = f.Strings("languages"), Layouts = f.Map("layouts") },
@@ -70,6 +70,7 @@ public static class RecipeFormat
             "computer" => new ComputerElement { Workgroup = f.OptionalString("workgroup"), TimeZone = f.OptionalString("timeZone") },
             "updates" => Updates(f),
             "power" => Power(f),
+            "sounds" => new SoundsElement { Scheme = f.Enum("scheme", SoundScheme.None) },
             _ => throw JsonError.At(typeNode, $"neznámy typ prvku „{type}“ (možné: {string.Join(", ", Types)})."),
         };
         e.Id = f.String("id");
@@ -97,7 +98,8 @@ public static class RecipeFormat
                     .Add("items", JsonArray.Of(b.Items, WriteBookmark));
                 break;
             case ServiceElement s:
-                o.Add("name", s.Name).AddIf(s.Start != ServiceStart.Manual, "start", s.Start.ToString()).AddIf("running", s.Running is { } running ? (JsonNode)running : null);
+                o.Add("name", s.Name).AddIf(s.Start != ServiceStart.Manual, "start", s.Start.ToString()).AddIf("running", s.Running is { } running ? (JsonNode)running : null)
+                    .AddIf(s.PhysicalOnly, "physicalOnly", true);
                 break;
             case FeatureElement x:
                 o.Add("name", x.Name);
@@ -145,6 +147,9 @@ public static class RecipeFormat
                     .AddIf("targetRelease", Text(u.TargetRelease))
                     .AddIf(u.ExcludeDrivers, "excludeDrivers", true);
                 break;
+            case SoundsElement z:
+                o.Add("scheme", z.Scheme.ToString());
+                break;
             case PowerElement w:
                 o.AddIf("sleepMinutes", Number(w.SleepMinutes))
                     .AddIf("displayMinutes", Number(w.DisplayMinutes))
@@ -152,7 +157,8 @@ public static class RecipeFormat
                     .AddIf("powerButton", w.PowerButton is { } button ? (JsonNode)button.ToString() : null)
                     .AddIf("lidClose", w.LidClose is { } lid ? (JsonNode)lid.ToString() : null)
                     .AddIf("wakePassword", w.WakePassword is { } password ? (JsonNode)password : null)
-                    .AddIf("fastStartup", w.FastStartup is { } fast ? (JsonNode)fast : null);
+                    .AddIf("fastStartup", w.FastStartup is { } fast ? (JsonNode)fast : null)
+                    .AddIf("hibernation", w.Hibernation is { } hibernation ? (JsonNode)hibernation : null);
                 break;
             default:
                 throw new ArgumentException("Neznámy druh prvku.", nameof(e));
@@ -176,6 +182,7 @@ public static class RecipeFormat
         ComputerElement => "computer",
         UpdatesElement => "updates",
         PowerElement => "power",
+        SoundsElement => "sounds",
         _ => throw new ArgumentException("Neznámy druh prvku.", nameof(e)),
     };
 
@@ -204,6 +211,7 @@ public static class RecipeFormat
         LidClose = f.OptionalEnum<PowerAction>("lidClose"),
         WakePassword = f.OptionalBool("wakePassword"),
         FastStartup = f.OptionalBool("fastStartup"),
+        Hibernation = f.OptionalBool("hibernation"),
     };
 
     /// <summary>A program alone (in the School store): the same fields as the element, "type" may be left out.</summary>

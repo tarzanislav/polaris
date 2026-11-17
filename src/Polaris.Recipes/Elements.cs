@@ -162,7 +162,8 @@ public enum ServiceStart
 /// <summary>How a Windows service starts and whether it runs. A service cannot be removed by a recipe – it is disabled.</summary>
 public sealed class ServiceElement : Element
 {
-    /// <summary>Name of the service (its key name, e.g. "Spooler"), not the name shown in the list.</summary>
+    /// <summary>Name of the service (its key name, e.g. "Spooler"), not the name shown in the list. Ending with "*" it is
+    /// the beginning of the names of several services (e.g. "GoogleUpdater*" – such services carry their version).</summary>
     public string Name { get; set; } = "";
 
     public ServiceStart Start { get; set; } = ServiceStart.Manual;
@@ -170,9 +171,17 @@ public sealed class ServiceElement : Element
     /// <summary>true = must run, false = must be stopped, empty = no matter.</summary>
     public bool? Running { get; set; }
 
+    /// <summary>Only on a physical PC; on a virtual one the element is skipped (e.g. the Hyper-V services for a guest).</summary>
+    public bool PhysicalOnly { get; set; }
+
+    public bool IsPrefix => Name.TrimEnd().EndsWith('*');
+
+    /// <summary>The name without the closing "*".</summary>
+    public string Prefix => Name.Trim().TrimEnd('*');
+
     public override string Key => "service:" + Name.Trim().ToLowerInvariant();
 
-    public override string Title => $"služba {Name}";
+    public override string Title => IsPrefix ? $"služby {Prefix}…" : $"služba {Name}";
 }
 
 /// <summary>An optional part of Windows switched on (present) or off (absent), e.g. Windows Sandbox

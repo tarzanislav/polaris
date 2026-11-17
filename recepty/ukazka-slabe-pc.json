@@ -1,0 +1,19 @@
+{
+  // Ukážkový recept SLABE-PC (K6a): úspory navyše pre staršie dvojjadrové PC – priraďuje sa ich skupine popri Základe.
+
+  "schema": 1,
+  "name": "SLABE-PC",
+  "version": 1,
+  "note": "Úspory navyše pre staršie a slabšie PC",
+  "elements": [
+    {
+      "type": "user-registry",
+      "id": "bez-priehladnosti",
+      "path": "Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+      "name": "EnableTransparency",
+      "kind": "DWord",
+      "data": "0",
+      "note": "efekty priehľadnosti vypnuté (odporúčanie správcu pre slabšie PC)"
+    }
+  ]
+}

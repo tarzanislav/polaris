@@ -14,20 +14,76 @@ public sealed partial class ProfileTemplateHandler(string? hiveFile = null) : IE
 {
     private RegistryKey? _root;
 
-    public bool CanHandle(Element element) => element is UserRegistryElement;
+    private const string Schemes = @"AppEvents\Schemes";
+
+    public bool CanHandle(Element element) => element is UserRegistryElement or SoundsElement;
 
     public Observation Observe(Element element)
     {
+        if (element is SoundsElement)
+        {
+            var loud = Sounding(Root()).Count;
+            return loud == 0 && SchemeName(Root()) == ".None"
+                ? new Observation(Observed.Present, "bez zvukov")
+                : new Observation(Observed.Different, $"zvuková schéma {SchemeName(Root()) ?? "(nenastavená)"}, udalostí so zvukom: {loud}");
+        }
+
         var u = (UserRegistryElement)element;
         return RegistryValues.Observe(Root(), UserRegistryPath.Normalize(u.Path), u.Name, u.Present, u.Kind, u.Data);
     }
 
     public void Apply(Element element)
     {
-        var u = (UserRegistryElement)element;
         var root = Root();
+        if (element is SoundsElement)
+        {
+            // what the dialog "Zvuk" does when the scheme "Bez zvukov" is chosen: the scheme's name and every event silent
+            using (var schemes = root.CreateSubKey(Schemes))
+            {
+                schemes.SetValue("", ".None", RegistryValueKind.String);
+            }
+
+            foreach (var current in Sounding(root))
+            {
+                using var key = root.OpenSubKey(current, writable: true);
+                key?.SetValue("", "", RegistryValueKind.String);
+            }
+
+            root.Flush();
+            return;
+        }
+
+        var u = (UserRegistryElement)element;
         RegistryValues.Apply(root, UserRegistryPath.Normalize(u.Path), u.Name, u.Present, u.Kind, u.Data);
         root.Flush();
+    }
+
+    private static string? SchemeName(RegistryKey root)
+    {
+        using var schemes = root.OpenSubKey(Schemes);
+        return schemes?.GetValue("") as string;
+    }
+
+    /// <summary>The ".Current" keys of events that still have a sound (AppEvents\Schemes\Apps\APP\EVENT\.Current).</summary>
+    private static List<string> Sounding(RegistryKey root)
+    {
+        var found = new List<string>();
+        using var apps = root.OpenSubKey(Schemes + @"\Apps");
+        foreach (var app in apps?.GetSubKeyNames() ?? [])
+        {
+            using var appKey = apps!.OpenSubKey(app);
+            foreach (var ev in appKey?.GetSubKeyNames() ?? [])
+            {
+                var path = $@"{Schemes}\Apps\{app}\{ev}\.Current";
+                using var current = root.OpenSubKey(path);
+                if (current?.GetValue("") is string { Length: > 0 })
+                {
+                    found.Add(path);
+                }
+            }
+        }
+
+        return found;
     }
 
     public void Dispose()

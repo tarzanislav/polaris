@@ -87,9 +87,30 @@ public sealed class PowerElement : Element
     /// really starts anew, and Wake on LAN works more reliably. Not filled = not touched.</summary>
     public bool? FastStartup { get; set; }
 
+    /// <summary>Hibernation at all: false = off and its file (as big as a part of the RAM) removed at the next start.
+    /// A value of Windows itself, like FastStartup (without hibernation there is no fast startup either).</summary>
+    public bool? Hibernation { get; set; }
+
     public override string Key => "power";
 
     public override string Title => "napájanie";
+}
+
+public enum SoundScheme
+{
+    /// <summary>„Bez zvukov“: no sound for any event of Windows and programs.</summary>
+    None,
+}
+
+/// <summary>The sound scheme of new profiles (the template): Windows keeps a sound for every event, so the handler goes
+/// through all of them. Only "none" for now – a quiet classroom.</summary>
+public sealed class SoundsElement : Element
+{
+    public SoundScheme Scheme { get; set; } = SoundScheme.None;
+
+    public override string Key => "sounds";
+
+    public override string Title => "zvuková schéma bez zvukov";
 }
 
 /// <summary>The settings above as policy values in the registry: tested on any system, applied by the executor of the
@@ -162,6 +183,19 @@ public static class SettingsExpansion
         foreach (var e in Both(p, "heslo", PasswordOnWake, p.WakePassword is { } w ? (w ? 1u : 0u) : null))
         {
             yield return e;
+        }
+
+        if (p.Present && p.Hibernation is { } hibernation)
+        {
+            yield return new RegistryValueElement
+            {
+                Id = p.Id + ".hibernacia-vobec",
+                Note = p.Title,
+                Path = FastStartupKey,
+                Name = "HibernateEnabled",
+                Kind = RegistryKind.DWord,
+                Data = hibernation ? "1" : "0",
+            };
         }
 
         // a value of Windows itself, not a policy: written only when the recipe says so, never removed

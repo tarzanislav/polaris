@@ -140,11 +140,51 @@ public static class SettingsChecks
     }
 
     [Check]
+    public static void ServicesByPrefixAndForPhysicalPcsAreChecked()
+    {
+        var recipe = RecipeText.FromJson("""
+            { "schema": 1, "name": "SLUZBY", "elements": [
+              { "type": "service", "id": "google", "name": "GoogleUpdater*", "start": "Disabled" },
+              { "type": "service", "id": "hyperv", "name": "vmicheartbeat", "start": "Disabled", "physicalOnly": true },
+              { "type": "sounds", "id": "ticho" },
+              { "type": "power", "id": "napajanie", "sleepMinutes": 0, "hibernation": false } ] }
+            """);
+        Expect.Equal(0, RecipeCheck.Problems(recipe).Count, "v poriadku: " + string.Join(" ", RecipeCheck.Problems(recipe)));
+        var google = (ServiceElement)recipe.Elements[0];
+        Expect.True(google.IsPrefix && google.Prefix == "GoogleUpdater" && google.Title.Contains('…', StringComparison.Ordinal), "začiatok mena");
+        Expect.True(((ServiceElement)recipe.Elements[1]).PhysicalOnly, "len fyzické PC");
+        Expect.Equal(RecipeText.Canonical(recipe), RecipeText.Canonical(RecipeText.FromJson(RecipeText.ToJson(recipe))), "zápis a čítanie");
+
+        List<string> Problems(ServiceElement e) => RecipeCheck.ElementProblems(e).ToList();
+        Expect.True(Problems(new ServiceElement { Id = "a", Name = "Goo*", Start = ServiceStart.Disabled }).Count > 0, "začiatok kratší ako 4 znaky");
+        Expect.True(Problems(new ServiceElement { Id = "a", Name = "GoogleUpdater*", Start = ServiceStart.Automatic }).Count > 0, "podľa začiatku len vypnúť alebo ručne");
+        Expect.True(Problems(new ServiceElement { Id = "a", Name = "WinD*", Start = ServiceStart.Disabled }).Any(p => p.Contains("chránen", StringComparison.Ordinal)), "začiatok zahŕňa Defender");
+        Expect.True(Problems(new ServiceElement { Id = "a", Name = "DWAgent", Start = ServiceStart.Disabled }).Any(p => p.Contains("chránen", StringComparison.Ordinal)), "vzdialený prístup DWService sa nevypne");
+        Expect.True(RecipeCheck.ElementProblems(new SoundsElement { Id = "z", Present = false }).Any(), "zvuky sa neodstraňujú");
+
+        var power = (PowerElement)recipe.Elements[3];
+        var hibernate = SettingsExpansion.Power(power).Cast<RegistryValueElement>().Single(v => v.Name == "HibernateEnabled");
+        Expect.True(hibernate.Present && hibernate.Data == "0", "hibernácia vypnutá");
+        Expect.Equal("0", SettingsExpansion.Power(power).Cast<RegistryValueElement>().First(v => v.Path.EndsWith(SettingsExpansion.SleepAfter, StringComparison.Ordinal)).Data, "spánok nikdy");
+    }
+
+    [Check]
     public static void TheSampleOfBasicSettingsIsValid()
     {
         var sample = RecipeText.Load(Path.Combine(Repo.Root, "recepty", "ukazka-zaklad.json"));
         Expect.Equal(0, RecipeCheck.Problems(sample).Count, "ukazka-zaklad.json: " + string.Join(" ", RecipeCheck.Problems(sample)));
         Expect.Equal("SKOLA", sample.Elements.OfType<ComputerElement>().Single().Workgroup, "pracovná skupina ako Samba na serveri");
+        Expect.Equal(0, sample.Elements.OfType<PowerElement>().Single().SleepMinutes, "spánok nikdy – PC ostane dostupné na diaľku");
+
+        foreach (var name in new[] { "ukazka-sluzby.json", "ukazka-slabe-pc.json" })
+        {
+            var recipe = RecipeText.Load(Path.Combine(Repo.Root, "recepty", name));
+            Expect.Equal(0, RecipeCheck.Problems(recipe).Count, name + ": " + string.Join(" ", RecipeCheck.Problems(recipe)));
+        }
+
+        var services = RecipeText.Load(Path.Combine(Repo.Root, "recepty", "ukazka-sluzby.json")).Elements.OfType<ServiceElement>().ToList();
+        Expect.True(services.All(v => !RecipeCheck.ProtectedServices.Contains(v.Name)), "žiadna chránená služba");
+        Expect.True(services.Single(v => v.IsPrefix).PhysicalOnly, "služby Hyper-V pre hosťa len na fyzických PC");
     }
 
     private static Dictionary<string, string> Values(Element element) => Expansion.Expand(element)

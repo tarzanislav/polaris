@@ -24,6 +24,7 @@ $Log = Join-Path ([Environment]::GetFolderPath('Desktop')) 'POLARIS-pilot.txt'
 $Account = 'ziak'
 $Password = 'Skola-2026' # heslo nesmie obsahovať meno konta (pravidlo zložitosti Windows)
 $script:Bad = 0
+$AllRecipes = 'ukazka-relacia', 'ukazka-pieskovisko', 'ukazka-zaklad', 'ukazka-sluzby', 'ukazka-slabe-pc'
 
 function Say($text, $color = 'Gray') {
     Write-Host $text -ForegroundColor $color
@@ -87,7 +88,7 @@ if ($phaseNow -eq '0') {
     Result (-not $admins) "konto $Account nie je správca"
 
     Step 'Kontrola receptov (nič nemení)'
-    foreach ($r in 'ukazka-relacia', 'ukazka-pieskovisko', 'ukazka-zaklad') {
+    foreach ($r in $AllRecipes) {
         $code = Agent overit (Join-Path $Recipes "$r.json")
         Result ($code -eq 0) "$r je v poriadku"
     }
@@ -107,8 +108,8 @@ if ($phaseNow -eq '0') {
         Result ($null -ne $again) 'strážca: ukončenú ikonu spustil znova do 8 s'
     }
 
-    Step 'Recepty Relácia, Pieskovisko a Základ'
-    foreach ($r in 'ukazka-relacia', 'ukazka-pieskovisko', 'ukazka-zaklad') {
+    Step 'Recepty Relácia, Pieskovisko, Základ, Služby a Slabé PC'
+    foreach ($r in $AllRecipes) {
         $code = Agent pouzi (Join-Path $Recipes "$r.json") --ano
         Result ($code -eq 0) "$r použitý"
     }
@@ -160,10 +161,13 @@ $audacity = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Un
 Result (-not $audacity) 'Audacity zo Školského obchodu je odinštalovaná'
 
 Step 'PC podľa receptov'
-foreach ($r in 'ukazka-relacia', 'ukazka-pieskovisko', 'ukazka-zaklad') {
+foreach ($r in $AllRecipes) {
     $code = Agent kontrola (Join-Path $Recipes "$r.json")
     Result ($code -eq 0) "${r}: PC je podľa receptu"
 }
+
+Step 'Služby, ktoré POLARIS zmenil (pôvodný stav)'
+Agent sluzby | Out-Null
 
 Step 'Denník'
 Agent dennik 20 | Out-Null

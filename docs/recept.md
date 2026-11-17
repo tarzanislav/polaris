@@ -159,7 +159,16 @@ polaris-agent zasoba \\server\zasoba                                            
   tom nezáleží.
 - Službu recept nevytvára ani neodstraňuje. Ak služba neexistuje, plán to oznámi.
 - **Chránené služby** (Defender, firewall, aktualizácie Windows, RPC, denník udalostí, plánovač úloh, profily
-  používateľov, sieť, POLARIS a ďalšie) sa receptom nedajú vypnúť ani zastaviť, zapnúť áno.
+  používateľov, sieť, POLARIS, DWAgent – vzdialený prístup DWService – a ďalšie) sa receptom nedajú vypnúť ani
+  zastaviť, zapnúť áno.
+- `name` s `*` na konci = **všetky služby, ktorých meno sa tak začína** (napr. `GoogleUpdater*` – takéto služby majú
+  v mene verziu); začiatok aspoň 4 znaky, len `Disabled` alebo `Manual`, nesmie zahŕňať chránenú službu.
+- `physicalOnly: true` = len na fyzickom PC; na virtuálnom (podľa výrobcu a modelu vo firmvéri) sa prvok vynechá –
+  napr. integračné služby Hyper-V pre hosťa (`vmic*`).
+- Služba, ktorú daný Windows nemá, sa pri `Disabled` ráta ako vypnutá – jeden recept pre všetky PC.
+- **Pôvodný stav:** pred prvou zmenou si POLARIS zapamätá, ako sa služba spúšťala. `polaris-agent sluzby` ho vypíše,
+  `polaris-agent sluzby vratit MENO | --vsetky` ho vráti (kým je služba v recepte, recept ju pri ďalšom použití zmení
+  znova).
 
 ### `feature`: súčasť Windows
 
@@ -210,6 +219,15 @@ polaris-agent zasoba \\server\zasoba                                            
 - Hodnota v časti registra používateľa (bez `HKCU\`), zapísaná do predlohy profilov. Údaje ako pri `registry`,
   aj `Binary` – napríklad vizuálne efekty (`Control Panel\Desktop`, `UserPreferencesMask`).
 
+### `sounds`: zvuková schéma
+
+```json
+{ "type": "sounds", "id": "ticho" }
+```
+
+- Predloha profilov dostane schému **Bez zvukov**: POLARIS prejde každú udalosť Windows a programov (to isté, čo
+  dialóg Zvuk). Zvuk pri spustení Windows vypína politika `DisableStartupSound` (ukážka Základ).
+
 ### `computer`: pracovná skupina a časové pásmo
 
 ```json
@@ -250,6 +268,8 @@ polaris-agent zasoba \\server\zasoba                                            
 - `wakePassword`: pýtať heslo po prebudení.
 - Platí v sieti aj na batérii. Politiky (`HKLM\SOFTWARE\Policies\Microsoft\Power\PowerSettings`) používateľ
   zmeniť nemôže. Nevyplnené pole = politika sa odstráni.
+- `hibernation: false` vypne hibernáciu úplne (jej súbor zmizne pri ďalšom štarte; bez nej nie je ani rýchle
+  spustenie). Ako `fastStartup` je to hodnota Windows – zapíše sa len, keď je v recepte.
 - `fastStartup: false` vypne rýchle spustenie Windows: vypnuté PC potom naozaj začína odznova a Wake on LAN funguje
   spoľahlivejšie. Toto je hodnota samotného Windows, nie politika – zapíše sa len, keď je v recepte, a nikdy sa
   neodstraňuje.
@@ -342,6 +362,14 @@ Spúšťa ju **služba POLARIS agent** (nie zoznam programov po prihlásení, te
   Edge bez behu na pozadí a bez uvítania, OneDrive vypnutý politikou a nové profily si ho neinštalujú, prihlásenie
   žiaka bez otázok o súkromí a bez úvodnej animácie, vizuálne efekty pre výkon podľa voľby správcu (vyhladené písmo,
   miniatúry, Peek, priesvitný výber a tiene popisov ikon ostávajú; animácie a tiene okien nie) (profil žiaka sa maže, bez toho by sa pýtali pri každom prihlásení).
+
+- `recepty/ukazka-zaklad.json` v6 navyše: napájanie bez spánku (PC ostane dostupné na diaľku) a bez hibernácie,
+  aplikácie Store bez behu na pozadí, bez miniaplikácií, Game Baru, reklám a návrhov, aktualizácie zdieľané v učebni,
+  telemetria na minimum, hlásenie chýb bez okien a bez odosielania, bez automatického prehrávania z USB, ticho,
+  ikony na ploche a Prieskumník podľa správcu.
+- `recepty/ukazka-sluzby.json`: služby pre PC žiakov – vypnuté, čo v učebni nemá čo bežať (telemetria, Xbox, mapy,
+  hotspot, vzdialený register, ohlasovanie v sieti, indexovanie …), ručne Pomocník IP a asistent kompatibility.
+- `recepty/ukazka-slabe-pc.json`: navyše pre staršie PC – bez efektov priehľadnosti.
 
 Ovládače (zistenie, záloha zostavy, obnova) sú v `docs/ovladace.md`.
 

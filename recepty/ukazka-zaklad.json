@@ -1,10 +1,12 @@
 {
-  // Ukážkový recept: základné nastavenia PC v učebni (K4a).
-  // Pracovná skupina rovnaká ako Samba na serveri, časové pásmo, Windows Update a napájanie cez politiky Windows.
+  // Ukážkový recept ZAKLAD: komfort a výkon pre všetky PC v učebni (K4a, K6a).
+  // Navrhnuté spolu so správcom učebne (jeho skúsenosti + posúdenie POLARIS): čo zrýchli prácu a nič nepokazí.
+  // Služby sú v samostatnom recepte ukazka-sluzby.json, úspory pre staršie PC v ukazka-slabe-pc.json.
+
   "schema": 1,
   "name": "ZAKLAD",
-  "version": 5,
-  "note": "Ukážka: pracovná skupina SKOLA, stredoeurópsky čas, aktualizácie mimo vyučovania, napájanie pre učebňu, bez OneDrive a zrýchleného Edge, prihlásenie žiaka bez otázok o súkromí a bez uvítania Edge, vizuálne efekty pre výkon (voľba správcu)",
+  "version": 6,
+  "note": "Základ učebne – komfort a výkon: pracovná skupina SKOLA, stredoeurópsky čas, aktualizácie mimo vyučovania, napájanie bez spánku, aplikácie Store bez behu na pozadí, bez reklám a návrhov, vizuálne efekty a Prieskumník podľa správcu, ticho, žiak bez otázok pri prihlásení",
   "elements": [
     {
       "type": "computer",
@@ -24,12 +26,13 @@
     {
       "type": "power",
       "id": "napajanie",
-      "sleepMinutes": 60,
+      "sleepMinutes": 0,
       "displayMinutes": 15,
       "hibernateMinutes": 0,
       "powerButton": "ShutDown",
       "fastStartup": false,
-      "note": "vypnuté PC naozaj začína odznova, Wake on LAN funguje spoľahlivejšie"
+      "note": "spánok nikdy (PC ostane dostupné na diaľku), obrazovka po 15 min; vypnuté PC naozaj začína odznova, Wake on LAN funguje spoľahlivejšie; hibernácia vypnutá (uvoľní miesto na disku)",
+      "hibernation": false
     },
     {
       "type": "registry",
@@ -182,6 +185,344 @@
       "kind": "DWord",
       "data": "0",
       "note": "neukladať miniatúrne ukážky na paneli úloh"
+    },
+    {
+      "type": "registry",
+      "id": "aplikacie-bez-pozadia",
+      "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\AppPrivacy",
+      "name": "LetAppsRunInBackground",
+      "kind": "DWord",
+      "data": "2",
+      "note": "aplikácie Store nebežia na pozadí (Nikdy) – menej RAM a procesora; výnimky podľa aplikácie"
+    },
+    {
+      "type": "registry",
+      "id": "bez-miniaplikacii",
+      "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Dsh",
+      "name": "AllowNewsAndInterests",
+      "kind": "DWord",
+      "data": "0",
+      "note": "bez miniaplikácií (Widgets)"
+    },
+    {
+      "type": "registry",
+      "id": "bez-herneho-panela",
+      "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\GameDVR",
+      "name": "AllowGameDVR",
+      "kind": "DWord",
+      "data": "0",
+      "note": "bez Game Baru a nahrávania hier"
+    },
+    {
+      "type": "registry",
+      "id": "aktualizacie-v-ucebni",
+      "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\DeliveryOptimization",
+      "name": "DODownloadMode",
+      "kind": "DWord",
+      "data": "1",
+      "note": "PC si aktualizácie zdieľajú v sieti učebne – šetrí internet školy"
+    },
+    {
+      "type": "registry",
+      "id": "telemetria-minimum",
+      "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\DataCollection",
+      "name": "AllowTelemetry",
+      "kind": "DWord",
+      "data": "1",
+      "note": "diagnostické údaje na minimum, ktoré Windows Pro dovolí"
+    },
+    {
+      "type": "registry",
+      "id": "chyby-bez-okien",
+      "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\Windows Error Reporting",
+      "name": "DontShowUI",
+      "kind": "DWord",
+      "data": "1",
+      "note": "žiak nevidí okná o páde programu"
+    },
+    {
+      "type": "registry",
+      "id": "chyby-bez-udajov",
+      "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\Windows Error Reporting",
+      "name": "DontSendAdditionalData",
+      "kind": "DWord",
+      "data": "1",
+      "note": "pri páde sa neposielajú ďalšie údaje"
+    },
+    {
+      "type": "registry",
+      "id": "chyby-len-so-suhlasom",
+      "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\Windows Error Reporting\\Consent",
+      "name": "DefaultConsent",
+      "kind": "DWord",
+      "data": "1",
+      "note": "hlásenie o páde sa bez súhlasu neodošle (a okná sú vypnuté) – záznam ostane len v PC"
+    },
+    {
+      "type": "registry",
+      "id": "bez-automatickeho-prehravania",
+      "path": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer",
+      "name": "NoDriveTypeAutoRun",
+      "kind": "DWord",
+      "data": "255",
+      "note": "USB kľúč ani disk nič samy nespustia (bezpečnosť)"
+    },
+    {
+      "type": "registry",
+      "id": "bez-automatickeho-prehravania-zariadeni",
+      "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\Explorer",
+      "name": "NoAutoplayfornonVolume",
+      "kind": "DWord",
+      "data": "1",
+      "note": "ani telefóny a fotoaparáty"
+    },
+    {
+      "type": "registry",
+      "id": "ticho-pri-starte",
+      "path": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
+      "name": "DisableStartupSound",
+      "kind": "DWord",
+      "data": "1",
+      "note": "bez zvuku pri spustení Windows"
+    },
+    {
+      "type": "sounds",
+      "id": "ticho",
+      "note": "zvuková schéma Bez zvukov pre nové profily (predloha)"
+    },
+    {
+      "type": "user-registry",
+      "id": "prieskumnik-prazdne-jednotky",
+      "path": "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+      "name": "HideDrivesWithNoMedia",
+      "kind": "DWord",
+      "data": "0",
+      "note": "zobrazovať prázdne jednotky"
+    },
+    {
+      "type": "user-registry",
+      "id": "prieskumnik-konflikty",
+      "path": "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+      "name": "HideMergeConflicts",
+      "kind": "DWord",
+      "data": "0",
+      "note": "zobrazovať konflikty zlučovania priečinkov"
+    },
+    {
+      "type": "user-registry",
+      "id": "prieskumnik-samostatny-proces",
+      "path": "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+      "name": "SeparateProcess",
+      "kind": "DWord",
+      "data": "1",
+      "note": "okná priečinkov v samostatnom procese – pád okna nezhodí panel úloh"
+    },
+    {
+      "type": "user-registry",
+      "id": "prieskumnik-bez-reklam",
+      "path": "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+      "name": "ShowSyncProviderNotifications",
+      "kind": "DWord",
+      "data": "0",
+      "note": "bez oznámení poskytovateľa synchronizácie (reklamy OneDrive)"
+    },
+    {
+      "type": "user-registry",
+      "id": "panel-bez-zobrazenia-uloh",
+      "path": "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+      "name": "ShowTaskViewButton",
+      "kind": "DWord",
+      "data": "0",
+      "note": "bez tlačidla Zobrazenie úloh"
+    },
+    {
+      "type": "user-registry",
+      "id": "panel-bez-copilota",
+      "path": "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+      "name": "ShowCopilotButton",
+      "kind": "DWord",
+      "data": "0",
+      "note": "bez tlačidla Copilot"
+    },
+    {
+      "type": "user-registry",
+      "id": "start-bez-odporucani",
+      "path": "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+      "name": "Start_IrisRecommendations",
+      "kind": "DWord",
+      "data": "0",
+      "note": "Štart bez odporúčaní a tipov"
+    },
+    {
+      "type": "user-registry",
+      "id": "panel-hladanie-ikona",
+      "path": "Software\\Microsoft\\Windows\\CurrentVersion\\Search",
+      "name": "SearchboxTaskbarMode",
+      "kind": "DWord",
+      "data": "1",
+      "note": "vyhľadávanie ako ikona"
+    },
+    {
+      "type": "user-registry",
+      "id": "plocha-pocitac",
+      "path": "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\HideDesktopIcons\\NewStartPanel",
+      "name": "{20D04FE0-3AEA-1069-A2D8-08002B30309D}",
+      "kind": "DWord",
+      "data": "0",
+      "note": "ikona Tento počítač"
+    },
+    {
+      "type": "user-registry",
+      "id": "plocha-subory-pouzivatela",
+      "path": "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\HideDesktopIcons\\NewStartPanel",
+      "name": "{59031a47-3f72-44a7-89c5-5595fe6b30ee}",
+      "kind": "DWord",
+      "data": "0",
+      "note": "ikona Súbory používateľa"
+    },
+    {
+      "type": "user-registry",
+      "id": "plocha-siet",
+      "path": "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\HideDesktopIcons\\NewStartPanel",
+      "name": "{F02C1A0D-BE21-4350-88B0-7367FC96EF3C}",
+      "kind": "DWord",
+      "data": "0",
+      "note": "ikona Sieť"
+    },
+    {
+      "type": "user-registry",
+      "id": "plocha-kos",
+      "path": "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\HideDesktopIcons\\NewStartPanel",
+      "name": "{645FF040-5081-101B-9F08-00AA002F954E}",
+      "kind": "DWord",
+      "data": "0",
+      "note": "ikona Kôš"
+    },
+    {
+      "type": "user-registry",
+      "id": "plocha-ovladaci-panel",
+      "path": "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\HideDesktopIcons\\NewStartPanel",
+      "name": "{5399E694-6CE5-4D6C-8FCE-1D8870FDCBA0}",
+      "kind": "DWord",
+      "data": "0",
+      "note": "ikona Ovládací panel"
+    },
+    {
+      "type": "user-registry",
+      "id": "bez-reklam-1",
+      "path": "Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager",
+      "name": "ContentDeliveryAllowed",
+      "kind": "DWord",
+      "data": "0",
+      "note": "bez obsahu „od Microsoftu“"
+    },
+    {
+      "type": "user-registry",
+      "id": "bez-reklam-2",
+      "path": "Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager",
+      "name": "OemPreInstalledAppsEnabled",
+      "kind": "DWord",
+      "data": "0",
+      "note": "bez aplikácií výrobcu PC"
+    },
+    {
+      "type": "user-registry",
+      "id": "bez-reklam-3",
+      "path": "Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager",
+      "name": "PreInstalledAppsEnabled",
+      "kind": "DWord",
+      "data": "0",
+      "note": "bez predinštalovaných ponúk"
+    },
+    {
+      "type": "user-registry",
+      "id": "bez-reklam-4",
+      "path": "Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager",
+      "name": "PreInstalledAppsEverEnabled",
+      "kind": "DWord",
+      "data": "0",
+      "note": "bez predinštalovaných ponúk"
+    },
+    {
+      "type": "user-registry",
+      "id": "bez-reklam-5",
+      "path": "Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager",
+      "name": "SilentInstalledAppsEnabled",
+      "kind": "DWord",
+      "data": "0",
+      "note": "nový profil si sám neinštaluje sponzorované aplikácie"
+    },
+    {
+      "type": "user-registry",
+      "id": "bez-reklam-6",
+      "path": "Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager",
+      "name": "SystemPaneSuggestionsEnabled",
+      "kind": "DWord",
+      "data": "0",
+      "note": "bez návrhov v Štarte"
+    },
+    {
+      "type": "user-registry",
+      "id": "bez-reklam-7",
+      "path": "Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager",
+      "name": "SoftLandingEnabled",
+      "kind": "DWord",
+      "data": "0",
+      "note": "bez tipov o Windows"
+    },
+    {
+      "type": "user-registry",
+      "id": "bez-reklam-8",
+      "path": "Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager",
+      "name": "SubscribedContent-338388Enabled",
+      "kind": "DWord",
+      "data": "0",
+      "note": "bez návrhov v Štarte"
+    },
+    {
+      "type": "user-registry",
+      "id": "bez-reklam-9",
+      "path": "Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager",
+      "name": "SubscribedContent-338389Enabled",
+      "kind": "DWord",
+      "data": "0",
+      "note": "bez tipov a trikov"
+    },
+    {
+      "type": "user-registry",
+      "id": "bez-reklam-10",
+      "path": "Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager",
+      "name": "SubscribedContent-353694Enabled",
+      "kind": "DWord",
+      "data": "0",
+      "note": "bez návrhov v Nastaveniach"
+    },
+    {
+      "type": "user-registry",
+      "id": "bez-reklam-11",
+      "path": "Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager",
+      "name": "SubscribedContent-353696Enabled",
+      "kind": "DWord",
+      "data": "0",
+      "note": "bez návrhov v Nastaveniach"
+    },
+    {
+      "type": "user-registry",
+      "id": "bez-herneho-nahravania",
+      "path": "System\\GameConfigStore",
+      "name": "GameDVR_Enabled",
+      "kind": "DWord",
+      "data": "0",
+      "note": "bez nahrávania hier v pozadí"
+    },
+    {
+      "type": "user-registry",
+      "id": "bez-lepkavych-klaves",
+      "path": "Control Panel\\Accessibility\\StickyKeys",
+      "name": "Flags",
+      "kind": "String",
+      "data": "506",
+      "note": "5× Shift sa nepýta na Lepkavé klávesy"
     }
   ]
 }

@@ -154,6 +154,60 @@ public static class WindowsAgentChecks
     }
 
     [Check]
+    public static void ServicesByPrefixPhysicalOnlyAndPutBack()
+    {
+        if (!OperatingSystem.IsWindows() || !IsAdmin())
+        {
+            return;
+        }
+
+        var prefix = "PolarisPredpona" + Guid.NewGuid().ToString("N")[..6];
+        var names = new[] { prefix + "A", prefix + "B" };
+        var memoryKey = @"SOFTWARE\POLARIS\Skuska\Sluzby" + Guid.NewGuid().ToString("N")[..6];
+        foreach (var n in names)
+        {
+            Sc("create", n, "binPath=", @"C:\neexistuje\polaris-skuska.exe", "start=", "demand");
+        }
+
+        try
+        {
+            var memory = new ServiceMemory(memoryKey);
+            var handler = new ServiceHandler(() => false, memory);
+            var all = new ServiceElement { Id = "p", Name = prefix + "*", Start = ServiceStart.Disabled };
+            Expect.Equal(Observed.Different, handler.Observe(all).State, "obe služby zatiaľ ručne");
+            handler.Apply(all);
+            var seen = handler.Observe(all);
+            Expect.Equal(Observed.Present, seen.State, "obe vypnuté: " + seen.Detail);
+            Expect.Equal(2, memory.All().Count, "pôvodný stav oboch zapamätaný");
+            Expect.Equal("Manual", memory.All()[names[0]], "pôvodne ručne");
+
+            handler.Apply(new ServiceElement { Id = "q", Name = names[0], Start = ServiceStart.Automatic });
+            Expect.Equal("Manual", memory.All()[names[0]], "ďalšia zmena prvý stav neprepíše");
+
+            Expect.True(memory.Restore(names[0]) && memory.Restore(names[1]), "vrátené");
+            Expect.Equal(Observed.Present, handler.Observe(new ServiceElement { Id = "r", Name = prefix + "*", Start = ServiceStart.Manual }).State, "obe znova ručne");
+            Expect.Equal(0, memory.All().Count, "po vrátení zabudnuté");
+
+            var onVirtual = new ServiceHandler(() => true, memory);
+            var physical = new ServiceElement { Id = "f", Name = names[0], Start = ServiceStart.Disabled, PhysicalOnly = true };
+            Expect.Equal(Observed.Present, onVirtual.Observe(physical).State, "na virtuálnom PC sa prvok pre fyzické PC vynechá");
+            onVirtual.Apply(physical);
+            Expect.Equal(Observed.Present, handler.Observe(new ServiceElement { Id = "g", Name = names[0], Start = ServiceStart.Manual }).State, "a nič nezmení");
+            Expect.Equal(Observed.Present, handler.Observe(new ServiceElement { Id = "h", Name = "PolarisNicTakeho*", Start = ServiceStart.Disabled }).State, "žiadna služba so začiatkom = v poriadku");
+            Console.WriteLine($"  (tento PC je {(Machine.IsVirtual() ? "virtuálny" : "fyzický")})");
+        }
+        finally
+        {
+            foreach (var n in names)
+            {
+                Sc("delete", n);
+            }
+
+            Microsoft.Win32.Registry.LocalMachine.DeleteSubKeyTree(memoryKey, throwOnMissingSubKey: false);
+        }
+    }
+
+    [Check]
     public static void FeatureStateIsReadThroughDism()
     {
         if (!OperatingSystem.IsWindows() || !IsAdmin())
@@ -219,6 +273,13 @@ public static class WindowsAgentChecks
                 var run = engine.Apply(engine.Plan([keyboards]), null, () => DateTimeOffset.UtcNow);
                 Expect.True(run.Failed == 0, "klávesnice do predlohy: " + RunReport.RunText(run));
                 Expect.True(engine.Plan([keyboards]).InDesiredState, "klávesnice sedia");
+
+                var quiet = new SoundsElement { Id = "z" };
+                var before = again.Observe(quiet);
+                Console.WriteLine("  (zvuky v predlohe pred zmenou: " + before.Detail + ")");
+                again.Apply(quiet);
+                var after = again.Observe(quiet);
+                Expect.Equal(Observed.Present, after.State, "predloha bez zvukov: " + after.Detail);
             }
         }
         finally

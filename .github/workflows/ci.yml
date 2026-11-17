@@ -116,6 +116,10 @@ jobs:
           if ($LASTEXITCODE -gt 1) { exit $LASTEXITCODE }
           & ./out/agent/polaris-agent.exe kontrola recepty/ukazka-zaklad.json
           if ($LASTEXITCODE -gt 1) { exit $LASTEXITCODE }
+          & ./out/agent/polaris-agent.exe kontrola recepty/ukazka-sluzby.json
+          if ($LASTEXITCODE -gt 1) { exit $LASTEXITCODE }
+          & ./out/agent/polaris-agent.exe kontrola recepty/ukazka-slabe-pc.json
+          if ($LASTEXITCODE -gt 1) { exit $LASTEXITCODE }
           # drivers: devices without a driver (1 = some are missing, fine here), then a backup checked file by file
           & ./out/agent/polaris-agent.exe ovladace
           if ($LASTEXITCODE -gt 1) { exit $LASTEXITCODE }

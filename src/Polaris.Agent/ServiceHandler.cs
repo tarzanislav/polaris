@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using Microsoft.Win32;
 using System.Runtime.Versioning;
 using Polaris.Recipes;
 
@@ -54,6 +55,29 @@ internal static partial class ServiceManager
         }
 
         return new State(start, delayed, status.CurrentState);
+    }
+
+    /// <summary>The services (not drivers, not per-user services) whose key name begins with the prefix.</summary>
+    public static List<string> NamesBeginning(string prefix)
+    {
+        using var services = Registry.LocalMachine.OpenSubKey(@"SYSTEM\CurrentControlSet\Services");
+        if (services is null)
+        {
+            return [];
+        }
+
+        var names = new List<string>();
+        foreach (var name in services.GetSubKeyNames().Where(n => n.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
+        {
+            using var key = services.OpenSubKey(name);
+            // SERVICE_WIN32_OWN_PROCESS 0x10 or SHARE_PROCESS 0x20, without the user-service bits (0x40, 0x80)
+            if (key?.GetValue("Type") is int type && (type & 0x30) != 0 && (type & 0xC0) == 0)
+            {
+                names.Add(name);
+            }
+        }
+
+        return [.. names.Order(StringComparer.OrdinalIgnoreCase)];
     }
 
     public static void SetStart(string name, uint startType, bool delayed)
@@ -351,52 +375,111 @@ internal sealed partial class SafeServiceHandle : Microsoft.Win32.SafeHandles.Sa
 }
 
 /// <summary>Windows services: how they start and whether they run. A service that does not exist cannot be created by a
-/// recipe – the plan says so.</summary>
+/// recipe – the plan says so. A name ending with "*" covers every service whose name begins so; an element for physical
+/// PCs only is skipped on a virtual one. Before the first change of a service its original start is remembered, so it can
+/// be put back (<c>polaris-agent sluzby vratit</c>).</summary>
 [SupportedOSPlatform("windows")]
 public sealed class ServiceHandler : IElementHandler
 {
     public static readonly TimeSpan Limit = TimeSpan.FromSeconds(60);
+
+    private readonly Func<bool> _isVirtual;
+    private readonly ServiceMemory _memory;
+
+    public ServiceHandler()
+        : this(null, null)
+    {
+    }
+
+    public ServiceHandler(Func<bool>? isVirtual, ServiceMemory? memory)
+    {
+        _isVirtual = isVirtual ?? Machine.IsVirtual;
+        _memory = memory ?? new ServiceMemory();
+    }
 
     public bool CanHandle(Element element) => element is ServiceElement;
 
     public Observation Observe(Element element)
     {
         var s = (ServiceElement)element;
-        ServiceManager.State state;
-        try
+        if (s.PhysicalOnly && _isVirtual())
         {
-            state = ServiceManager.Read(s.Name);
-        }
-        catch (ServiceMissingException) when (s.Start == ServiceStart.Disabled && s.Running != true)
-        {
-            // one recipe for every PC: a service this Windows does not have is as off as can be
-            return new Observation(Observed.Present, "služba na tomto PC nie je – nie je čo vypínať");
+            return new Observation(Observed.Present, "virtuálny počítač – prvok platí len pre fyzické PC");
         }
 
-        var now = Describe(state);
-        var startOk = state.StartType == StartType(s.Start) && (s.Start != ServiceStart.Automatic || !state.Delayed)
-            && (s.Start != ServiceStart.AutomaticDelayed || state.Delayed);
-        var runOk = s.Running is not { } run || (run ? state.Current == ServiceManager.Running : state.Current == ServiceManager.Stopped);
-        return startOk && runOk
-            ? new Observation(Observed.Present, now)
-            : new Observation(Observed.Different, $"je {now}, má byť {Wanted(s)}");
+        var names = Names(s);
+        if (names.Count == 0)
+        {
+            return new Observation(Observed.Present, $"žiadna služba sa nezačína na {s.Prefix} – nie je čo vypínať");
+        }
+
+        var different = new List<string>();
+        foreach (var name in names)
+        {
+            if (One(s, name) is { } difference)
+            {
+                different.Add(names.Count > 1 || s.IsPrefix ? $"{name}: {difference}" : difference);
+            }
+        }
+
+        return different.Count == 0
+            ? new Observation(Observed.Present, names.Count == 1 && !s.IsPrefix ? Describe(ServiceManager.Read(names[0])) : $"{names.Count} služieb v poriadku")
+            : new Observation(Observed.Different, string.Join("; ", different));
     }
 
     public void Apply(Element element)
     {
         var s = (ServiceElement)element;
-        ServiceManager.SetStart(s.Name, StartType(s.Start), s.Start == ServiceStart.AutomaticDelayed);
-        if (s.Running is { } run)
+        if (s.PhysicalOnly && _isVirtual())
         {
-            var current = ServiceManager.Read(s.Name).Current;
-            if (run != (current == ServiceManager.Running))
+            return;
+        }
+
+        foreach (var name in Names(s))
+        {
+            if (One(s, name) is null)
             {
-                ServiceManager.SetRunning(s.Name, run, Limit);
+                continue;
+            }
+
+            var before = ServiceManager.Read(name);
+            _memory.Remember(name, before);
+            ServiceManager.SetStart(name, StartType(s.Start), s.Start == ServiceStart.AutomaticDelayed);
+            if (s.Running is { } run)
+            {
+                var current = ServiceManager.Read(name).Current;
+                if (run != (current == ServiceManager.Running))
+                {
+                    ServiceManager.SetRunning(name, run, Limit);
+                }
             }
         }
     }
 
-    private static uint StartType(ServiceStart start) => start switch
+    /// <summary>The services the element covers: its one name, or every service beginning with its prefix.</summary>
+    private static List<string> Names(ServiceElement s) => s.IsPrefix ? ServiceManager.NamesBeginning(s.Prefix) : [s.Name.Trim()];
+
+    /// <summary>What differs on one service, or null when it is as wanted.</summary>
+    private static string? One(ServiceElement s, string name)
+    {
+        ServiceManager.State state;
+        try
+        {
+            state = ServiceManager.Read(name);
+        }
+        catch (ServiceMissingException) when (s.Start == ServiceStart.Disabled && s.Running != true)
+        {
+            // one recipe for every PC: a service this Windows does not have is as off as can be
+            return null;
+        }
+
+        var startOk = state.StartType == StartType(s.Start) && (s.Start != ServiceStart.Automatic || !state.Delayed)
+            && (s.Start != ServiceStart.AutomaticDelayed || state.Delayed);
+        var runOk = s.Running is not { } run || (run ? state.Current == ServiceManager.Running : state.Current == ServiceManager.Stopped);
+        return startOk && runOk ? null : $"je {Describe(state)}, má byť {Wanted(s)}";
+    }
+
+    public static uint StartType(ServiceStart start) => start switch
     {
         ServiceStart.Automatic or ServiceStart.AutomaticDelayed => ServiceManager.AutoStart,
         ServiceStart.Disabled => ServiceManager.Disabled,
@@ -441,3 +524,83 @@ public sealed class ServiceHandler : IElementHandler
 
 /// <summary>The service does not exist on this PC.</summary>
 public sealed class ServiceMissingException(string name) : InvalidOperationException($"Služba {name} na tomto PC neexistuje.");
+
+/// <summary>The machine itself.</summary>
+[SupportedOSPlatform("windows")]
+public static class Machine
+{
+    private static readonly string[] VirtualMakers = ["vmware", "qemu", "innotek", "virtualbox", "xen", "parallels", "red hat", "bochs", "kvm"];
+
+    /// <summary>A virtual computer, by its firmware's maker and model (a physical PC with Hyper-V on – the Sandbox – still
+    /// shows its real maker, unlike the processor's hypervisor flag).</summary>
+    public static bool IsVirtual()
+    {
+        using var bios = Registry.LocalMachine.OpenSubKey(@"HARDWARE\DESCRIPTION\System\BIOS");
+        var maker = (bios?.GetValue("SystemManufacturer") as string ?? "").ToLowerInvariant();
+        var model = (bios?.GetValue("SystemProductName") as string ?? "").ToLowerInvariant();
+        return VirtualMakers.Any(v => maker.Contains(v, StringComparison.Ordinal) || model.Contains(v, StringComparison.Ordinal))
+            || model.Contains("virtual machine", StringComparison.Ordinal);
+    }
+}
+
+/// <summary>How each service started before POLARIS first changed it (HKLM\SOFTWARE\POLARIS\Agent\Sluzby), so that it can
+/// be put back – one service or all. The first state is kept: later changes never overwrite it.</summary>
+[SupportedOSPlatform("windows")]
+public sealed class ServiceMemory(string key = ServiceMemory.DefaultKey)
+{
+    public const string DefaultKey = @"SOFTWARE\POLARIS\Agent\Sluzby";
+
+    internal void Remember(string name, ServiceManager.State state)
+    {
+        using var memory = Registry.LocalMachine.CreateSubKey(key);
+        if (memory.GetValue(name) is null)
+        {
+            memory.SetValue(name, Text(state), RegistryValueKind.String);
+        }
+    }
+
+    /// <summary>Service → its original start (Automatic, AutomaticDelayed, Manual, Disabled).</summary>
+    public SortedDictionary<string, string> All()
+    {
+        using var memory = Registry.LocalMachine.OpenSubKey(key);
+        var all = new SortedDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var name in memory?.GetValueNames() ?? [])
+        {
+            if (memory!.GetValue(name) is string start)
+            {
+                all[name] = start;
+            }
+        }
+
+        return all;
+    }
+
+    /// <summary>Puts the service's original start back and forgets it; false when nothing was remembered.</summary>
+    public bool Restore(string name)
+    {
+        if (!All().TryGetValue(name, out var original) || !Enum.TryParse<ServiceStart>(original, out var start))
+        {
+            return false;
+        }
+
+        try
+        {
+            ServiceManager.SetStart(name, ServiceHandler.StartType(start), start == ServiceStart.AutomaticDelayed);
+        }
+        catch (ServiceMissingException)
+        {
+            // gone from Windows meanwhile – nothing to put back
+        }
+
+        using var memory = Registry.LocalMachine.CreateSubKey(key);
+        memory.DeleteValue(name, throwOnMissingValue: false);
+        return true;
+    }
+
+    private static string Text(ServiceManager.State state) => state.StartType switch
+    {
+        ServiceManager.AutoStart => state.Delayed ? nameof(ServiceStart.AutomaticDelayed) : nameof(ServiceStart.Automatic),
+        ServiceManager.Disabled => nameof(ServiceStart.Disabled),
+        _ => nameof(ServiceStart.Manual),
+    };
+}
