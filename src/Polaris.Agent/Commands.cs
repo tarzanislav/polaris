@@ -41,7 +41,7 @@ public sealed class AgentHost
         Handlers = folder =>
         [
             new RegistryHandler(), new ProgramHandler(folder), new ServiceHandler(), new FeatureHandler(), new ComputerHandler(),
-            new ProfileTemplateHandler(), new SessionRuleHandler(), new SandboxHandler(), new StoreHandler(),
+            new ProfileTemplateHandler(), new SessionRuleHandler(), new SandboxHandler(), new StoreHandler(), new StartupHandler(),
         ],
         IsAdmin = () =>
         {
@@ -66,7 +66,7 @@ public sealed class AgentHost
 /// 2 = wrong input, a recipe with problems or missing rights.</summary>
 public static class Commands
 {
-    public const string Stage = "K5a";
+    public const string Stage = "K6a";
 
     public const string Help = """
         polaris-agent – uvedie toto PC do stavu podľa receptu (etapa K2: spúšťa správca na PC, bez siete)
@@ -98,12 +98,20 @@ public static class Commands
           ovladace overit PRIEČINOK   skontroluje zálohu: každý súbor podľa odtlačku (nič nemení)
           ovladace obnov PRIEČINOK [--vsetky] [--ano]
                                  nainštaluje zo zálohy ovládače, ktoré toto PC potrebuje (správca; len podpísané)
+          nespat [3h | 90m | koniec]
+                                 údržba: PC nezaspí daný čas (najviac 24h), aby sa dalo pracovať na diaľku (správca);
+                                 bez času vypíše stav
+          spustanie              programy, ktoré sa spúšťajú samy po prihlásení (pre všetkých), a ktoré vypol POLARIS
+          spustanie vratit MENO | --vsetky
+                                 zapne znova program, ktorý vypol POLARIS (správca); recept ho však vypne znova
+          meranie [POČET]        posledné merania prihlásenia: čas do pracovnej plochy a pamäť po 2 minútach
 
         Keď PC dôveruje aspoň jednej konzole, použije len recept s platným podpisom (RECEPT.podpis vedľa receptu).
           verzia
 
         Recept je súbor JSON s prvkami: program, registry, bookmarks, service, feature, session, keyboards,
-        user-registry, sandbox (šablóna Pieskoviska), store (Školský obchod), computer, updates a power.
+        user-registry, sandbox (šablóna Pieskoviska), store (Školský obchod), computer, updates, power, sounds
+        a startup.
         Popis formátu: docs/recept.md v repozitári.
         """;
 
@@ -135,6 +143,9 @@ public static class Commands
                 "centrum" => CentreCommand(args, output, host ?? DefaultHost()),
                 "ovladace" => DriverCommand(args, output, host ?? DefaultHost()),
                 "sluzby" => OperatingSystem.IsWindows() ? ServicesCommand(args, output, host ?? DefaultHost()) : throw new PlatformNotSupportedException(),
+                "nespat" => OperatingSystem.IsWindows() ? AwakeCommand(args, output, host ?? DefaultHost()) : throw new PlatformNotSupportedException(),
+                "spustanie" => OperatingSystem.IsWindows() ? StartupCommand(args, output, host ?? DefaultHost()) : throw new PlatformNotSupportedException(),
+                "meranie" => Measurements(args.Length > 1 && int.TryParse(args[1], out var m) && m > 0 ? m : 5, output, host ?? DefaultHost()),
                 "skuska-ikony" => OperatingSystem.IsWindows() ? IconCheck(output, host ?? DefaultHost()) : throw new PlatformNotSupportedException(),
                 "dennik" => Journal(args.Length > 1 && int.TryParse(args[1], out var n) && n > 0 ? n : 10, output, host ?? DefaultHost()),
                 _ => Wrong($"Neznámy príkaz „{args[0]}“. Zoznam príkazov: polaris-agent pomoc", output),
@@ -256,7 +267,12 @@ public static class Commands
             return 2;
         }
 
-        var run = engine.Apply(plan, recipe, host.Clock, line => output.WriteLine(line));
+        RunRecord run;
+        using (Awake.While("používa recept " + recipe.Name))
+        {
+            run = engine.Apply(plan, recipe, host.Clock, line => output.WriteLine(line));
+        }
+
         output.WriteLine(RunReport.RunText(run));
         WriteJournal(host.JournalPath, run);
         return run.Failed == 0 ? 0 : 1;
@@ -272,12 +288,47 @@ public static class Commands
 
         foreach (var run in RunReport.ReadJournal(File.ReadAllText(host.JournalPath, Encoding.UTF8)).TakeLast(count))
         {
+            if (run.Recipe == Measurement.Recipe)
+            {
+                output.WriteLine($"{run.StartedUtc.ToLocalTime():d. M. yyyy H:mm}  {run.Recipe}  {string.Join(", ", run.Results.Take(2).Select(r => r.Message))}");
+                continue;
+            }
+
+            if (run.Recipe.StartsWith('(') && run.Results.Count == 1 && run.Results[0].Ok)
+            {
+                output.WriteLine($"{run.StartedUtc.ToLocalTime():d. M. yyyy H:mm}  {run.Recipe}  {run.Results[0].Message}");
+                continue;
+            }
+
             var ok = run.Results.Count(r => r.Ok);
             var state = run.Failed == 0 ? "v poriadku" : $"chyby: {run.Failed}";
             output.WriteLine($"{run.StartedUtc.ToLocalTime():d. M. yyyy H:mm}  {run.Recipe} v{run.Version}  zmien {ok}, {state}");
             foreach (var failed in run.Results.Where(r => !r.Ok))
             {
                 output.WriteLine($"      ✗ {failed.Title}: {failed.Message}");
+            }
+        }
+
+        return 0;
+    }
+
+    private static int Measurements(int count, TextWriter output, AgentHost host)
+    {
+        var runs = File.Exists(host.JournalPath)
+            ? RunReport.ReadJournal(File.ReadAllText(host.JournalPath, Encoding.UTF8)).Where(r => r.Recipe == Measurement.Recipe).TakeLast(count).ToList()
+            : [];
+        if (runs.Count == 0)
+        {
+            output.WriteLine("Zatiaľ žiadne meranie – meria služba POLARIS agent pri každom prihlásení (ikona dá vedieť, kedy je plocha hotová).");
+            return 0;
+        }
+
+        foreach (var run in runs)
+        {
+            output.WriteLine($"{run.StartedUtc.ToLocalTime():d. M. yyyy H:mm}");
+            foreach (var r in run.Results)
+            {
+                output.WriteLine($"  {r.Title,-36} {r.Message}");
             }
         }
 
@@ -674,6 +725,93 @@ public static class Commands
     }
 
     [SupportedOSPlatform("windows")]
+    private static int AwakeCommand(string[] args, TextWriter output, AgentHost host)
+    {
+        var now = host.Clock();
+        if (args.Length == 1)
+        {
+            output.WriteLine(MaintenanceStore.Until() is { } u && u > now
+                ? $"Údržba: PC nezaspí do {u.ToLocalTime():d. M. H:mm}. Skončiť: polaris-agent nespat koniec"
+                : "Údržba nie je zapnutá – PC zaspáva podľa nastavenia napájania. Zapnúť: polaris-agent nespat 3h");
+            return 0;
+        }
+
+        if (!host.IsAdmin())
+        {
+            return Wrong("Údržbu zapína správca.", output);
+        }
+
+        string message;
+        if (args[1] is "koniec" or "-")
+        {
+            MaintenanceStore.Set(null);
+            message = "údržba ukončená – PC zaspáva podľa nastavenia napájania";
+        }
+        else if (Maintenance.ParseLength(args[1]) is { } length)
+        {
+            var until = now + length;
+            MaintenanceStore.Set(until);
+            message = $"údržba: PC nezaspí do {until.ToLocalTime():d. M. H:mm}";
+        }
+        else
+        {
+            return Wrong("Použitie: polaris-agent nespat 3h | 90m | 1h30m | koniec (najviac 24h).", output);
+        }
+
+        WriteJournal(host.JournalPath, AgentService.Simple("(údržba)", "udrzba", "údržba", true, message, now));
+        output.WriteLine(char.ToUpperInvariant(message[0]) + message[1..] + ".");
+        var running = ServiceManager.Exists(AgentService.Name) && ServiceManager.Read(AgentService.Name).Current == ServiceManager.Running;
+        output.WriteLine(running
+            ? "Službe POLARIS agent to stačí do pol minúty (powercfg /requests ukáže jej požiadavku)."
+            : "Pozor: služba POLARIS agent nebeží – údržba začne, až keď sa spustí (instalovat-sluzbu).");
+        return 0;
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static int StartupCommand(string[] args, TextWriter output, AgentHost host)
+    {
+        var memory = new StartupMemory();
+        if (args.Length > 1 && args[1] == "vratit")
+        {
+            if (!host.IsAdmin())
+            {
+                return Wrong("Programy zapína znova správca.", output);
+            }
+
+            var ids = args.Contains("--vsetky") ? [.. memory.All().Keys] : args.Skip(2).Where(a => !a.StartsWith("--", StringComparison.Ordinal)).ToList();
+            if (ids.Count == 0)
+            {
+                return Wrong("Použitie: polaris-agent spustanie vratit MENO | --vsetky", output);
+            }
+
+            foreach (var id in ids)
+            {
+                output.WriteLine(memory.Restore(id) ? $"  ✓ {id}: zase sa spúšťa" : $"  – {id}: POLARIS ho nevypol, nie je čo vrátiť");
+            }
+
+            output.WriteLine(StartupRule.Read() is null
+                ? "Hotovo."
+                : "Služba stráži zoznam povolených z receptu – program pridaj do „allow“ prvku startup, inak ho o chvíľu vypne znova.");
+            return 0;
+        }
+
+        var held = memory.All();
+        var entries = StartupEntries.Read();
+        output.WriteLine($"Programy, ktoré sa spúšťajú samy po prihlásení pre všetkých ({entries.Count}):");
+        foreach (var e in entries.OrderBy(e => e.Name, StringComparer.OrdinalIgnoreCase))
+        {
+            output.WriteLine("  " + StartupWork.Describe(e) + (held.ContainsKey(e.Id) ? "  – vypol POLARIS" : ""));
+        }
+
+        var allow = StartupRule.Read();
+        output.WriteLine(allow is null
+            ? "Služba nestráži žiadny zoznam povolených (recept nemá prvok startup)."
+            : $"Povolené receptom: {(allow.Count == 0 ? "nič" : string.Join(", ", allow))} (a vždy SecurityHealth).");
+        output.WriteLine("Programy jednotlivých kont (ich vlastné „Run“) rieši šablóna profilu.");
+        return 0;
+    }
+
+    [SupportedOSPlatform("windows")]
     private static int IconCheck(TextWriter output, AgentHost host)
     {
         if (!host.IsAdmin())
@@ -796,6 +934,7 @@ public static class Commands
                     }
 
                     var started = DateTimeOffset.UtcNow;
+                    using var awake = Awake.While("inštaluje ovládače");
                     var results = new List<(DriverWork.Installed, double)>();
                     foreach (var p in needed)
                     {

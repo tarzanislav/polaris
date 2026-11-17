@@ -26,6 +26,7 @@ internal sealed unsafe class Tray
     private StoreAnswer? _store;
     private nint _window;
     private nint _icon;
+    private bool _readySaid;
 
     public static int Run()
     {
@@ -80,9 +81,15 @@ internal sealed unsafe class Tray
     {
         var data = Data(Native.NIF_MESSAGE | Native.NIF_ICON | Native.NIF_TIP | Native.NIF_SHOWTIP);
         Native.Put(data.szTip, 128, TrayMenu.Tooltip(_cleaning));
-        _ = Native.Shell_NotifyIcon(Native.NIM_ADD, ref data);
+        var added = Native.Shell_NotifyIcon(Native.NIM_ADD, ref data) != 0;
         data.uVersion = Native.NOTIFYICON_VERSION_4;
         _ = Native.Shell_NotifyIcon(Native.NIM_SETVERSION, ref data);
+        if (added && !_readySaid)
+        {
+            // the taskbar took the icon: the desktop is ready – the agent measures how long the sign-in took
+            _readySaid = true;
+            _ = Task.Run(() => StoreClient.Ask(new StoreRequest { Command = StoreClient.ReadyCommand }, StoreClient.ReadyLimit, connectMilliseconds: 3000));
+        }
     }
 
     private Native.NOTIFYICONDATAW Data(uint flags) => new()

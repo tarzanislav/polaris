@@ -18,7 +18,19 @@ polaris-agent doverovat KLUC         PC prijme recepty podpísané touto konzolo
 polaris-agent instalovat-sluzbu      služba PolarisAgent (čistí relácie), z Program Files; odinstalovat-sluzbu ju odstráni
 polaris-agent vycistit KONTO         hneď zmaže profil zdieľaného konta (nie správcu, nie keď je niekto prihlásený)
 polaris-agent obchod                 Školský obchod pre žiaka (spúšťa žiak, nie správca)
+polaris-agent nespat 3h              údržba: PC nezaspí daný čas (90m, 1h30m …, najviac 24h); koniec ju skončí; bez času stav
+polaris-agent spustanie              programy, ktoré sa spúšťajú samy po prihlásení, a ktoré vypol POLARIS (vratit ich zapne)
+polaris-agent meranie [POČET]        merania prihlásení: čas do pracovnej plochy, pamäť PC a programov po 2 minútach
 ```
+
+**Údržba bez spánku.** `nespat` zapíše koniec údržby do registra; služba POLARIS agent do pol minúty požiada Windows,
+aby PC nezaspalo (požiadavka „POLARIS: údržba – PC nezaspí do …“ je vidno v `powercfg /requests`), a po čase ju pustí.
+Rovnako drží PC hore, kým sama pracuje: počas receptu, inštalácie zo Školského obchodu a ovládačov. Zastaví len
+zaspanie po nečinnosti – PC, ktoré niekto uspí sám, zaspí.
+
+**Meranie prihlásenia.** Keď ikona žiaka dostane miesto na paneli úloh, povie službe, že pracovná plocha je hotová.
+Služba si od Windows zistí čas prihlásenia relácie a po 2 minútach zmeria pamäť: celé PC, programy relácie (10
+najväčších) a služby. Jeden záznam denníka na prihlásenie – podklad na porovnanie pred a po trezore profilu.
 
 Návratový kód: `0` = v poriadku / PC je podľa receptu, `1` = rozdiely alebo chyby, `2` = zlý vstup, recept
 s problémami alebo chýbajúce práva.
@@ -274,6 +286,30 @@ polaris-agent zasoba \\server\zasoba                                            
   spoľahlivejšie. Toto je hodnota samotného Windows, nie politika – zapíše sa len, keď je v recepte, a nikdy sa
   neodstraňuje.
 
+- `networkFullPower: true` = **sieť naplno**: Wi-Fi bez úspory energie (najvyšší výkon) a linky PCI Express (kde
+  sedia sieťové karty) bez úspory – práca na diaľku nečaká, kým sa karta prebudí. Wake on LAN to nemení: ten je
+  v ovládači karty a vo firmvéri. Vynechané = rozhoduje plán napájania Windows.
+
+### `startup`: programy, ktoré sa spúšťajú samy
+
+```json
+{ "type": "startup", "id": "spustanie", "allow": ["DWAgent*", "dwag*", "RtkAud*", "SynTP*", "ETD*"] }
+```
+
+- Týka sa programov **pre všetkých používateľov**: `Run` počítača, jeho 32-bitový `Run` a spoločný priečinok
+  „Po spustení“. Všetky okrem povolených sa **vypnú ako v Správcovi úloh** (položka ostane, len jej značka
+  v `…\Explorer\StartupApproved` povie „vypnuté“) – Správca úloh ich ukáže ako vypnuté.
+- `allow`: meno položky (ako ho ukáže `polaris-agent spustanie`) alebo meno programu bez `.exe`; s `*` na konci
+  začiatok mien (aspoň 3 znaky). Ikona Zabezpečenia Windows (`SecurityHealth`) sa spúšťa vždy. Prázdny zoznam =
+  spúšťa sa len ona.
+- Služba si zoznam drží a **každých 5 minút ho skontroluje znova** – vypne aj program, ktorý pribudol neskôr
+  (inštaláciou receptom, zo Školského obchodu alebo ručne). Zápis v denníku `(spúšťanie)`.
+- **Pôvodný stav:** pred vypnutím si POLARIS zapamätá značku položky. `polaris-agent spustanie vratit MENO | --vsetky`
+  ju vráti (kým je prvok v recepte, služba program o chvíľu vypne znova – pridaj ho do `allow`). `present: false`
+  zapne všetko, čo POLARIS vypol, a služba prestane zoznam strážiť.
+- Programy jednotlivých kont (ich vlastný `Run`, napr. OneDrive či Teams) sem nepatria – tie sa nastavia v šablóne
+  profilu (trezor, K6b).
+
 ### `sandbox`: šablóna Pieskoviska na ploche
 
 ```json
@@ -367,6 +403,8 @@ Spúšťa ju **služba POLARIS agent** (nie zoznam programov po prihlásení, te
   aplikácie Store bez behu na pozadí, bez miniaplikácií, Game Baru, reklám a návrhov, aktualizácie zdieľané v učebni,
   telemetria na minimum, hlásenie chýb bez okien a bez odosielania, bez automatického prehrávania z USB, ticho,
   ikony na ploche a Prieskumník podľa správcu.
+- `recepty/ukazka-zaklad.json` v7 navyše: sieť naplno a po prihlásení sa samy spúšťajú len povolené programy
+  (vzdialená správa DWAgent, zvuk Realtek, touchpady Synaptics a ELAN; vždy Zabezpečenie Windows).
 - `recepty/ukazka-sluzby.json`: služby pre PC žiakov – vypnuté, čo v učebni nemá čo bežať (telemetria, Xbox, mapy,
   hotspot, vzdialený register, ohlasovanie v sieti, indexovanie …), ručne Pomocník IP a asistent kompatibility.
 - `recepty/ukazka-slabe-pc.json`: navyše pre staršie PC – bez efektov priehľadnosti.

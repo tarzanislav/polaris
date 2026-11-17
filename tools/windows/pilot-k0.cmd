@@ -10,7 +10,8 @@ exit /b
 # POLARIS – pilot K0 automaticky. Dvojklik spúšťa vždy ďalšiu fázu:
 #   fáza 1: konto žiaka, kontrola receptov, služba a ikona, recepty Relácia, Pieskovisko a Základ, ovládače
 #   (potom reštart a krátka skúška ako žiak – asi 5 minút ručne)
-#   fáza 2: kontrola, že profil žiaka sa vyčistil a program zo Školského obchodu je preč, výpis denníka
+#   fáza 2: kontrola, že profil žiaka sa vyčistil a program zo Školského obchodu je preč, programy po prihlásení,
+#   meranie prihlásenia a výpis denníka
 # Všetko ide do súboru POLARIS-pilot.txt na ploche – ten mi pošli. Názov PC ani hardvér sa do neho nezapisujú.
 
 $ErrorActionPreference = 'Continue'
@@ -134,7 +135,8 @@ if ($phaseNow -eq '0') {
     Write-Host "  2. Prihlás sa ako .\$Account s heslom $Password (alebo tvojím, ak konto už bolo)."
     Write-Host '  3. Klikni na ikonu POLARIS pri hodinách -> Školský obchod -> Audacity a počkaj na hlásenie o inštalácii.'
     Write-Host '     (Ak chceš: Správca úloh -> Podrobnosti -> polaris-ziak.exe -> Ukončiť úlohu má hlásiť Prístup odmietnutý.)'
-    Write-Host '  4. ODHLÁS sa (Štart -> konto -> Odhlásiť sa), prihlás sa ako správca a znova dvojklik na pilot-k0.cmd.'
+    Write-Host '  4. Zostaň prihlásený aspoň 2 minúty (POLARIS meria pamäť), potom ODHLÁS sa (Štart -> konto -> Odhlásiť sa),'
+    Write-Host '     prihlás sa ako správca a znova dvojklik na pilot-k0.cmd.'
     Write-Host ''
     if ($env:POLARIS_PILOT_CI) { return } # skúška v CI: bez otázky a bez reštartu
     $answer = Read-Host 'Reštartovať PC teraz? [a/n]'
@@ -168,6 +170,12 @@ foreach ($r in $AllRecipes) {
 
 Step 'Služby, ktoré POLARIS zmenil (pôvodný stav)'
 Agent sluzby | Out-Null
+
+Step 'Programy, ktoré sa spúšťajú samy po prihlásení'
+Agent spustanie | Out-Null
+
+Step 'Meranie prihlásenia (čas do pracovnej plochy, pamäť po 2 minútach)'
+Agent meranie 3 | Out-Null
 
 Step 'Denník'
 Agent dennik 20 | Out-Null

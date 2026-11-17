@@ -9,7 +9,7 @@ namespace Polaris.Recipes;
 public static class RecipeFormat
 {
     public static readonly IReadOnlyList<string> Types =
-        ["program", "registry", "bookmarks", "service", "feature", "user-registry", "keyboards", "session", "sandbox", "store", "computer", "updates", "power", "sounds"];
+        ["program", "registry", "bookmarks", "service", "feature", "user-registry", "keyboards", "session", "sandbox", "store", "computer", "updates", "power", "sounds", "startup"];
 
     public static Recipe Read(JsonNode root)
     {
@@ -71,6 +71,7 @@ public static class RecipeFormat
             "updates" => Updates(f),
             "power" => Power(f),
             "sounds" => new SoundsElement { Scheme = f.Enum("scheme", SoundScheme.None) },
+            "startup" => new StartupElement { Allow = f.Strings("allow") },
             _ => throw JsonError.At(typeNode, $"neznámy typ prvku „{type}“ (možné: {string.Join(", ", Types)})."),
         };
         e.Id = f.String("id");
@@ -150,6 +151,9 @@ public static class RecipeFormat
             case SoundsElement z:
                 o.Add("scheme", z.Scheme.ToString());
                 break;
+            case StartupElement t:
+                o.Add("allow", JsonArray.Of(t.Allow, x => x));
+                break;
             case PowerElement w:
                 o.AddIf("sleepMinutes", Number(w.SleepMinutes))
                     .AddIf("displayMinutes", Number(w.DisplayMinutes))
@@ -158,7 +162,8 @@ public static class RecipeFormat
                     .AddIf("lidClose", w.LidClose is { } lid ? (JsonNode)lid.ToString() : null)
                     .AddIf("wakePassword", w.WakePassword is { } password ? (JsonNode)password : null)
                     .AddIf("fastStartup", w.FastStartup is { } fast ? (JsonNode)fast : null)
-                    .AddIf("hibernation", w.Hibernation is { } hibernation ? (JsonNode)hibernation : null);
+                    .AddIf("hibernation", w.Hibernation is { } hibernation ? (JsonNode)hibernation : null)
+                    .AddIf(w.NetworkFullPower, "networkFullPower", true);
                 break;
             default:
                 throw new ArgumentException("Neznámy druh prvku.", nameof(e));
@@ -183,6 +188,7 @@ public static class RecipeFormat
         UpdatesElement => "updates",
         PowerElement => "power",
         SoundsElement => "sounds",
+        StartupElement => "startup",
         _ => throw new ArgumentException("Neznámy druh prvku.", nameof(e)),
     };
 
@@ -212,6 +218,7 @@ public static class RecipeFormat
         WakePassword = f.OptionalBool("wakePassword"),
         FastStartup = f.OptionalBool("fastStartup"),
         Hibernation = f.OptionalBool("hibernation"),
+        NetworkFullPower = f.Bool("networkFullPower", false),
     };
 
     /// <summary>A program alone (in the School store): the same fields as the element, "type" may be left out.</summary>

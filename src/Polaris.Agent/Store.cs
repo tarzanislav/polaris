@@ -307,14 +307,15 @@ public sealed class StoreWork(StoreState state, IElementHandler programs, Action
 }
 
 /// <summary>The door of the store for pupils: a named pipe on this PC only. Signed-in users may connect; who they are is
-/// taken from Windows (the pipe's client identity), never from the request. Only the catalogue id travels.</summary>
+/// taken from Windows (the pipe's client identity), never from the request. Only the catalogue id travels. The icon also
+/// says here that its desktop is ready ("ready"); its session is taken from Windows as well.</summary>
 [SupportedOSPlatform("windows")]
-public static class StorePipe
+public static partial class StorePipe
 {
     public const string Name = StoreClient.PipeName;
     public static readonly TimeSpan RequestLimit = TimeSpan.FromSeconds(15);
 
-    public static void Serve(StoreWork work, Action<string> log, CancellationToken stop, string name = Name)
+    public static void Serve(StoreWork work, Action<string> log, CancellationToken stop, string name = Name, Action<int>? ready = null)
     {
         var security = new PipeSecurity();
         security.AddAccessRule(new PipeAccessRule(new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null), PipeAccessRights.FullControl, AccessControlType.Allow));
@@ -327,7 +328,7 @@ public static class StorePipe
                 using var pipe = NamedPipeServerStreamAcl.Create(
                     name, PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous | PipeOptions.FirstPipeInstance, 4096, 4096, security);
                 pipe.WaitForConnectionAsync(stop).GetAwaiter().GetResult();
-                ServeOne(pipe, work);
+                ServeOne(pipe, work, ready);
             }
             catch (OperationCanceledException)
             {
@@ -341,7 +342,7 @@ public static class StorePipe
         }
     }
 
-    private static void ServeOne(NamedPipeServerStream pipe, StoreWork work)
+    private static void ServeOne(NamedPipeServerStream pipe, StoreWork work, Action<int>? ready)
     {
         string? account = null;
         var administrator = true;
@@ -373,7 +374,17 @@ public static class StorePipe
         }
 
         StoreAnswer answer;
-        if (account is null)
+        var request = StoreRules.RequestFromJson(line);
+        if (request?.Command == StoreClient.ReadyCommand)
+        {
+            if (GetNamedPipeClientSessionId(pipe.SafePipeHandle, out var session) != 0)
+            {
+                ready?.Invoke((int)session);
+            }
+
+            answer = new StoreAnswer { Ok = true };
+        }
+        else if (account is null)
         {
             answer = new StoreAnswer { Ok = false, Message = "Školský obchod je len pre lokálne kontá tohto PC." };
         }
@@ -382,7 +393,8 @@ public static class StorePipe
             try
             {
                 administrator = administrator || Profiles.IsAdministrator(account);
-                answer = work.Handle(StoreRules.RequestFromJson(line), account, administrator);
+                using var awake = request?.Command == "install" ? Awake.While("inštalácia zo Školského obchodu") : null;
+                answer = work.Handle(request, account, administrator);
             }
             catch (SystemCallException e)
             {
@@ -393,6 +405,9 @@ public static class StorePipe
         writer.WriteLine(StoreRules.ToJson(answer));
         pipe.WaitForPipeDrain();
     }
+
+    [System.Runtime.InteropServices.LibraryImport("kernel32.dll", SetLastError = true)]
+    private static partial int GetNamedPipeClientSessionId(Microsoft.Win32.SafeHandles.SafePipeHandle pipe, out uint session);
 
     private static string? ReadLimited(StreamReader reader)
     {

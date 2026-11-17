@@ -184,6 +184,7 @@ public static partial class RecipeCheck
         UpdatesElement u => UpdatesProblems(u),
         PowerElement w => PowerProblems(w),
         SoundsElement z => z.Present ? [] : ["zvuky sa receptom neodstraňujú – vynechaj prvok, ak má rozhodnúť Windows."],
+        StartupElement t => StartupRules.Problems(t),
         _ => ["neznámy typ prvku."],
     };
 

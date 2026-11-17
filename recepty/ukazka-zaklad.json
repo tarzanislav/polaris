@@ -5,8 +5,8 @@
 
   "schema": 1,
   "name": "ZAKLAD",
-  "version": 6,
-  "note": "Základ učebne – komfort a výkon: pracovná skupina SKOLA, stredoeurópsky čas, aktualizácie mimo vyučovania, napájanie bez spánku, aplikácie Store bez behu na pozadí, bez reklám a návrhov, vizuálne efekty a Prieskumník podľa správcu, ticho, žiak bez otázok pri prihlásení",
+  "version": 7,
+  "note": "Základ učebne – komfort a výkon: pracovná skupina SKOLA, stredoeurópsky čas, aktualizácie mimo vyučovania, napájanie bez spánku, sieť naplno, len povolené programy po prihlásení, aplikácie Store bez behu na pozadí, bez reklám a návrhov, vizuálne efekty a Prieskumník podľa správcu, ticho, žiak bez otázok pri prihlásení",
   "elements": [
     {
       "type": "computer",
@@ -31,8 +31,15 @@
       "hibernateMinutes": 0,
       "powerButton": "ShutDown",
       "fastStartup": false,
-      "note": "spánok nikdy (PC ostane dostupné na diaľku), obrazovka po 15 min; vypnuté PC naozaj začína odznova, Wake on LAN funguje spoľahlivejšie; hibernácia vypnutá (uvoľní miesto na disku)",
-      "hibernation": false
+      "note": "spánok nikdy (PC ostane dostupné na diaľku), obrazovka po 15 min; vypnuté PC naozaj začína odznova, Wake on LAN funguje spoľahlivejšie; hibernácia vypnutá (uvoľní miesto na disku); sieť naplno (Wi-Fi a PCI Express bez úspory – práca na diaľku nečaká na prebudenie karty)",
+      "hibernation": false,
+      "networkFullPower": true
+    },
+    {
+      "type": "startup",
+      "id": "spustanie",
+      "allow": ["DWAgent*", "dwag*", "RtkAud*", "RTHDVCPL", "SynTP*", "ETD*"],
+      "note": "po prihlásení sa samy spúšťajú len povolené programy: vzdialená správa DWAgent, zvuk Realtek, touchpady Synaptics a ELAN (a vždy ikona Zabezpečenia Windows); ostatné vypnuté ako v Správcovi úloh – aj tie, ktoré pribudnú neskôr. Zoznam: polaris-agent spustanie"
     },
     {
       "type": "registry",

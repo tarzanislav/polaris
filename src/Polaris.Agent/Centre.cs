@@ -92,6 +92,7 @@ public static class Centre
         }
 
         using var engine = new Engine(host.Handlers(sync.RecipeFolder));
+        using var awake = Awake.While("používa profil z centra");
         var run = engine.Apply(engine.Plan(recipe.Elements), recipe, host.Clock);
         SetApplied(wanted.Profile, wanted.Fingerprint, now);
         return run;

@@ -120,6 +120,11 @@ jobs:
           if ($LASTEXITCODE -gt 1) { exit $LASTEXITCODE }
           & ./out/agent/polaris-agent.exe kontrola recepty/ukazka-slabe-pc.json
           if ($LASTEXITCODE -gt 1) { exit $LASTEXITCODE }
+          # programs starting by themselves for all users, and the measurements (read only)
+          & ./out/agent/polaris-agent.exe spustanie
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & ./out/agent/polaris-agent.exe meranie
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           # drivers: devices without a driver (1 = some are missing, fine here), then a backup checked file by file
           & ./out/agent/polaris-agent.exe ovladace
           if ($LASTEXITCODE -gt 1) { exit $LASTEXITCODE }
@@ -145,6 +150,16 @@ jobs:
           if ($svc.Status -ne 'Running') { "služba nebeží: $($svc.Status)"; exit 1 }
           Start-Sleep -Seconds 3
           if ((Get-Service PolarisAgent).Status -ne 'Running') { "služba spadla"; exit 1 }
+          # maintenance: the service holds a request of Windows that the PC must not sleep, and lets it go
+          & ./out/agent/polaris-agent.exe nespat 5m
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Start-Sleep -Seconds 25
+          $requests = (powercfg /requests) -join "`n"
+          if ($requests -notmatch 'POLARIS:') { $requests; "služba nedrží požiadavku údržby"; exit 1 }
+          & ./out/agent/polaris-agent.exe nespat koniec
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Start-Sleep -Seconds 25
+          if (((powercfg /requests) -join "`n") -match 'POLARIS:') { "požiadavka údržby ostala po konci"; exit 1 }
           # the School store answers through the service's pipe; this PC has no catalogue, so it is closed
           $store = (& ./out/agent/polaris-agent.exe obchod zoznam) -join "`n"
           $store

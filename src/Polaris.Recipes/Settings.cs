@@ -91,6 +91,11 @@ public sealed class PowerElement : Element
     /// A value of Windows itself, like FastStartup (without hibernation there is no fast startup either).</summary>
     public bool? Hibernation { get; set; }
 
+    /// <summary>The network at full power: Wi-Fi without its power saving and the PCI Express links (where network
+    /// cards sit) without theirs – remote work does not wait for a card to wake up. Wake on LAN is not touched: it lives
+    /// in the card's driver and the firmware, not here. false = Windows decides (by its power plan).</summary>
+    public bool NetworkFullPower { get; set; }
+
     public override string Key => "power";
 
     public override string Title => "napájanie";
@@ -135,6 +140,8 @@ public static class SettingsExpansion
     public const string PowerButtonAction = "7648EFA3-DD9C-4E3E-B566-50F929386280";
     public const string LidCloseAction = "5CA83367-6E45-459F-A27B-476B1D01C936";
     public const string PasswordOnWake = "0E796BDB-100D-47D6-A2D5-F7D2DAA51F51";
+    public const string WirelessPowerSaving = "12BBEBE6-58D6-4636-95BB-3217EF867C1A";
+    public const string PciExpressLinkSaving = "EE12F906-D277-404B-B6DA-E5FA1A576DF5";
 
     public static IEnumerable<Element> Updates(UpdatesElement u)
     {
@@ -181,6 +188,17 @@ public static class SettingsExpansion
         }
 
         foreach (var e in Both(p, "heslo", PasswordOnWake, p.WakePassword is { } w ? (w ? 1u : 0u) : null))
+        {
+            yield return e;
+        }
+
+        // 0 = Wi-Fi at maximum performance; 0 = PCI Express link state power management off
+        foreach (var e in Both(p, "wifi-naplno", WirelessPowerSaving, p.NetworkFullPower ? 0u : null))
+        {
+            yield return e;
+        }
+
+        foreach (var e in Both(p, "pcie-naplno", PciExpressLinkSaving, p.NetworkFullPower ? 0u : null))
         {
             yield return e;
         }

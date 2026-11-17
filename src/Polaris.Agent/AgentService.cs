@@ -30,7 +30,8 @@ public static class AgentService
         var journal = (RunRecord run) => Commands.WriteJournal(host.JournalPath, run);
         var state = new StoreState();
         var store = Store(host, state);
-        var door = new Thread(() => StorePipe.Serve(store, Log, stop)) { IsBackground = true, Name = "Školský obchod" };
+        using var meter = new LogonMeter(journal, host.Clock);
+        var door = new Thread(() => StorePipe.Serve(store, Log, stop, ready: meter.Ready)) { IsBackground = true, Name = "Školský obchod" };
         door.Start();
         var icons = new Thread(() => WatchIcons(host, stop)) { IsBackground = true, Name = "Ikona žiaka" };
         icons.Start();
@@ -38,8 +39,17 @@ public static class AgentService
         centre.Start();
 
         var lastMessage = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var maintenance = new MaintenanceHold(Awake.Request);
+        var startup = new StartupWatch(host);
         while (!stop.IsCancellationRequested)
         {
+            if (maintenance.Update(MaintenanceStore.Until(), host.Clock()) is { } change)
+            {
+                Commands.WriteJournal(host.JournalPath, Simple("(údržba)", "udrzba", "údržba", true, change, host.Clock()));
+            }
+
+            startup.Look();
+
             foreach (var (account, mode) in SessionRules.Read())
             {
                 var started = host.Clock();
@@ -76,6 +86,7 @@ public static class AgentService
             stop.WaitHandle.WaitOne(Interval);
         }
 
+        maintenance.Update(null, host.Clock());
         door.Join(TimeSpan.FromSeconds(10));
         icons.Join(TimeSpan.FromSeconds(10));
         centre.Join(TimeSpan.FromSeconds(10));
@@ -176,13 +187,61 @@ public static class AgentService
         }
     }
 
-    private static void Note(AgentHost host, bool ok, string message) => Commands.WriteJournal(host.JournalPath, new RunRecord
+    private static void Note(AgentHost host, bool ok, string message) =>
+        Commands.WriteJournal(host.JournalPath, Simple("(centrum)", "centrum", "plán z centra", ok, message, host.Clock()));
+
+    /// <summary>A journal record of one line.</summary>
+    public static RunRecord Simple(string recipe, string id, string title, bool ok, string message, DateTimeOffset? at = null) => new()
     {
-        StartedUtc = host.Clock(),
-        FinishedUtc = host.Clock(),
-        Recipe = "(centrum)",
-        Results = [new ChangeResult("centrum", "plán z centra", ChangeKind.Change, ok, message, 0)],
-    });
+        StartedUtc = at ?? DateTimeOffset.UtcNow,
+        FinishedUtc = at ?? DateTimeOffset.UtcNow,
+        Recipe = recipe,
+        Results = [new ChangeResult(id, title, ChangeKind.Change, ok, message, 0)],
+    };
+
+    /// <summary>Every <see cref="Every"/>: the kept list of programs allowed to start by themselves is checked again –
+    /// a program installed since then (by a recipe, the store or a person) is switched off too. A failure is written once.</summary>
+    private sealed class StartupWatch(AgentHost host)
+    {
+        public static readonly TimeSpan Every = TimeSpan.FromMinutes(5);
+
+        private readonly StartupMemory _memory = new();
+        private DateTimeOffset _last = DateTimeOffset.MinValue;
+        private string? _lastProblem;
+
+        public void Look()
+        {
+            var now = host.Clock();
+            if (now - _last < Every)
+            {
+                return;
+            }
+
+            _last = now;
+            try
+            {
+                if (StartupRule.Read() is not { } allow)
+                {
+                    return;
+                }
+
+                var done = StartupWork.Enforce(allow, _memory, now);
+                _lastProblem = null;
+                if (done.Count > 0)
+                {
+                    Commands.WriteJournal(host.JournalPath, Simple("(spúšťanie)", "spustanie", "automatické spúšťanie programov", true, string.Join(", ", done), now));
+                }
+            }
+            catch (Exception e) when (e is not OutOfMemoryException)
+            {
+                if (e.Message != _lastProblem)
+                {
+                    _lastProblem = e.Message;
+                    Commands.WriteJournal(host.JournalPath, Simple("(spúšťanie)", "spustanie", "automatické spúšťanie programov", false, "chyba: " + e.Message, now));
+                }
+            }
+        }
+    }
 
     /// <summary>The School store of this PC, as the service runs it.</summary>
     public static StoreWork Store(AgentHost host, StoreState state) =>

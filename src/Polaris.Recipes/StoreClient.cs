@@ -10,6 +10,11 @@ public static class StoreClient
 {
     public const string PipeName = "polaris-obchod";
 
+    /// <summary>The icon's word that the desktop of its session is ready (the agent measures the sign-in).</summary>
+    public const string ReadyCommand = "ready";
+
+    public static readonly TimeSpan ReadyLimit = TimeSpan.FromSeconds(5);
+
     /// <summary>An installation may take long (a big program over a slow line).</summary>
     public static readonly TimeSpan InstallLimit = TimeSpan.FromMinutes(45);
 
