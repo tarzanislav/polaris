@@ -187,7 +187,8 @@ public static class AgentService
     /// <summary>The School store of this PC, as the service runs it.</summary>
     public static StoreWork Store(AgentHost host, StoreState state) =>
         new(state, new ProgramHandler(AppContext.BaseDirectory), run => Commands.WriteJournal(host.JournalPath, run), host.Clock,
-            account => SessionRules.Read().TryGetValue(account, out var rule) && rule != SessionCleaning.Never);
+            account => SessionRules.Read().TryGetValue(account, out var rule) && rule != SessionCleaning.Never,
+            new StartMenuShortcuts());
 
     private static bool Leftovers(StoreState state, string account) =>
         state.Installed().Any(i => string.Equals(i.Account, account, StringComparison.OrdinalIgnoreCase));

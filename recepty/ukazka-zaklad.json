@@ -3,8 +3,8 @@
   // Pracovná skupina rovnaká ako Samba na serveri, časové pásmo, Windows Update a napájanie cez politiky Windows.
   "schema": 1,
   "name": "ZAKLAD",
-  "version": 3,
-  "note": "Ukážka: pracovná skupina SKOLA, stredoeurópsky čas, aktualizácie mimo vyučovania, napájanie pre učebňu, bez OneDrive a zrýchleného Edge, prihlásenie žiaka bez otázok o súkromí",
+  "version": 4,
+  "note": "Ukážka: pracovná skupina SKOLA, stredoeurópsky čas, aktualizácie mimo vyučovania, napájanie pre učebňu, bez OneDrive a zrýchleného Edge, prihlásenie žiaka bez otázok o súkromí a bez uvítania Edge",
   "elements": [
     {
       "type": "computer",
@@ -39,6 +39,15 @@
       "kind": "DWord",
       "data": "0",
       "note": "Edge nebeží na pozadí po prihlásení (pre všetky kontá)"
+    },
+    {
+      "type": "registry",
+      "id": "edge-bez-uvitania",
+      "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge",
+      "name": "HideFirstRunExperience",
+      "kind": "DWord",
+      "data": "1",
+      "note": "profil žiaka je vždy nový – bez toho by Edge pri každom prihlásení ukázal uvítanie"
     },
     {
       "type": "registry",

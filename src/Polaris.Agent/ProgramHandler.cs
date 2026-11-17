@@ -12,7 +12,9 @@ public sealed record InstalledProgram(
     string? Version,
     string? UninstallString,
     string? QuietUninstallString,
-    bool WindowsInstaller);
+    bool WindowsInstaller,
+    string? DisplayIcon = null,
+    string? InstallLocation = null);
 
 [SupportedOSPlatform("windows")]
 public static class InstalledPrograms
@@ -45,7 +47,9 @@ public static class InstalledPrograms
                     entry.GetValue("DisplayVersion") as string,
                     entry.GetValue("UninstallString") as string,
                     entry.GetValue("QuietUninstallString") as string,
-                    entry.GetValue("WindowsInstaller") is int wi && wi == 1));
+                    entry.GetValue("WindowsInstaller") is int wi && wi == 1,
+                    entry.GetValue("DisplayIcon") as string,
+                    entry.GetValue("InstallLocation") as string));
             }
         }
 

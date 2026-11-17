@@ -103,13 +103,10 @@ internal sealed unsafe class Tray
 
     private void ShowNotices()
     {
+        // the icon's own window, not a balloon: Windows mutes balloons in the first hour of a new profile
         while (_notices.TryDequeue(out var n))
         {
-            var data = Data(Native.NIF_INFO);
-            Native.Put(data.szInfoTitle, 64, n.Title);
-            Native.Put(data.szInfo, 256, n.Text);
-            data.dwInfoFlags = n.Warning ? Native.NIIF_WARNING : Native.NIIF_INFO;
-            _ = Native.Shell_NotifyIcon(Native.NIM_MODIFY, ref data);
+            NoticeWindow.Show(n.Title, n.Text, n.Warning);
         }
     }
 
@@ -223,7 +220,15 @@ internal sealed unsafe class Tray
         }
         else if (command >= TrayMenu.StoreFirst && store is not null && command - TrayMenu.StoreFirst < store.Items.Count)
         {
-            Install(store.Items[command - TrayMenu.StoreFirst]);
+            var offer = store.Items[command - TrayMenu.StoreFirst];
+            if (offer.Installed)
+            {
+                Launch(offer);
+            }
+            else
+            {
+                Install(offer);
+            }
         }
     }
 
@@ -250,6 +255,31 @@ internal sealed unsafe class Tray
             Notify("Školský obchod", answer.Message, warning: !answer.Ok);
             Refresh();
         });
+    }
+
+    /// <summary>An installed program of the store is started through its shortcut in the Start menu, by the shell.</summary>
+    private void Launch(StoreOffer offer)
+    {
+        var shortcut = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonPrograms), StoreRules.ShortcutFolder, StoreRules.ShortcutFile(offer.Title));
+        if (!File.Exists(shortcut))
+        {
+            Notify("Školský obchod", $"{offer.Title} je nainštalovaný – nájdeš ho v ponuke Štart.");
+            return;
+        }
+
+        try
+        {
+            using var _ = Process.Start(new ProcessStartInfo
+            {
+                FileName = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "explorer.exe"),
+                ArgumentList = { shortcut },
+                UseShellExecute = false,
+            });
+        }
+        catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException)
+        {
+            Notify("Školský obchod", $"{offer.Title} sa nedá spustiť: {e.Message}", warning: true);
+        }
     }
 
     /// <summary>The Sandbox is opened by the shell of the session (Explorer), as if the pupil clicked the file on the

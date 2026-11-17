@@ -67,4 +67,26 @@ public static class ProgramMatch
         var close = open >= 0 ? text.IndexOf('}', open) : -1;
         return close > open && Guid.TryParseExact(text[open..(close + 1)], "B", out _) ? text[open..(close + 1)] : null;
     }
+
+    /// <summary>"\"C:\…\app.exe\",0" → C:\…\app.exe; null when it is not an .exe.</summary>
+    public static string? IconExe(string? displayIcon)
+    {
+        if (displayIcon is not { Length: > 0 })
+        {
+            return null;
+        }
+
+        var text = displayIcon.Trim();
+        if (text.StartsWith('"') && text.IndexOf('"', 1) is var close and > 1)
+        {
+            text = text[1..close];
+        }
+        else if (text.LastIndexOf(',') is var comma and > 0 && int.TryParse(text[(comma + 1)..].Trim(), out _))
+        {
+            text = text[..comma];
+        }
+
+        text = text.Trim();
+        return text.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ? text : null;
+    }
 }

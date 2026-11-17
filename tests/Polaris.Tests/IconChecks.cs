@@ -44,7 +44,7 @@ public static class IconChecks
         };
         var menu = TrayMenu.Build(store, ["g"], ["Pokusy", "Web"], SessionCleaning.AtSignOut);
         var shop = menu[0].Children!;
-        Expect.True(shop[0].Checked && !shop[0].Enabled && shop[0].Text == "Audacity – zvuk", "nainštalovaný: ✓ a sivý");
+        Expect.True(shop[0].Checked && shop[0].Enabled && shop[0].Text == "Audacity – zvuk  (spustiť)", "nainštalovaný: ✓ a klik ho spustí");
         Expect.True(shop[1].Enabled && shop[1].Command == TrayMenu.StoreFirst + 1, "dá sa nainštalovať");
         Expect.True(!shop[2].Enabled && shop[2].Text.EndsWith("(inštaluje sa…)", StringComparison.Ordinal), "práve sa inštaluje");
         Expect.True(shop[^1].Command == TrayMenu.Refresh && shop[^2].IsSeparator, "obnoviť ponuku");

@@ -55,8 +55,8 @@ public static class TrayMenu
             {
                 var o = store.Items[i];
                 var busy = pending.Contains(o.Id);
-                var text = o.Title + (o.Description.Length > 0 ? " – " + o.Description : "") + (busy ? "  (inštaluje sa…)" : "");
-                list.Add(new MenuEntry(StoreFirst + i, text, Checked: o.Installed, Enabled: !o.Installed && !busy));
+                var text = o.Title + (o.Description.Length > 0 ? " – " + o.Description : "") + (busy ? "  (inštaluje sa…)" : o.Installed ? "  (spustiť)" : "");
+                list.Add(new MenuEntry(StoreFirst + i, text, Checked: o.Installed, Enabled: !busy));
             }
         }
 

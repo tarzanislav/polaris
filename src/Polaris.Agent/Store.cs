@@ -152,10 +152,20 @@ public sealed class StoreHandler(StoreState? state = null) : IElementHandler
     private static StoreElement Clean(StoreElement s) => new() { Id = s.Id, Accounts = s.Accounts, MaxPerSession = s.MaxPerSession, Items = s.Items };
 }
 
+/// <summary>The shortcuts of the store's programs in the Start menu: an installer run by the system often puts its
+/// shortcut only into the system's own Start menu, where no pupil sees it.</summary>
+public interface IStoreShortcuts
+{
+    /// <summary>Makes the shortcut; a note when it could not be made (the program stays installed).</summary>
+    string? Create(StoreInstall install);
+
+    void Remove(StoreInstall install);
+}
+
 /// <summary>The work of the store: answers requests of pupils, installs, removes after the session. One lock for the store
 /// and the cleaner – never two installations at once, never cleaning during an installation.</summary>
 [SupportedOSPlatform("windows")]
-public sealed class StoreWork(StoreState state, IElementHandler programs, Action<RunRecord> journal, Func<DateTimeOffset> clock, Func<string, bool> cleaned)
+public sealed class StoreWork(StoreState state, IElementHandler programs, Action<RunRecord> journal, Func<DateTimeOffset> clock, Func<string, bool> cleaned, IStoreShortcuts? shortcuts = null)
 {
     public static readonly Lock Gate = new();
 
@@ -205,7 +215,7 @@ public sealed class StoreWork(StoreState state, IElementHandler programs, Action
             }
 
             // recorded first: even a power loss during the installation ends with the program removed after the session
-            var record = new StoreInstall { Item = item!.Id, Account = account, InstalledUtc = clock(), Program = item.Program };
+            var record = new StoreInstall { Item = item!.Id, Title = item.Title, Account = account, InstalledUtc = clock(), Program = item.Program };
             state.Record(record);
             var started = clock();
             var result = new ChangeResult(item.Id, $"Školský obchod: {item.Title} pre {account}", ChangeKind.Install, false, "", 0);
@@ -213,7 +223,8 @@ public sealed class StoreWork(StoreState state, IElementHandler programs, Action
             {
                 programs.Apply(item.Program);
                 var ok = programs.Observe(item.Program).State == Observed.Present;
-                result = result with { Ok = ok, Message = ok ? "nainštalované na túto reláciu" : "inštalácia sa neprejavila" };
+                var shortcut = ok ? Shortcut(record) : null;
+                result = result with { Ok = ok, Message = ok ? "nainštalované na túto reláciu" + (shortcut is null ? "" : "; " + shortcut) : "inštalácia sa neprejavila" };
             }
             catch (Exception e) when (e is not OutOfMemoryException)
             {
@@ -226,6 +237,18 @@ public sealed class StoreWork(StoreState state, IElementHandler programs, Action
                 Ok = result.Ok,
                 Message = result.Ok ? $"{item.Title} je nainštalovaný. Po skončení relácie sa sám odstráni." : $"{item.Title} sa nepodarilo nainštalovať: {result.Message}",
             };
+        }
+    }
+
+    private string? Shortcut(StoreInstall record)
+    {
+        try
+        {
+            return shortcuts?.Create(record);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            return "odkaz v ponuke Štart sa nepodarilo vytvoriť: " + e.Message;
         }
     }
 
@@ -255,6 +278,15 @@ public sealed class StoreWork(StoreState state, IElementHandler programs, Action
 
                     if (programs.Observe(program).State == Observed.Absent)
                     {
+                        try
+                        {
+                            shortcuts?.Remove(record);
+                        }
+                        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+                        {
+                            failed.Add($"odkaz {record.Title} ({e.Message})");
+                        }
+
                         state.Forget(record.Item);
                         removed++;
                     }

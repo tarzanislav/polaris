@@ -136,6 +136,9 @@ public sealed class StoreInstall
 {
     public string Item { get; set; } = "";
 
+    /// <summary>The title of the item when it was installed – the name of its shortcut in the Start menu.</summary>
+    public string Title { get; set; } = "";
+
     public string Account { get; set; } = "";
 
     public DateTimeOffset InstalledUtc { get; set; }
@@ -184,9 +187,21 @@ public static class StoreRules
 
     public static string ToJson(StoreInstall s) => JsonText.Canonical(new JsonObject()
         .Add("item", s.Item)
+        .AddIf(s.Title.Length > 0, "title", s.Title)
         .Add("account", s.Account)
         .Add("installedUtc", s.InstalledUtc.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture))
         .Add("program", RecipeFormat.WriteProgramAlone(s.Program)));
+
+    /// <summary>The folder of the store's shortcuts in the Start menu of all users.</summary>
+    public const string ShortcutFolder = "Školský obchod";
+
+    /// <summary>The file name of an item's shortcut: its title without the characters a file name cannot have.</summary>
+    public static string ShortcutFile(string title)
+    {
+        var invalid = new HashSet<char>("\\/:*?\"<>|");
+        var name = new string(title.Trim().Select(c => invalid.Contains(c) || char.IsControl(c) ? '-' : c).ToArray()).Trim(' ', '.');
+        return (name.Length == 0 ? "program" : name[..Math.Min(name.Length, 80)]) + ".lnk";
+    }
 
     public static StoreInstall? InstallFromJson(string json) => Quiet(() =>
     {
@@ -194,6 +209,7 @@ public static class StoreRules
         var install = new StoreInstall
         {
             Item = f.String("item"),
+            Title = f.String("title"),
             Account = f.String("account"),
             InstalledUtc = f.Time("installedUtc"),
             Program = f.Node("program") is { } p ? RecipeFormat.ReadProgram(p, "program záznamu") : new ProgramElement(),

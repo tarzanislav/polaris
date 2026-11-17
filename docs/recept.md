@@ -297,14 +297,20 @@ polaris-agent zasoba \\server\zasoba                                            
   `program` toho istého receptu.
 - Každá inštalácia sa zapíše do denníka (`polaris-agent dennik`). Katalóg a záznamy sú v
   `HKLM\SOFTWARE\POLARIS\Agent\Obchod`.
+- Po inštalácii vytvorí služba **odkaz v ponuke Štart pre všetkých** (priečinok „Školský obchod“) – inštalátor
+  spustený systémom si odkaz často dá len do systémovej ponuky Štart, kde ho žiak nevidí. Program nájde podľa jeho
+  záznamu v nainštalovaných programoch (ikona programu, inak .exe s jeho menom v priečinku inštalácie). Odkaz zapíše
+  vlastný kód (formát .lnk) a pri odinštalovaní ho zmaže.
 - Žiak obchod používa cez **ikonu POLARIS** pri hodinách (pozri nižšie), alebo príkazom v termináli.
 
 ## Ikona pre žiaka (`polaris-ziak.exe`)
 
 Ikona POLARIS v oblasti oznámení (pri hodinách) v každej prihlásenej relácii:
 
-- **Školský obchod na klik:** ponuka programov, nainštalované so značkou ✓; po kliknutí oznámenie „Inštalujem…“
-  a potom výsledok.
+- **Školský obchod na klik:** ponuka programov; po kliknutí oznámenie „Inštalujem…“ a potom výsledok. Nainštalovaný
+  program má značku ✓ a klik ho **spustí**.
+- **Oznámenia vo vlastnom okienku** nad hodinami (8 sekúnd, klik ho zavrie): Windows bublinové oznámenia ikon
+  v prvej hodine nového profilu stlmí („quiet time“) – a profil žiaka je vždy nový.
 - **Upozornenie na čistenie:** pri prihlásení a v popise ikony („Po odhlásení sa tento profil vymaže – prácu si
   ukladaj do Úschovne alebo na USB“).
 - **Pieskovisko:** spustenie šablón z plochy.
@@ -314,7 +320,9 @@ Spúšťa ju **služba POLARIS agent** (nie zoznam programov po prihlásení, te
 - Každých 5 sekúnd skontroluje všetky prihlásené relácie. **Ikonu, ktorá chýba alebo padla, spustí znova.** Keď ikona
   padá hneď po štarte, po troch pádoch počká 5 minút a zapíše to do denníka (raz, nie stále dookola).
 - Ikona beží ako prihlásený žiak, **bez akýchkoľvek práv navyše**. Všetko rozhoduje služba.
-- **Žiak ju nemôže ukončiť:** ikona dostane ochranu, ktorá jej používateľovi dovolí len vidieť ju. Ukončiť ju zo
+- **Žiak ju nemôže ukončiť:** ikona dostane ochranu, ktorá jej používateľovi dovolí len vidieť ju (vláknam, ktoré
+  vytvorí neskôr, všetko okrem ukončenia, pozastavenia a zmeny ochrany – prísnejšia ochrana zastavila ikonu pri štarte;
+  `polaris-agent skuska-ikony` to overí v postavení žiaka). Ukončiť ju zo
   Správcu úloh, cez `taskkill` alebo PowerShell, pozastaviť, ladiť či zmeniť jej ochranu skončí hlásením „prístup
   odmietnutý“. To isté platí pre vlákna, ktoré ikona vytvorí neskôr. Zatvoriť ju nedá ani správa oknu. Overené testom
   na Windows: to isté konto bez skupiny Správcovia ikonu ukončiť nemôže, správca áno.
@@ -331,8 +339,8 @@ Spúšťa ju **služba POLARIS agent** (nie zoznam programov po prihlásení, te
   a Školský obchod s Audacity a Inkscape.
 - `recepty/ukazka-zaklad.json`: pracovná skupina SKOLA, stredoeurópsky čas, aktualizácie mimo vyučovania
   (7 – 17 h, nová verzia Windows o 30 dní neskôr), napájanie pre učebňu (tlačidlo vypne PC, bez rýchleho spustenia),
-  Edge bez behu na pozadí, OneDrive vypnutý politikou a nové profily si ho neinštalujú, prihlásenie žiaka bez otázok
-  o súkromí a bez úvodnej animácie (profil žiaka sa maže, bez toho by sa pýtali pri každom prihlásení).
+  Edge bez behu na pozadí a bez uvítania, OneDrive vypnutý politikou a nové profily si ho neinštalujú, prihlásenie
+  žiaka bez otázok o súkromí a bez úvodnej animácie (profil žiaka sa maže, bez toho by sa pýtali pri každom prihlásení).
 
 Ovládače (zistenie, záloha zostavy, obnova) sú v `docs/ovladace.md`.
 
