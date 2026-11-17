@@ -12,6 +12,9 @@ public static class ShellLink
     private const uint HasLinkInfo = 0x02;
     private const uint HasWorkingDir = 0x10;
     private const uint IsUnicode = 0x80;
+    private const uint HasExpString = 0x200;
+    private const uint EnvironmentBlockSignature = 0xA0000001;
+    private const int EnvironmentBlockSize = 0x314;
     private const int LinkInfoHeaderSize = 0x24; // with the offsets of the UTF-16 paths
     private const uint VolumeIdAndLocalBasePath = 0x1;
     private const uint DriveFixed = 3;
@@ -33,7 +36,7 @@ public static class ShellLink
         var header = new byte[HeaderSize];
         BinaryPrimitives.WriteUInt32LittleEndian(header, HeaderSize);
         LinkClsid.CopyTo(header, 4);
-        BinaryPrimitives.WriteUInt32LittleEndian(header.AsSpan(20), HasLinkInfo | HasWorkingDir | IsUnicode);
+        BinaryPrimitives.WriteUInt32LittleEndian(header.AsSpan(20), HasLinkInfo | HasWorkingDir | IsUnicode | HasExpString);
         BinaryPrimitives.WriteUInt32LittleEndian(header.AsSpan(24), 0x20); // FILE_ATTRIBUTE_ARCHIVE
         BinaryPrimitives.WriteUInt32LittleEndian(header.AsSpan(60), ShowNormal);
         bytes.AddRange(header);
@@ -79,7 +82,16 @@ public static class ShellLink
         bytes.AddRange(count);
         bytes.AddRange(Encoding.Unicode.GetBytes(workingFolder));
 
-        // ExtraData: only the terminal block
+        // ExtraData: the target once more as an EnvironmentVariableDataBlock (the shell's own reading of a target
+        // without an ID list), then the terminal block
+        var environment = new byte[EnvironmentBlockSize];
+        BinaryPrimitives.WriteUInt32LittleEndian(environment, EnvironmentBlockSize);
+        BinaryPrimitives.WriteUInt32LittleEndian(environment.AsSpan(4), EnvironmentBlockSignature);
+        var ansi = ansiPath.AsSpan(0, Math.Min(ansiPath.Length, 259));
+        ansi.CopyTo(environment.AsSpan(8));
+        var wide = Encoding.Unicode.GetBytes(target);
+        wide.AsSpan(0, Math.Min(wide.Length, 518)).CopyTo(environment.AsSpan(8 + 260));
+        bytes.AddRange(environment);
         bytes.AddRange(new byte[4]);
         return [.. bytes];
     }
