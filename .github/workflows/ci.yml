@@ -116,6 +116,14 @@ jobs:
           if ($LASTEXITCODE -gt 1) { exit $LASTEXITCODE }
           & ./out/agent/polaris-agent.exe kontrola recepty/ukazka-zaklad.json
           if ($LASTEXITCODE -gt 1) { exit $LASTEXITCODE }
+          # may the system account (the agent's service) change the time zone? (the runner's admin may not)
+          schtasks /create /tn PolarisPriv /ru SYSTEM /sc once /st 23:59 /f /tr "cmd /c whoami /priv > C:\polaris-priv.txt" | Out-Null
+          schtasks /run /tn PolarisPriv | Out-Null
+          Start-Sleep 5
+          $tz = Select-String -Path C:\polaris-priv.txt -Pattern SeTimeZonePrivilege
+          schtasks /delete /tn PolarisPriv /f | Out-Null
+          if (-not $tz) { "systém nemá SeTimeZonePrivilege"; exit 1 }
+          "::notice title=systém a časové pásmo::$tz"
           # the service: installed into Program Files, running, then removed
           & ./out/agent/polaris-agent.exe instalovat-sluzbu
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

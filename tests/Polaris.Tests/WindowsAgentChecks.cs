@@ -305,6 +305,17 @@ public static class WindowsAgentChecks
         var element = new ComputerElement { Id = "c", TimeZone = other.ToLowerInvariant() };
         try
         {
+            Polaris.Windows.Privileges.Enable(Polaris.Windows.TimeZones.TimeZonePrivilege);
+        }
+        catch (Polaris.Windows.SystemCallException e) when (e.Code == 1300)
+        {
+            // some hardened images take the right from administrators; the service of the agent runs as the system
+            Console.WriteLine("  (konto nemá oprávnenie meniť časové pásmo – skúška vynechaná)");
+            return;
+        }
+
+        try
+        {
             Expect.Equal(Observed.Different, handler.Observe(element).State, "na začiatku iné pásmo");
             handler.Apply(element);
             Expect.Equal(other, Polaris.Windows.TimeZones.Current(), "pásmo nastavené a v presnom tvare Windows");
