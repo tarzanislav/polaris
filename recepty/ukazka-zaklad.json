@@ -3,8 +3,8 @@
   // Pracovná skupina rovnaká ako Samba na serveri, časové pásmo, Windows Update a napájanie cez politiky Windows.
   "schema": 1,
   "name": "ZAKLAD",
-  "version": 1,
-  "note": "Ukážka: pracovná skupina SKOLA, stredoeurópsky čas, aktualizácie mimo vyučovania, napájanie pre učebňu",
+  "version": 2,
+  "note": "Ukážka: pracovná skupina SKOLA, stredoeurópsky čas, aktualizácie mimo vyučovania, napájanie pre učebňu, bez OneDrive a zrýchleného Edge",
   "elements": [
     {
       "type": "computer",
@@ -30,6 +30,32 @@
       "powerButton": "ShutDown",
       "fastStartup": false,
       "note": "vypnuté PC naozaj začína odznova, Wake on LAN funguje spoľahlivejšie"
+    },
+    {
+      "type": "registry",
+      "id": "edge-bez-zrychlenia",
+      "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge",
+      "name": "StartupBoostEnabled",
+      "kind": "DWord",
+      "data": "0",
+      "note": "Edge nebeží na pozadí po prihlásení (pre všetky kontá)"
+    },
+    {
+      "type": "registry",
+      "id": "onedrive-vypnuty",
+      "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\OneDrive",
+      "name": "DisableFileSyncNGSC",
+      "kind": "DWord",
+      "data": "1",
+      "note": "práce žiakov patria na školský server, nie do OneDrive"
+    },
+    {
+      "type": "user-registry",
+      "id": "onedrive-bez-instalacie",
+      "path": "Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+      "name": "OneDriveSetup",
+      "present": false,
+      "note": "nový profil (aj žiaka po každom čistení) si OneDrive neinštaluje"
     }
   ]
 }

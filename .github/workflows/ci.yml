@@ -116,6 +116,13 @@ jobs:
           if ($LASTEXITCODE -gt 1) { exit $LASTEXITCODE }
           & ./out/agent/polaris-agent.exe kontrola recepty/ukazka-zaklad.json
           if ($LASTEXITCODE -gt 1) { exit $LASTEXITCODE }
+          # drivers: devices without a driver (1 = some are missing, fine here), then a backup checked file by file
+          & ./out/agent/polaris-agent.exe ovladace
+          if ($LASTEXITCODE -gt 1) { exit $LASTEXITCODE }
+          & ./out/agent/polaris-agent.exe ovladace zaloha "$env:RUNNER_TEMP\zaloha-ovladacov" --meno RUNNER
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & ./out/agent/polaris-agent.exe ovladace overit "$env:RUNNER_TEMP\zaloha-ovladacov"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           # may the system account (the agent's service) change the time zone? (the runner's admin may not)
           schtasks /create /tn PolarisPriv /ru SYSTEM /sc once /st 23:59 /f /tr "cmd /c whoami /priv > C:\polaris-priv.txt" | Out-Null
           schtasks /run /tn PolarisPriv | Out-Null

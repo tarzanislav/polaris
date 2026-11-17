@@ -66,7 +66,7 @@ public sealed class AgentHost
 /// 2 = wrong input, a recipe with problems or missing rights.</summary>
 public static class Commands
 {
-    public const string Stage = "K2";
+    public const string Stage = "K5a";
 
     public const string Help = """
         polaris-agent – uvedie toto PC do stavu podľa receptu (etapa K2: spúšťa správca na PC, bez siete)
@@ -88,12 +88,19 @@ public static class Commands
           zasoba [CESTA | -]     Zásoba balíkov tohto PC (napr. \\server\polaris-zasoba); bez cesty ju vypíše, - zruší
           obchod                 Školský obchod pre žiaka: zoznam programov a inštalácia na túto reláciu
           obchod zoznam | obchod instalovat ID
+          ovladace [--vsetky]    zariadenia bez ovládača (--vsetky: všetky zariadenia s ich ovládačmi)
+          ovladace zaloha PRIEČINOK --meno ZOSTAVA [--vsetky]
+                                 záloha ovládačov tejto hardvérovej zostavy do prázdneho priečinka (správca); bez
+                                 --vsetky len ovládače, ktoré zariadenia tohto PC používajú
+          ovladace overit PRIEČINOK   skontroluje zálohu: každý súbor podľa odtlačku (nič nemení)
+          ovladace obnov PRIEČINOK [--vsetky] [--ano]
+                                 nainštaluje zo zálohy ovládače, ktoré toto PC potrebuje (správca; len podpísané)
 
         Keď PC dôveruje aspoň jednej konzole, použije len recept s platným podpisom (RECEPT.podpis vedľa receptu).
           verzia
 
         Recept je súbor JSON s prvkami: program, registry, bookmarks, service, feature, session, keyboards,
-        user-registry, sandbox (šablóna Pieskoviska) a store (Školský obchod).
+        user-registry, sandbox (šablóna Pieskoviska), store (Školský obchod), computer, updates a power.
         Popis formátu: docs/recept.md v repozitári.
         """;
 
@@ -123,6 +130,7 @@ public static class Commands
                 "obchod" => Store(args, output, host ?? DefaultHost()),
                 "zasoba" => Supply(args, output, host ?? DefaultHost()),
                 "centrum" => CentreCommand(args, output, host ?? DefaultHost()),
+                "ovladace" => DriverCommand(args, output, host ?? DefaultHost()),
                 "dennik" => Journal(args.Length > 1 && int.TryParse(args[1], out var n) && n > 0 ? n : 10, output, host ?? DefaultHost()),
                 _ => Wrong($"Neznámy príkaz „{args[0]}“. Zoznam príkazov: polaris-agent pomoc", output),
             };
@@ -601,6 +609,131 @@ public static class Commands
 
     private static AgentHost DefaultHost() =>
         OperatingSystem.IsWindows() ? AgentHost.Windows() : throw new PlatformNotSupportedException();
+
+    private static int DriverCommand(string[] args, TextWriter output, AgentHost host)
+    {
+        var all = args.Contains("--vsetky");
+        var action = args.Length > 1 && !args[1].StartsWith("--", StringComparison.Ordinal) ? args[1] : "";
+        if (action == "overit")
+        {
+            var folder = args.Length > 2 ? args[2] : throw new InvalidDataException("Použitie: polaris-agent ovladace overit PRIEČINOK");
+            var backup = DriverBackupFormat.Load(folder);
+            var problems = DriverBackupFormat.VerifyFiles(folder, backup);
+            output.WriteLine($"Záloha ovládačov {backup.Name}: {backup.Packages.Count} balíkov, {backup.Packages.Sum(p => p.Files.Count)} súborov, z Windows {backup.Windows}.");
+            output.WriteLine("Odtlačok: " + DriverBackupFormat.Fingerprint(backup));
+            foreach (var problem in problems)
+            {
+                output.WriteLine("  – " + problem);
+            }
+
+            output.WriteLine(problems.Count == 0 ? "Všetky súbory sedia." : $"Záloha má problémy ({problems.Count}) – obnova by ju odmietla.");
+            return problems.Count == 0 ? 0 : 1;
+        }
+
+        return OperatingSystem.IsWindows() ? WindowsDrivers(action, args, all, output, host) : throw new PlatformNotSupportedException();
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static int WindowsDrivers(string action, string[] args, bool all, TextWriter output, AgentHost host)
+    {
+        switch (action)
+        {
+            case "":
+                var devices = Polaris.Windows.Devices.Present();
+                var missing = devices.Where(d => d.MissingDriver).ToList();
+                foreach (var d in all ? devices.OrderBy(d => d.Class, StringComparer.OrdinalIgnoreCase).ThenBy(d => d.Name, StringComparer.OrdinalIgnoreCase) : missing.AsEnumerable())
+                {
+                    output.WriteLine("  " + (d.HasProblem ? $"! (kód {d.Problem}) " : "") + DriverWork.Describe(d));
+                    if (d.MissingDriver)
+                    {
+                        output.WriteLine("      " + string.Join(", ", d.HardwareIds.Take(2)));
+                    }
+                }
+
+                output.WriteLine(missing.Count == 0
+                    ? $"Všetkých {devices.Count} zariadení má ovládač."
+                    : $"Bez ovládača: {missing.Count} z {devices.Count} zariadení. Doplniť sa dajú zo zálohy zostavy (ovladace obnov).");
+                return missing.Count == 0 ? 0 : 1;
+
+            case "zaloha":
+                {
+                    var folder = args.Length > 2 && !args[2].StartsWith("--", StringComparison.Ordinal) ? args[2] : throw new InvalidDataException("Použitie: polaris-agent ovladace zaloha PRIEČINOK --meno ZOSTAVA [--vsetky]");
+                    var at = Array.IndexOf(args, "--meno");
+                    var name = at > 0 && at + 1 < args.Length ? args[at + 1].Trim() : "";
+                    if (name.Length == 0)
+                    {
+                        return Wrong("Zálohe daj meno zostavy: --meno ZOSTAVA (napr. --meno MINI-PC).", output);
+                    }
+
+                    if (!host.IsAdmin())
+                    {
+                        return Wrong("Zálohu ovládačov robí správca.", output);
+                    }
+
+                    output.WriteLine($"Záloha ovládačov zostavy {name} do {Path.GetFullPath(folder)}:");
+                    var backup = DriverWork.Backup(folder, name, all, output);
+                    var unsigned = backup.Packages.Count(p => p.Signer.Length == 0);
+                    output.WriteLine($"Hotovo: {backup.Packages.Count} balíkov, {backup.Packages.Sum(p => p.Files.Count)} súborov.{(unsigned > 0 ? $" Bez platného podpisu: {unsigned} (obnova ich odmietne)." : "")}");
+                    output.WriteLine("Odtlačok zálohy: " + DriverBackupFormat.Fingerprint(backup));
+                    return 0;
+                }
+
+            case "obnov":
+                {
+                    var folder = args.Length > 2 && !args[2].StartsWith("--", StringComparison.Ordinal) ? args[2] : throw new InvalidDataException("Použitie: polaris-agent ovladace obnov PRIEČINOK [--vsetky] [--ano]");
+                    if (!host.IsAdmin())
+                    {
+                        return Wrong("Ovládače inštaluje správca.", output);
+                    }
+
+                    var backup = DriverBackupFormat.Load(folder);
+                    var problems = DriverBackupFormat.Problems(backup);
+                    if (problems.Count > 0)
+                    {
+                        return Wrong("Záloha má problémy: " + string.Join(" ", problems), output);
+                    }
+
+                    var fingerprint = DriverBackupFormat.Fingerprint(backup);
+                    var needed = DriverWork.Needed(backup, Polaris.Windows.Devices.Present(), all);
+                    output.WriteLine($"Záloha {backup.Name} ({backup.Packages.Count} balíkov), odtlačok {fingerprint}.");
+                    if (needed.Count == 0)
+                    {
+                        output.WriteLine("Žiadny balík zo zálohy nepatrí k zariadeniam tohto PC. (--vsetky by nainštaloval všetky.)");
+                        return 0;
+                    }
+
+                    foreach (var p in needed)
+                    {
+                        output.WriteLine($"  + {p.Folder}: {p.Title}");
+                    }
+
+                    if (!args.Contains("--ano") && !host.Confirm($"Nainštalovať {needed.Count} ovládačov?"))
+                    {
+                        output.WriteLine("Nič som nezmenil.");
+                        return 0;
+                    }
+
+                    var started = DateTimeOffset.UtcNow;
+                    var results = new List<(DriverWork.Installed, double)>();
+                    foreach (var p in needed)
+                    {
+                        var watch = System.Diagnostics.Stopwatch.StartNew();
+                        var result = DriverWork.Install(folder, p);
+                        results.Add((result, DriverWork.Seconds(watch)));
+                        output.WriteLine($"  {(result.Ok ? "✓" : "✗")} {p.Folder}: {result.Message}");
+                    }
+
+                    WriteJournal(host.JournalPath, DriverWork.Record(backup, fingerprint, started, results));
+                    var failed = results.Count(r => !r.Item1.Ok);
+                    var reboot = results.Any(r => r.Item1.Reboot);
+                    output.WriteLine($"Hotovo: {results.Count - failed} z {results.Count} ovládačov.{(reboot ? " Windows žiada reštart." : "")}");
+                    return failed == 0 ? 0 : 1;
+                }
+
+            default:
+                return Wrong($"Neznámy príkaz ovladace {action} (možné: zaloha, overit, obnov).", output);
+        }
+    }
 
     private static int Wrong(string message, TextWriter output)
     {
