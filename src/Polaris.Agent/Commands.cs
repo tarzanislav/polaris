@@ -270,6 +270,10 @@ public static class Commands
             var ok = run.Results.Count(r => r.Ok);
             var state = run.Failed == 0 ? "v poriadku" : $"chyby: {run.Failed}";
             output.WriteLine($"{run.StartedUtc.ToLocalTime():d. M. yyyy H:mm}  {run.Recipe} v{run.Version}  zmien {ok}, {state}");
+            foreach (var failed in run.Results.Where(r => !r.Ok))
+            {
+                output.WriteLine($"      ✗ {failed.Title}: {failed.Message}");
+            }
         }
 
         return 0;
