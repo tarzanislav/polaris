@@ -27,6 +27,7 @@ public static class AccountChecks
         Expect.Equal(0, RecipeCheck.Problems(recipe).Count, string.Join(" ", RecipeCheck.Problems(recipe)));
 
         var parts = Expansion.Expand(a).ToList();
+        Expect.True(parts[0] is PasswordPolicyElement && parts[1] == a, "najprv politika hesiel, potom konto (prázdne heslo až keď ho politika dovolí)");
         var lsa = parts.OfType<RegistryValueElement>().Single();
         Expect.True(lsa.Path == AccountRules.LsaKey && lsa.Name == "LimitBlankPasswordUse" && lsa.Data == "1" && lsa.Present, "konto bez hesla len pri PC, nikdy cez sieť");
         Expect.True(parts.OfType<AutoLogonElement>().Single() is { Present: true, Account: "ziak" }, "automatické prihlásenie");
@@ -34,7 +35,7 @@ public static class AccountChecks
         a.AutoLogon = false;
         Expect.True(Expansion.Expand(a).OfType<AutoLogonElement>().Single().Present == false, "bez poľa sa automatické prihlásenie vypne");
         a.NoPassword = false;
-        Expect.True(!Expansion.Expand(a).OfType<RegistryValueElement>().Any(), "s heslom sa pravidlo Windows nepíše");
+        Expect.True(!Expansion.Expand(a).OfType<RegistryValueElement>().Any() && !Expansion.Expand(a).OfType<PasswordPolicyElement>().Any(), "s heslom sa pravidlo Windows ani politika nemenia");
     }
 
     [Check]
@@ -50,5 +51,8 @@ public static class AccountChecks
         var two = RecipeText.FromJson(Recipe.Replace("""{ "type": "session", "id": "relacia", "account": "ziak", "clean": "Restore" }""",
             """{ "type": "account", "id": "ziak2", "name": "ziak2", "noPassword": true, "autoLogon": true }""", StringComparison.Ordinal));
         Expect.True(RecipeCheck.Problems(two).Any(p => p.Contains("jedného konta", StringComparison.Ordinal)), "automaticky len do jedného konta");
+        var both = RecipeText.FromJson(Recipe.Replace("""{ "type": "session", "id": "relacia", "account": "ziak", "clean": "Restore" }""",
+            """{ "type": "account", "id": "ziak2", "name": "ziak2", "noPassword": true }""", StringComparison.Ordinal));
+        Expect.Equal(0, RecipeCheck.Problems(both).Count, "dve kontá bez hesla – politika hesiel je jedna pre PC: " + string.Join(" ", RecipeCheck.Problems(both)));
     }
 }

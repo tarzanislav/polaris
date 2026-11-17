@@ -202,6 +202,16 @@ public static class WindowsComfortChecks
         try
         {
             Expect.Equal(Observed.Absent, handler.Observe(element).State, "konto ešte nie je");
+
+            // the runner has a password policy: POLARIS lets an account have no password (decided by the admin)
+            var policy = new PasswordPolicyHandler();
+            var rule = new PasswordPolicyElement { Id = "p" };
+            if (policy.Observe(rule).State != Observed.Present)
+            {
+                policy.Apply(rule);
+            }
+
+            Expect.Equal(Observed.Present, policy.Observe(rule).State, "politika hesiel dovolí konto bez hesla: " + policy.Observe(rule).Detail);
             try
             {
                 handler.Apply(element);

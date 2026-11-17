@@ -234,3 +234,78 @@ public static class AutoLogon
         return true;
     }
 }
+
+/// <summary>The local password policy through the security tool of Windows (secedit): exported to read, a small
+/// template with only these two values to set – no other setting of the PC is touched.</summary>
+[SupportedOSPlatform("windows")]
+public sealed class PasswordPolicyHandler : IElementHandler
+{
+    public static readonly TimeSpan Limit = TimeSpan.FromMinutes(2);
+
+    public bool CanHandle(Element element) => element is PasswordPolicyElement;
+
+    public Observation Observe(Element element)
+    {
+        var (length, complexity) = Read();
+        return length == 0 && complexity == 0
+            ? new Observation(Observed.Present, "bez zložitosti a najmenšej dĺžky hesla")
+            : new Observation(Observed.Different, $"najmenšia dĺžka hesla {length}, zložitosť {(complexity == 1 ? "zapnutá" : "vypnutá")}");
+    }
+
+    public void Apply(Element element)
+    {
+        var folder = Work();
+        var template = Path.Combine(folder, "politika-hesiel.inf");
+        var database = Path.Combine(folder, "politika-hesiel.sdb");
+        File.WriteAllText(template, "[Unicode]\r\nUnicode=yes\r\n[System Access]\r\nMinimumPasswordLength = 0\r\nPasswordComplexity = 0\r\n[Version]\r\nsignature=\"$CHICAGO$\"\r\nRevision=1\r\n", new System.Text.UnicodeEncoding(false, true));
+        try
+        {
+            var result = Processes.Run(Secedit, ["/configure", "/db", database, "/cfg", template, "/areas", "SECURITYPOLICY", "/quiet"], Limit);
+            if (result.ExitCode != 0)
+            {
+                throw new InvalidOperationException($"Nástroj Windows secedit skončil s kódom {result.Code}: {result.OutputTail}");
+            }
+        }
+        finally
+        {
+            File.Delete(template);
+            File.Delete(database);
+        }
+    }
+
+    /// <summary>The minimum length and complexity (1 = on) as Windows keeps them now.</summary>
+    public static (int Length, int Complexity) Read()
+    {
+        var file = Path.Combine(Work(), "politika-hesiel-teraz.inf");
+        try
+        {
+            var result = Processes.Run(Secedit, ["/export", "/cfg", file, "/areas", "SECURITYPOLICY", "/quiet"], Limit);
+            if (result.ExitCode != 0 || !File.Exists(file))
+            {
+                throw new InvalidOperationException($"Politika hesiel sa nedá prečítať (secedit {result.Code}).");
+            }
+
+            int Value(string name) => File.ReadAllLines(file)
+                .Select(l => l.Split('=', 2))
+                .Where(p => p.Length == 2 && p[0].Trim().Equals(name, StringComparison.OrdinalIgnoreCase))
+                .Select(p => int.TryParse(p[1].Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) ? v : -1)
+                .FirstOrDefault(0);
+            return (Value("MinimumPasswordLength"), Value("PasswordComplexity"));
+        }
+        finally
+        {
+            File.Delete(file);
+        }
+    }
+
+    private static string Secedit => Path.Combine(Environment.SystemDirectory, "secedit.exe");
+
+    /// <summary>A protected folder of the agent for the template and its database (only the system and administrators).</summary>
+    private static string Work()
+    {
+        var folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), Polaris.Core.Product.Name, "agent", "politika");
+        Directory.CreateDirectory(folder);
+        AgentService.ProtectFolder(Path.GetDirectoryName(folder)!);
+        return folder;
+    }
+}

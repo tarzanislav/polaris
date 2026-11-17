@@ -20,6 +20,16 @@ public sealed class AccountElement : Element
     public override string Title => $"konto {Name}" + (NoPassword ? " bez hesla" : "") + (AutoLogon ? ", automatické prihlásenie" : "");
 }
 
+/// <summary>The local password policy lets an account have no password: no complexity rule and no minimum length (part
+/// of an account without a password – decided by the admin, 17. 11. 2026). Passwords already set stay as they are; only
+/// passwords set from now on may be simpler. Never set back by POLARIS by itself.</summary>
+public sealed class PasswordPolicyElement : Element
+{
+    public override string Key => "password-policy";
+
+    public override string Title => "politika hesiel dovolí konto bez hesla";
+}
+
 /// <summary>The PC signs in to this account by itself after it starts (part of an account element). Absent = the PC
 /// does not sign in to it by itself.</summary>
 public sealed class AutoLogonElement : Element
@@ -39,6 +49,12 @@ public static partial class AccountRules
     /// only at the PC itself, and the automatic sign-in (present or not).</summary>
     public static IEnumerable<Element> Expand(AccountElement a)
     {
+        if (a.NoPassword)
+        {
+            // the policy first: the empty password is set only after it allows one
+            yield return new PasswordPolicyElement { Id = a.Id + ".politika-hesiel", Note = a.Title };
+        }
+
         yield return a;
         if (a.NoPassword)
         {

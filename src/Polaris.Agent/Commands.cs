@@ -42,7 +42,7 @@ public sealed class AgentHost
         [
             new RegistryHandler(), new ProgramHandler(folder), new ServiceHandler(), new FeatureHandler(), new ComputerHandler(),
             new ProfileTemplateHandler(), new SessionRuleHandler(), new SandboxHandler(), new StoreHandler(), new StartupHandler(),
-            new AccountHandler(), new AutoLogonHandler(),
+            new PasswordPolicyHandler(), new AccountHandler(), new AutoLogonHandler(),
         ],
         IsAdmin = () =>
         {

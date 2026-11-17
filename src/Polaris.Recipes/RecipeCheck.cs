@@ -158,6 +158,11 @@ public static partial class RecipeCheck
             {
                 foreach (var simple in Expansion.Expand(element))
                 {
+                    if (simple is PasswordPolicyElement || (element is AccountElement && simple is RegistryValueElement))
+                    {
+                        continue; // the same rules of the PC for every account without a password
+                    }
+
                     if (owners.TryGetValue(simple.Key, out var first) && first != element.Id)
                     {
                         problems.Add($"Prvky {first} a {element.Id} menia to isté ({simple.Title}).");

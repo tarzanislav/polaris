@@ -241,6 +241,9 @@ polaris-agent trezor                 stav trezorov; trezor zmazat KONTO ho zmaž
 - `noPassword: true` – **bez hesla**: prihlásenie jedným klikom. Windows potom také konto pustí **len priamo pri PC,
   nikdy cez sieť** (POLARIS drží `LimitBlankPasswordUse` zapnuté). Heslo, ktoré by mu niekto neskôr nastavil, POLARIS
   zistí (podľa času zmeny hesla, nie skúšaním prihlásenia) a vráti.
+  Aby to Windows dovolil, POLARIS na takom PC vypne **zložitosť hesiel a najmenšiu dĺžku hesla** (nástrojom Windows
+  secedit, len tieto dve hodnoty; rozhodnutie správcu 17. 11. 2026). Heslá, ktoré už existujú, ostávajú; jednoduchšie
+  môžu byť len heslá nastavené odteraz. Späť to POLARIS sám nedáva.
 - `autoLogon: true` – **po zapnutí sa PC prihlási samo** (len konto bez hesla; žiadne heslo sa nikam neukladá; v recepte
   najviac jedno). Kým je na konte niekto prihlásený alebo jeho profil čaká na vrátenie z trezoru, automatické
   prihlásenie je vypnuté – PC sa nikdy neprihlási do rozpracovaného profilu. Správca sa dostane k PC odhlásením žiaka.
