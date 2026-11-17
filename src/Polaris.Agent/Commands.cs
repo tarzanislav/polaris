@@ -40,7 +40,7 @@ public sealed class AgentHost
     {
         Handlers = folder =>
         [
-            new RegistryHandler(), new ProgramHandler(folder), new ServiceHandler(), new FeatureHandler(),
+            new RegistryHandler(), new ProgramHandler(folder), new ServiceHandler(), new FeatureHandler(), new ComputerHandler(),
             new ProfileTemplateHandler(), new SessionRuleHandler(), new SandboxHandler(), new StoreHandler(),
         ],
         IsAdmin = () =>

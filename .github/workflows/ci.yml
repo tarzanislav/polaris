@@ -114,6 +114,8 @@ jobs:
           if ($LASTEXITCODE -gt 1) { exit $LASTEXITCODE }
           & ./out/agent/polaris-agent.exe kontrola recepty/ukazka-pieskovisko.json
           if ($LASTEXITCODE -gt 1) { exit $LASTEXITCODE }
+          & ./out/agent/polaris-agent.exe kontrola recepty/ukazka-zaklad.json
+          if ($LASTEXITCODE -gt 1) { exit $LASTEXITCODE }
           # the service: installed into Program Files, running, then removed
           & ./out/agent/polaris-agent.exe instalovat-sluzbu
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

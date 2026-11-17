@@ -6,11 +6,17 @@ namespace Polaris.Recipes;
 /// <summary>Data of registry values: from the text in a recipe to the value written, one rule for the check and the agent.</summary>
 public static class RegistryData
 {
-    /// <summary>uint for DWord, ulong for QWord, string[] for MultiString, string otherwise; null when the text is not valid.</summary>
+    /// <summary>The longest binary value a recipe may write.</summary>
+    public const int MaxBinary = 4096;
+
+    /// <summary>uint for DWord, ulong for QWord, string[] for MultiString, byte[] for Binary, string otherwise; null when
+    /// the text is not valid.</summary>
     public static object? Parse(RegistryKind kind, string data)
     {
         switch (kind)
         {
+            case RegistryKind.Binary:
+                return ParseBytes(data);
             case RegistryKind.DWord:
                 return ParseNumber(data, uint.MaxValue) is { } d ? (uint)d : null;
             case RegistryKind.QWord:
@@ -30,6 +36,34 @@ public static class RegistryData
         byte[] bytes => Convert.ToHexString(bytes),
         _ => Convert.ToString(value, CultureInfo.InvariantCulture) ?? "",
     };
+
+    /// <summary>Hexadecimal pairs; spaces, commas and new lines between the pairs are allowed, never inside one.</summary>
+    private static byte[]? ParseBytes(string text)
+    {
+        var bytes = new List<byte>(text.Length / 2);
+        var i = 0;
+        while (i < text.Length)
+        {
+            var c = text[i];
+            if (c is ' ' or ',' or '\n' or '\r' or '\t')
+            {
+                i++;
+                continue;
+            }
+
+            if (i + 1 >= text.Length || !char.IsAsciiHexDigit(c) || !char.IsAsciiHexDigit(text[i + 1]) || bytes.Count == MaxBinary)
+            {
+                return null;
+            }
+
+            bytes.Add((byte)((HexValue(c) << 4) | HexValue(text[i + 1])));
+            i += 2;
+        }
+
+        return bytes.ToArray();
+    }
+
+    private static int HexValue(char c) => c <= '9' ? c - '0' : (c | 0x20) - 'a' + 10;
 
     private static ulong? ParseNumber(string text, ulong max)
     {
@@ -146,6 +180,9 @@ public static partial class RecipeCheck
         SessionElement s => SessionProblems(s),
         SandboxElement x => SandboxProblems(x),
         StoreElement o => StoreProblems(o),
+        ComputerElement c => ComputerProblems(c),
+        UpdatesElement u => UpdatesProblems(u),
+        PowerElement w => PowerProblems(w),
         _ => ["neznámy typ prvku."],
     };
 
@@ -237,11 +274,93 @@ public static partial class RecipeCheck
 
         if (r.Present && RegistryData.Parse(r.Kind, r.Data) is null)
         {
-            yield return r.Kind == RegistryKind.DWord
-                ? $"„{r.Data}“ nie je číslo DWord (0 až 4294967295, alebo 0x…)."
-                : $"„{r.Data}“ nie je číslo QWord.";
+            yield return BadData(r.Kind, r.Data);
         }
     }
+
+    private static IEnumerable<string> ComputerProblems(ComputerElement c)
+    {
+        if (!c.Present)
+        {
+            yield return "nastavenia počítača sa neodstraňujú – vynechaj prvok alebo pole, ktoré nemá meniť.";
+        }
+
+        if (c.Workgroup is null && c.TimeZone is null)
+        {
+            yield return "prvok computer nič nenastavuje – vyplň workgroup alebo timeZone.";
+        }
+
+        if (c.Workgroup is { } w && !WorkgroupPattern().IsMatch(w))
+        {
+            yield return $"„{w}“ nie je platná pracovná skupina (1 až 15 znakov A-Z, 0-9, '-', '_', nie len číslice).";
+        }
+
+        if (c.TimeZone is { } t && !TimeZonePattern().IsMatch(t))
+        {
+            yield return $"„{t}“ nie je meno časového pásma Windows (napr. Central Europe Standard Time).";
+        }
+    }
+
+    private static IEnumerable<string> UpdatesProblems(UpdatesElement u)
+    {
+        if ((u.ActiveHoursStart is null) != (u.ActiveHoursEnd is null))
+        {
+            yield return "aktívne hodiny potrebujú oba konce: activeHoursStart aj activeHoursEnd.";
+        }
+        else if (u.ActiveHoursStart is { } start && u.ActiveHoursEnd is { } end)
+        {
+            if (start is < 0 or > 23 || end is < 0 or > 23)
+            {
+                yield return "hodiny aktívneho času sú 0 až 23.";
+            }
+            else if (start == end || (end - start + 24) % 24 > SettingsExpansion.MaxActiveHours)
+            {
+                yield return $"aktívne hodiny musia trvať 1 až {SettingsExpansion.MaxActiveHours} hodín (obmedzenie Windows).";
+            }
+        }
+
+        if (u.DeferFeatureDays is < 0 or > SettingsExpansion.MaxDeferFeatureDays)
+        {
+            yield return $"deferFeatureDays je 0 až {SettingsExpansion.MaxDeferFeatureDays} dní.";
+        }
+
+        if (u.DeferQualityDays is < 0 or > SettingsExpansion.MaxDeferQualityDays)
+        {
+            yield return $"deferQualityDays je 0 až {SettingsExpansion.MaxDeferQualityDays} dní.";
+        }
+
+        if (u.TargetRelease is { } r && !ReleasePattern().IsMatch(r))
+        {
+            yield return $"„{r}“ nie je verzia Windows 11 (tvar 25H2).";
+        }
+    }
+
+    private static IEnumerable<string> PowerProblems(PowerElement p)
+    {
+        foreach (var (name, minutes) in new[] { ("sleepMinutes", p.SleepMinutes), ("displayMinutes", p.DisplayMinutes), ("hibernateMinutes", p.HibernateMinutes) })
+        {
+            if (minutes is < 0 or > SettingsExpansion.MaxMinutes)
+            {
+                yield return $"{name} je 0 (nikdy) až {SettingsExpansion.MaxMinutes} minút.";
+            }
+        }
+
+        if (p.Present && p.SleepMinutes is null && p.DisplayMinutes is null && p.HibernateMinutes is null && p.PowerButton is null
+            && p.LidClose is null && p.WakePassword is null && p.FastStartup is null)
+        {
+            yield return "prvok power nič nenastavuje.";
+        }
+    }
+
+    private static string BadData(RegistryKind kind, string data) => kind switch
+    {
+        RegistryKind.DWord => $"„{data}“ nie je číslo DWord (0 až 4294967295, alebo 0x…).",
+        RegistryKind.QWord => $"„{data}“ nie je číslo QWord.",
+        RegistryKind.Binary => $"„{Short(data)}“ nie sú bajty Binary (dvojice 0-9 A-F, najviac {RegistryData.MaxBinary} bajtov).",
+        _ => $"„{Short(data)}“ nie sú platné údaje pre {kind}.",
+    };
+
+    private static string Short(string text) => text.Length <= 40 ? text : text[..37] + "…";
 
     private static IEnumerable<string> ServiceProblems(ServiceElement v)
     {
@@ -284,7 +403,7 @@ public static partial class RecipeCheck
 
         if (u.Present && RegistryData.Parse(u.Kind, u.Data) is null)
         {
-            yield return $"„{u.Data}“ nie je platné číslo pre {u.Kind}.";
+            yield return BadData(u.Kind, u.Data);
         }
     }
 
@@ -513,4 +632,13 @@ public static partial class RecipeCheck
 
     [GeneratedRegex("^[0-9a-fA-F]{64}$")]
     private static partial Regex Sha256Pattern();
+
+    [GeneratedRegex(@"^(?![0-9]+$)[A-Za-z0-9_-]{1,15}$")]
+    private static partial Regex WorkgroupPattern();
+
+    [GeneratedRegex(@"^[A-Za-z0-9][A-Za-z0-9 .()+-]{0,79}$")]
+    private static partial Regex TimeZonePattern();
+
+    [GeneratedRegex(@"^[2-9][0-9]H[12]$")]
+    private static partial Regex ReleasePattern();
 }

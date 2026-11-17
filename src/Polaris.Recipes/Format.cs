@@ -9,7 +9,7 @@ namespace Polaris.Recipes;
 public static class RecipeFormat
 {
     public static readonly IReadOnlyList<string> Types =
-        ["program", "registry", "bookmarks", "service", "feature", "user-registry", "keyboards", "session", "sandbox", "store"];
+        ["program", "registry", "bookmarks", "service", "feature", "user-registry", "keyboards", "session", "sandbox", "store", "computer", "updates", "power"];
 
     public static Recipe Read(JsonNode root)
     {
@@ -67,6 +67,9 @@ public static class RecipeFormat
             "session" => new SessionElement { Account = f.String("account"), Clean = f.Enum("clean", SessionCleaning.AtSignOut) },
             "sandbox" => Sandbox(f),
             "store" => Store(f),
+            "computer" => new ComputerElement { Workgroup = f.OptionalString("workgroup"), TimeZone = f.OptionalString("timeZone") },
+            "updates" => Updates(f),
+            "power" => Power(f),
             _ => throw JsonError.At(typeNode, $"neznámy typ prvku „{type}“ (možné: {string.Join(", ", Types)})."),
         };
         e.Id = f.String("id");
@@ -131,6 +134,26 @@ public static class RecipeFormat
                         .AddIf(i.Description.Length > 0, "description", i.Description)
                         .Add("program", WriteProgram(new JsonObject().AddIf(i.Program.Id.Length > 0, "id", i.Program.Id), i.Program))));
                 break;
+            case ComputerElement c:
+                o.AddIf("workgroup", Text(c.Workgroup)).AddIf("timeZone", Text(c.TimeZone));
+                break;
+            case UpdatesElement u:
+                o.AddIf("activeHoursStart", Number(u.ActiveHoursStart))
+                    .AddIf("activeHoursEnd", Number(u.ActiveHoursEnd))
+                    .AddIf("deferFeatureDays", Number(u.DeferFeatureDays))
+                    .AddIf("deferQualityDays", Number(u.DeferQualityDays))
+                    .AddIf("targetRelease", Text(u.TargetRelease))
+                    .AddIf(u.ExcludeDrivers, "excludeDrivers", true);
+                break;
+            case PowerElement w:
+                o.AddIf("sleepMinutes", Number(w.SleepMinutes))
+                    .AddIf("displayMinutes", Number(w.DisplayMinutes))
+                    .AddIf("hibernateMinutes", Number(w.HibernateMinutes))
+                    .AddIf("powerButton", w.PowerButton is { } button ? (JsonNode)button.ToString() : null)
+                    .AddIf("lidClose", w.LidClose is { } lid ? (JsonNode)lid.ToString() : null)
+                    .AddIf("wakePassword", w.WakePassword is { } password ? (JsonNode)password : null)
+                    .AddIf("fastStartup", w.FastStartup is { } fast ? (JsonNode)fast : null);
+                break;
             default:
                 throw new ArgumentException("Neznámy druh prvku.", nameof(e));
         }
@@ -150,7 +173,37 @@ public static class RecipeFormat
         SessionElement => "session",
         SandboxElement => "sandbox",
         StoreElement => "store",
+        ComputerElement => "computer",
+        UpdatesElement => "updates",
+        PowerElement => "power",
         _ => throw new ArgumentException("Neznámy druh prvku.", nameof(e)),
+    };
+
+    private static JsonNode? Text(string? value) => value is { Length: > 0 } text ? (JsonNode)text : null;
+
+    private static JsonNode? Number(int? value) => value is { } v ? (JsonNode)v : null;
+
+    private static int? OptionalInt(JsonFields f, string name) => f.Has(name) ? f.Int(name, 0) : null;
+
+    private static UpdatesElement Updates(JsonFields f) => new()
+    {
+        ActiveHoursStart = OptionalInt(f, "activeHoursStart"),
+        ActiveHoursEnd = OptionalInt(f, "activeHoursEnd"),
+        DeferFeatureDays = OptionalInt(f, "deferFeatureDays"),
+        DeferQualityDays = OptionalInt(f, "deferQualityDays"),
+        TargetRelease = f.OptionalString("targetRelease"),
+        ExcludeDrivers = f.Bool("excludeDrivers", false),
+    };
+
+    private static PowerElement Power(JsonFields f) => new()
+    {
+        SleepMinutes = OptionalInt(f, "sleepMinutes"),
+        DisplayMinutes = OptionalInt(f, "displayMinutes"),
+        HibernateMinutes = OptionalInt(f, "hibernateMinutes"),
+        PowerButton = f.OptionalEnum<PowerAction>("powerButton"),
+        LidClose = f.OptionalEnum<PowerAction>("lidClose"),
+        WakePassword = f.OptionalBool("wakePassword"),
+        FastStartup = f.OptionalBool("fastStartup"),
     };
 
     /// <summary>A program alone (in the School store): the same fields as the element, "type" may be left out.</summary>

@@ -29,6 +29,7 @@ public static class WindowsAgentChecks
             new() { Id = "e", Path = @"HKLM\" + key, Name = "Cesta", Kind = RegistryKind.ExpandString, Data = @"%ProgramData%\POLARIS" },
             new() { Id = "m", Path = @"HKLM\" + key, Name = "Riadky", Kind = RegistryKind.MultiString, Data = "a\nb" },
             new() { Id = "p", Path = @"HKLM\" + key, Name = "", Kind = RegistryKind.String, Data = "predvolená" },
+            new() { Id = "b", Path = @"HKLM\" + key, Name = "Bajty", Kind = RegistryKind.Binary, Data = "90 12 03 80 10 00 00 00" },
         ];
         try
         {
@@ -288,6 +289,75 @@ public static class WindowsAgentChecks
         {
             throw new CheckFailed($"sc {string.Join(' ', args)} skončil kódom {p.ExitCode}");
         }
+    }
+
+    [Check]
+    public static void TimeZoneIsSetAndBack()
+    {
+        if (!OperatingSystem.IsWindows() || !IsAdmin())
+        {
+            return;
+        }
+
+        var handler = new ComputerHandler();
+        var original = Polaris.Windows.TimeZones.Current();
+        var other = string.Equals(original, "Central Europe Standard Time", StringComparison.OrdinalIgnoreCase) ? "GMT Standard Time" : "Central Europe Standard Time";
+        var element = new ComputerElement { Id = "c", TimeZone = other.ToLowerInvariant() };
+        try
+        {
+            Expect.Equal(Observed.Different, handler.Observe(element).State, "na začiatku iné pásmo");
+            handler.Apply(element);
+            Expect.Equal(other, Polaris.Windows.TimeZones.Current(), "pásmo nastavené a v presnom tvare Windows");
+            Expect.Equal(Observed.Present, handler.Observe(element).State, "po zmene sedí (aj bez ohľadu na veľké písmená)");
+            Expect.Throws<InvalidOperationException>(
+                () =>
+                {
+                    if (OperatingSystem.IsWindows())
+                    {
+                        handler.Apply(new ComputerElement { Id = "z", TimeZone = "Polaris Neexistujuce Pasmo" });
+                    }
+                },
+                "neznáme pásmo");
+        }
+        finally
+        {
+            Polaris.Windows.TimeZones.Set(original);
+        }
+
+        Expect.Equal(original, Polaris.Windows.TimeZones.Current(), "pôvodné pásmo späť");
+    }
+
+    [Check]
+    public static void WorkgroupIsSetAndBack()
+    {
+        if (!OperatingSystem.IsWindows() || !IsAdmin())
+        {
+            return;
+        }
+
+        var (original, state) = Polaris.Windows.Workgroups.Current();
+        if (state != Polaris.Windows.JoinState.Workgroup)
+        {
+            Console.WriteLine($"  (PC nie je v pracovnej skupine – stav {state}, skúška pracovnej skupiny vynechaná)");
+            return;
+        }
+
+        var handler = new ComputerHandler();
+        var element = new ComputerElement { Id = "c", Workgroup = "polarisskuska" };
+        try
+        {
+            Expect.Equal(Observed.Different, handler.Observe(element).State, "na začiatku iná skupina");
+            handler.Apply(element);
+            var (now, after) = Polaris.Windows.Workgroups.Current();
+            Expect.True(after == Polaris.Windows.JoinState.Workgroup && now == "POLARISSKUSKA", $"skupina je {now} ({after})");
+            Expect.Equal(Observed.Present, handler.Observe(element).State, "po zmene sedí");
+        }
+        finally
+        {
+            Polaris.Windows.Workgroups.Join(original);
+        }
+
+        Expect.Equal(original, Polaris.Windows.Workgroups.Current().Name, "pôvodná skupina späť");
     }
 
     private static bool IsAdmin()

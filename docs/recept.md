@@ -125,8 +125,9 @@ polaris-agent zasoba \\server\zasoba                                            
   "name": "HideFirstRunExperience", "kind": "DWord", "data": "1" }
 ```
 
-- `kind`: `String`, `ExpandString`, `DWord`, `QWord`, `MultiString` (riadky oddelené `\n`). Čísla sa píšu desiatkovo
-  alebo `0x…`.
+- `kind`: `String`, `ExpandString`, `DWord`, `QWord`, `MultiString` (riadky oddelené `\n`), `Binary` (bajty
+  šestnástkovo, napr. `"90 12 03 80 10 00 00 00"`; medzery a čiarky medzi bajtmi sú dovolené, najviac 4096 bajtov).
+  Čísla sa píšu desiatkovo alebo `0x…`.
 - `name` prázdne = predvolená hodnota kľúča. Odstránenie zmaže len hodnotu, kľúče nikdy.
 - **Chránené časti sa receptom meniť nedajú:** `SAM`, `SECURITY`, `BCD00000000`, `SOFTWARE\POLARIS`, služby,
   `Control\Lsa`, `SYSTEM\Setup` a `Winlogon`. Chyba v nich by mohla zablokovať štart alebo prihlásenie. Na takéto
@@ -206,7 +207,52 @@ polaris-agent zasoba \\server\zasoba                                            
   "name": "HideFileExt", "kind": "DWord", "data": "0" }
 ```
 
-- Hodnota v časti registra používateľa (bez `HKCU\`), zapísaná do predlohy profilov. Údaje ako pri `registry`.
+- Hodnota v časti registra používateľa (bez `HKCU\`), zapísaná do predlohy profilov. Údaje ako pri `registry`,
+  aj `Binary` – napríklad vizuálne efekty (`Control Panel\Desktop`, `UserPreferencesMask`).
+
+### `computer`: pracovná skupina a časové pásmo
+
+```json
+{ "type": "computer", "id": "pocitac", "workgroup": "SKOLA", "timeZone": "Central Europe Standard Time" }
+```
+
+- Nastaví sa len to, čo je vyplnené. Prvok sa nedá odstrániť (PC má vždy nejakú skupinu a pásmo).
+- `workgroup`: 1 až 15 znakov A-Z, 0-9, `-`, `_` (nie len číslice), rovnaká ako pracovná skupina Samby na serveri.
+  Zmena sa prejaví po reštarte. **PC v doméne recept z domény nikdy nevyberie** – len to ohlási.
+- `timeZone`: meno pásma, ako ho pozná Windows (`Central Europe Standard Time`, `GMT Standard Time` …). Pravidlá
+  pásma (letný čas) berie agent z Windows, nie z receptu.
+
+### `updates`: Windows Update cez politiky
+
+```json
+{ "type": "updates", "id": "aktualizacie", "activeHoursStart": 7, "activeHoursEnd": 17, "deferFeatureDays": 30 }
+```
+
+- `activeHoursStart`, `activeHoursEnd`: aktívne hodiny (0 – 23), v nich Windows PC kvôli aktualizáciám nereštartuje.
+  Najviac 18 hodín (obmedzenie Windows), môžu ísť aj cez polnoc.
+- `deferFeatureDays` (0 – 365): nová verzia Windows príde o toľko dní neskôr; `deferQualityDays` (0 – 30): mesačné
+  aktualizácie neskôr.
+- `targetRelease` (napr. `25H2`): PC ostane na tejto verzii Windows 11, kým recept nepovie inú.
+- `excludeDrivers: true`: ovládače nechodia cez Windows Update.
+- Zapisujú sa politiky v `HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate` (rovnaké ako editor skupinovej
+  politiky). **Nevyplnené pole = politika sa odstráni** a rozhoduje Windows sám; `present: false` odstráni všetky.
+
+### `power`: napájanie cez politiky
+
+```json
+{ "type": "power", "id": "napajanie", "sleepMinutes": 60, "displayMinutes": 15, "hibernateMinutes": 0,
+  "powerButton": "ShutDown", "fastStartup": false }
+```
+
+- Časy v minútach, `0` = nikdy, najviac týždeň: `sleepMinutes` (spánok), `displayMinutes` (vypnutie obrazovky),
+  `hibernateMinutes` (hibernácia).
+- `powerButton`, `lidClose` (zatvorenie veka notebooku): `Nothing`, `Sleep`, `Hibernate`, `ShutDown`.
+- `wakePassword`: pýtať heslo po prebudení.
+- Platí v sieti aj na batérii. Politiky (`HKLM\SOFTWARE\Policies\Microsoft\Power\PowerSettings`) používateľ
+  zmeniť nemôže. Nevyplnené pole = politika sa odstráni.
+- `fastStartup: false` vypne rýchle spustenie Windows: vypnuté PC potom naozaj začína odznova a Wake on LAN funguje
+  spoľahlivejšie. Toto je hodnota samotného Windows, nie politika – zapíše sa len, keď je v recepte, a nikdy sa
+  neodstraňuje.
 
 ### `sandbox`: šablóna Pieskoviska na ploche
 
@@ -283,9 +329,11 @@ Spúšťa ju **služba POLARIS agent** (nie zoznam programov po prihlásení, te
 - `recepty/ukazka-pieskovisko.json`: Windows Sandbox, dve šablóny na ploche (prísna a so sieťou) a služba tlače.
 - `recepty/ukazka-relacia.json`: čistenie relácie konta `ziak`, klávesnice SK, CZ, EN, DE, viditeľné prípony súborov
   a Školský obchod s Audacity a Inkscape.
+- `recepty/ukazka-zaklad.json`: pracovná skupina SKOLA, stredoeurópsky čas, aktualizácie mimo vyučovania
+  (7 – 17 h, nová verzia Windows o 30 dní neskôr), napájanie pre učebňu (tlačidlo vypne PC, bez rýchleho spustenia).
 
 ## Pripravuje sa
 
-Ďalšie typy prvkov: tlačiarne, Wi-Fi, súbory, kontá s heslom ako tajomstvom.
+Ďalšie typy prvkov: Microsoft Defender, tlačiarne, Wi-Fi, súbory, kontá s heslom ako tajomstvom.
 Priradenia receptov skupinám a PC s životnosťou (do konca hodiny, dňa, týždňa) sú už naprogramované
 v `Polaris.Recipes` (`Assignments`). Do prevádzky ich uvedie centrum v etape K3.

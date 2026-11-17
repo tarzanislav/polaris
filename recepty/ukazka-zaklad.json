@@ -1,0 +1,35 @@
+{
+  // Ukážkový recept: základné nastavenia PC v učebni (K4a).
+  // Pracovná skupina rovnaká ako Samba na serveri, časové pásmo, Windows Update a napájanie cez politiky Windows.
+  "schema": 1,
+  "name": "ZAKLAD",
+  "version": 1,
+  "note": "Ukážka: pracovná skupina SKOLA, stredoeurópsky čas, aktualizácie mimo vyučovania, napájanie pre učebňu",
+  "elements": [
+    {
+      "type": "computer",
+      "id": "pocitac",
+      "workgroup": "SKOLA",
+      "timeZone": "Central Europe Standard Time",
+      "note": "zmena pracovnej skupiny sa prejaví po reštarte"
+    },
+    {
+      "type": "updates",
+      "id": "aktualizacie",
+      "activeHoursStart": 7,
+      "activeHoursEnd": 17,
+      "deferFeatureDays": 30,
+      "note": "počas vyučovania Windows PC nereštartuje; novú verziu Windows o mesiac neskôr"
+    },
+    {
+      "type": "power",
+      "id": "napajanie",
+      "sleepMinutes": 60,
+      "displayMinutes": 15,
+      "hibernateMinutes": 0,
+      "powerButton": "ShutDown",
+      "fastStartup": false,
+      "note": "vypnuté PC naozaj začína odznova, Wake on LAN funguje spoľahlivejšie"
+    }
+  ]
+}

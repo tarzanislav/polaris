@@ -14,6 +14,8 @@ public static class Expansion
     {
         BookmarksElement b => Bookmarks(b),
         KeyboardsElement k => KeyboardLayouts.Expand(k),
+        UpdatesElement u => SettingsExpansion.Updates(u),
+        PowerElement p => SettingsExpansion.Power(p),
         _ => [element],
     };
 

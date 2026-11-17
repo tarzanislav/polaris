@@ -87,6 +87,9 @@ public enum RegistryKind
     DWord,
     QWord,
     MultiString,
+
+    /// <summary>Bytes written as hexadecimal text, e.g. "9012038010000000" (spaces and commas between bytes allowed).</summary>
+    Binary,
 }
 
 /// <summary>One value in the machine part of the registry (HKLM).</summary>
@@ -100,7 +103,8 @@ public sealed class RegistryValueElement : Element
 
     public RegistryKind Kind { get; set; } = RegistryKind.String;
 
-    /// <summary>The data as text: numbers decimal or with 0x, more lines of a multi-string separated by a new line.</summary>
+    /// <summary>The data as text: numbers decimal or with 0x, more lines of a multi-string separated by a new line, bytes
+    /// in hexadecimal.</summary>
     public string Data { get; set; } = "";
 
     public override string Key => "registry:" + RegistryPath.Normalize(Path).ToLowerInvariant() + "|" + Name.ToLowerInvariant();

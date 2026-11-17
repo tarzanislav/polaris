@@ -63,6 +63,7 @@ public static class RegistryValues
             (int v, uint w) => unchecked((uint)v) == w,
             (long v, ulong w) => unchecked((ulong)v) == w,
             (string[] v, string[] w) => v.SequenceEqual(w, StringComparer.Ordinal),
+            (byte[] v, byte[] w) => v.AsSpan().SequenceEqual(w),
             (string v, string w) => string.Equals(v, w, StringComparison.Ordinal),
             _ => false,
         };
@@ -88,6 +89,7 @@ public static class RegistryValues
         RegistryKind.DWord => RegistryValueKind.DWord,
         RegistryKind.QWord => RegistryValueKind.QWord,
         RegistryKind.MultiString => RegistryValueKind.MultiString,
+        RegistryKind.Binary => RegistryValueKind.Binary,
         _ => RegistryValueKind.String,
     };
 
