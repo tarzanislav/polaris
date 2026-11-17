@@ -6,9 +6,9 @@ namespace Polaris.Agent;
 
 /// <summary>Which parts of the icon's protection are applied: the process, its first thread, the default protection of
 /// what it creates later.</summary>
-public sealed record IconProtection(bool Process, bool Threads, bool DefaultDacl)
+public sealed record IconProtection(bool Process, bool Threads, string? DefaultSddl)
 {
-    public static readonly IconProtection Full = new(true, true, true);
+    public static readonly IconProtection Full = new(true, true, IconLauncher.DefaultSddl);
 }
 
 /// <summary>Starts the pupil's icon in a session as the signed-in user, from the service (only the system can do this).
@@ -97,9 +97,9 @@ public static unsafe partial class IconLauncher
         {
             processSd = protection.Process ? Descriptor(ProcessSddl) : 0;
             threadSd = protection.Threads ? Descriptor(ThreadSddl) : 0;
-            if (protection.DefaultDacl)
+            if (protection.DefaultSddl is { } defaultSddl)
             {
-                defaultSd = Descriptor(DefaultSddl);
+                defaultSd = Descriptor(defaultSddl);
                 if (GetSecurityDescriptorDacl(defaultSd, out _, out var defaultDacl, out _) == 0)
                 {
                     throw new SystemCallException("Predvolená ochrana", Marshal.GetLastPInvokeError());
