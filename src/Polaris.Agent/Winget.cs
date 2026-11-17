@@ -41,6 +41,43 @@ public static class Winget
         throw new FileNotFoundException("WinGet (Inštalátor aplikácie) sa na tomto PC nenašiel. Nainštaluj ho z Microsoft Store alebo použi installer zo zásoby.");
     }
 
+    /// <summary>Runs WinGet. Found in the folder of installed apps (as the system finds it), winget.exe is started
+    /// outside its package, and Windows does not then give it the frameworks it is built on: without them it ends at once
+    /// with 0xC0000135 (a DLL not found). Their folders go first into its PATH.</summary>
+    public static ProcessResult Run(IReadOnlyList<string> arguments)
+    {
+        var program = Find();
+        return Processes.Run(program, arguments, Limit, Frameworks(program));
+    }
+
+    /// <summary>The folders of the newest 64-bit C++ runtime frameworks of apps (VCLibs), and WinGet's own folder.</summary>
+    public static List<string> Frameworks(string program)
+    {
+        var folders = new List<string> { Path.GetDirectoryName(program)! };
+        var apps = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "WindowsApps");
+        foreach (var pattern in new[] { "Microsoft.VCLibs.140.00.UWPDesktop_*_x64__8wekyb3d8bbwe", "Microsoft.VCLibs.140.00_*_x64__8wekyb3d8bbwe" })
+        {
+            try
+            {
+                var newest = Directory.EnumerateDirectories(apps, pattern)
+                    .Select(d => (Dir: d, Version: VersionOf(Path.GetFileName(d))))
+                    .Where(x => x.Version is not null)
+                    .OrderByDescending(x => x.Version)
+                    .FirstOrDefault();
+                if (newest.Dir is not null)
+                {
+                    folders.Add(newest.Dir);
+                }
+            }
+            catch (Exception e) when (e is UnauthorizedAccessException or DirectoryNotFoundException)
+            {
+                // an admin cannot list the folder; started through its alias WinGet has its frameworks anyway
+            }
+        }
+
+        return folders;
+    }
+
     /// <summary>"Microsoft.DesktopAppInstaller_1.27.440.0_x64__8wekyb3d8bbwe" → 1.27.440.0.</summary>
     public static Version? VersionOf(string folderName)
     {

@@ -20,6 +20,7 @@ public sealed class IconWatch(Func<int, IIconProcess?> start, Action<string> jou
         public int QuickFalls;
         public DateTimeOffset WaitUntil;
         public bool Reported;
+        public uint? LastExit;
     }
 
     /// <summary>One look: <paramref name="sessions"/> are the sessions with a signed-in user now.</summary>
@@ -52,6 +53,7 @@ public sealed class IconWatch(Func<int, IIconProcess?> start, Action<string> jou
             if (s.Process is not null)
             {
                 s.QuickFalls = now - s.Started < QuickFall ? s.QuickFalls + 1 : 0;
+                s.LastExit = s.Process.ExitCode;
                 s.Process.Dispose();
                 s.Process = null;
                 if (s.QuickFalls >= FastFailures)
@@ -60,7 +62,7 @@ public sealed class IconWatch(Func<int, IIconProcess?> start, Action<string> jou
                     s.QuickFalls = 0;
                     if (!s.Reported)
                     {
-                        journal($"ikona v relácii {id} padá hneď po štarte – ďalší pokus o {Pause.TotalMinutes:0} min");
+                        journal($"ikona v relácii {id} padá hneď po štarte{ExitText(s.LastExit)} – ďalší pokus o {Pause.TotalMinutes:0} min");
                         s.Reported = true;
                     }
                 }
@@ -88,6 +90,16 @@ public sealed class IconWatch(Func<int, IIconProcess?> start, Action<string> jou
         }
     }
 
+    /// <summary>How the icon ended, for the journal: 0 = it closed itself, a large code = Windows ended it on an error
+    /// (e.g. 0xC0000005).</summary>
+    public static string ExitText(uint? code) => code switch
+    {
+        null => "",
+        0 => " (skončila sama, kód 0)",
+        < 0x10000 => $" (kód {code})",
+        _ => $" (kód 0x{code:X8})",
+    };
+
     /// <summary>The service stops: the icons it started end too.</summary>
     public void StopAll()
     {
@@ -109,6 +121,9 @@ public sealed class IconWatch(Func<int, IIconProcess?> start, Action<string> jou
 public interface IIconProcess : IDisposable
 {
     bool HasExited { get; }
+
+    /// <summary>The exit code once it has ended (null while it runs or when it cannot be read).</summary>
+    uint? ExitCode { get; }
 
     void Stop();
 }

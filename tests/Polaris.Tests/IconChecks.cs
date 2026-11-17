@@ -70,6 +70,8 @@ public static class IconChecks
     {
         public bool HasExited { get; set; }
 
+        public uint? ExitCode => HasExited ? 0xC0000005 : null;
+
         public bool Stopped { get; private set; }
 
         public bool Disposed { get; private set; }
@@ -119,7 +121,7 @@ public static class IconChecks
 
         var before = started.Count;
         watch.Check([1, 2], now += IconWatch.Look);
-        Expect.True(started.Count == before && notes.Count == 1 && notes[0].Contains("padá", StringComparison.Ordinal), "po rýchlych pádoch pauza: " + string.Join("; ", notes));
+        Expect.True(started.Count == before && notes.Count == 1 && notes[0].Contains("padá", StringComparison.Ordinal) && notes[0].Contains("0xC0000005", StringComparison.Ordinal), "po rýchlych pádoch pauza: " + string.Join("; ", notes));
         watch.Check([1, 2], now += IconWatch.Pause);
         Expect.Equal(before + 1, started.Count, "po pauze ďalší pokus");
 
@@ -132,6 +134,9 @@ public static class IconChecks
         Expect.True(notes.Count == 2 && notes[1].Contains("nepodarilo", StringComparison.Ordinal), "chyba spustenia sa zapíše");
         watch.Check([1, 3], now += IconWatch.Look);
         Expect.Equal(2, notes.Count, "a len raz");
+
+        Expect.Equal(" (skončila sama, kód 0)", IconWatch.ExitText(0), "vlastný koniec");
+        Expect.Equal("", IconWatch.ExitText(null), "kód neznámy");
 
         watch.StopAll();
         Expect.True(started.Where(s => !s.Icon.Disposed).All(s => s.Icon.Stopped), "služba končí, ikony s ňou");

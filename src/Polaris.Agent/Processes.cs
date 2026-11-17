@@ -15,12 +15,18 @@ public static class Processes
 {
     public const int TailLength = 2000;
 
-    public static ProcessResult Run(string program, IEnumerable<string> arguments, TimeSpan limit) =>
+    public static ProcessResult Run(string program, IEnumerable<string> arguments, TimeSpan limit, IReadOnlyList<string>? pathFirst = null) =>
         Start(program, info =>
         {
             foreach (var a in arguments)
             {
                 info.ArgumentList.Add(a);
+            }
+
+            if (pathFirst is { Count: > 0 })
+            {
+                // folders searched for DLLs before the usual ones (a packaged app run directly needs its frameworks)
+                info.Environment["PATH"] = string.Join(Path.PathSeparator, pathFirst.Append(info.Environment.TryGetValue("PATH", out var path) ? path ?? "" : ""));
             }
         }, limit);
 

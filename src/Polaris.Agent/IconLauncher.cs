@@ -170,6 +170,8 @@ public static unsafe partial class IconLauncher
 
         public bool HasExited => WaitForSingleObject(handle.DangerousGetHandle(), 0) == 0;
 
+        public uint? ExitCode => HasExited && GetExitCodeProcess(handle.DangerousGetHandle(), out var code) != 0 ? code : null;
+
         public void Stop() => TerminateProcess(handle.DangerousGetHandle(), 0);
 
         public void Dispose() => handle.Dispose();
@@ -291,4 +293,7 @@ public static unsafe partial class IconLauncher
 
     [LibraryImport("kernel32.dll")]
     private static partial int TerminateProcess(nint process, uint code);
+
+    [LibraryImport("kernel32.dll")]
+    private static partial int GetExitCodeProcess(nint process, out uint code);
 }

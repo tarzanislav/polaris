@@ -232,19 +232,19 @@ public sealed class ProgramHandler(string recipeFolder, string? supply = null) :
         if (p.Winget is { Length: > 0 } wid && Observe(p).State == Observed.Different)
         {
             // another version: upgrade; when WinGet cannot get there (an older version), remove and install the wanted one
-            result = Processes.Run(Winget.Find(), Winget.UpgradeArguments(wid, p.Version), Winget.Limit);
+            result = Winget.Run(Winget.UpgradeArguments(wid, p.Version));
             if (Observe(p).State == Observed.Present)
             {
                 return;
             }
 
             Finish(new ProgramElement { DisplayName = p.DisplayName, Match = p.Match, Winget = wid, Present = false },
-                Processes.Run(Winget.Find(), Winget.UninstallArguments(wid), Winget.Limit), "Odinštalovanie starej verzie skončilo");
-            result = Processes.Run(Winget.Find(), Winget.InstallArguments(wid, p.Version), Winget.Limit);
+                Winget.Run(Winget.UninstallArguments(wid)), "Odinštalovanie starej verzie skončilo");
+            result = Winget.Run(Winget.InstallArguments(wid, p.Version));
         }
         else if (p.Winget is { Length: > 0 } id)
         {
-            result = Processes.Run(Winget.Find(), Winget.InstallArguments(id, p.Version), Winget.Limit);
+            result = Winget.Run(Winget.InstallArguments(id, p.Version));
         }
         else
         {
@@ -294,7 +294,7 @@ public sealed class ProgramHandler(string recipeFolder, string? supply = null) :
 
         if (p.Winget is { Length: > 0 } id)
         {
-            Finish(p, Processes.Run(Winget.Find(), Winget.UninstallArguments(id), Winget.Limit), "Odinštalovanie skončilo");
+            Finish(p, Winget.Run(Winget.UninstallArguments(id)), "Odinštalovanie skončilo");
             return;
         }
 
