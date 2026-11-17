@@ -246,7 +246,7 @@ public sealed class StoreWork(StoreState state, IElementHandler programs, Action
         {
             return shortcuts?.Create(record);
         }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException)
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException or Polaris.Windows.SystemCallException)
         {
             return "odkaz v ponuke Štart sa nepodarilo vytvoriť: " + e.Message;
         }

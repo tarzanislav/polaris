@@ -1,28 +1,11 @@
-using System.Buffers.Binary;
-using System.Diagnostics;
 using Polaris.Recipes;
 
 namespace Polaris.Tests;
 
-/// <summary>Shortcuts of the School store's programs: the own .lnk writer, finding the program from its entry, the name
-/// of the shortcut. The Windows check lets Windows itself read the shortcut back.</summary>
+/// <summary>Shortcuts of the School store's programs: finding the program from its entry, the name of the shortcut, and
+/// on Windows the shortcut written and read back through the shell.</summary>
 public static class ShortcutChecks
 {
-    [Check]
-    public static void AShortcutCarriesItsTarget()
-    {
-        foreach (var target in new[] { @"C:\Program Files\Audacity 4\bin\Audacity.exe", @"D:\Škola\Kreslenie\program.exe" })
-        {
-            var link = ShellLink.Create(target);
-            Expect.Equal(0x4Cu, BinaryPrimitives.ReadUInt32LittleEndian(link), "hlavička");
-            Expect.Equal(target, ShellLink.Target(link), "cieľ prečítaný späť: " + target);
-            Expect.Equal(0u, BinaryPrimitives.ReadUInt32LittleEndian(link.AsSpan(link.Length - 4)), "na konci ukončovací blok");
-        }
-
-        Expect.Throws<ArgumentException>(() => ShellLink.Create("program.exe"), "len úplná cesta");
-        Expect.True(ShellLink.Target(new byte[200]) is null, "cudzie bajty nie sú odkaz");
-    }
-
     [Check]
     public static void TheProgramIsFoundFromItsIconAndTheShortcutIsNamed()
     {
@@ -42,7 +25,7 @@ public static class ShortcutChecks
     }
 
     [Check]
-    public static void WindowsReadsTheShortcut()
+    public static void WindowsWritesAndReadsTheShortcut()
     {
         if (!OperatingSystem.IsWindows())
         {
@@ -53,16 +36,8 @@ public static class ShortcutChecks
         var file = Path.Combine(Path.GetTempPath(), $"polaris-odkaz-{Guid.NewGuid():N}.lnk");
         try
         {
-            File.WriteAllBytes(file, ShellLink.Create(notepad));
-            using var shell = Process.Start(new ProcessStartInfo("powershell.exe")
-            {
-                ArgumentList = { "-NoProfile", "-Command", $"(New-Object -ComObject WScript.Shell).CreateShortcut('{file}').TargetPath" },
-                RedirectStandardOutput = true,
-                UseShellExecute = false,
-            })!;
-            var seen = shell.StandardOutput.ReadToEnd().Trim();
-            shell.WaitForExit();
-            Expect.Equal(notepad.ToLowerInvariant(), seen.ToLowerInvariant(), "Windows číta cieľ odkazu");
+            Polaris.Windows.Shortcuts.Create(file, notepad);
+            Expect.Equal(notepad.ToLowerInvariant(), Polaris.Windows.Shortcuts.Target(file).ToLowerInvariant(), "Windows číta cieľ odkazu");
         }
         finally
         {

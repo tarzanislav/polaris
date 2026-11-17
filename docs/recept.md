@@ -300,7 +300,7 @@ polaris-agent zasoba \\server\zasoba                                            
 - Po inštalácii vytvorí služba **odkaz v ponuke Štart pre všetkých** (priečinok „Školský obchod“) – inštalátor
   spustený systémom si odkaz často dá len do systémovej ponuky Štart, kde ho žiak nevidí. Program nájde podľa jeho
   záznamu v nainštalovaných programoch (ikona programu, inak .exe s jeho menom v priečinku inštalácie). Odkaz zapíše
-  vlastný kód (formát .lnk) a pri odinštalovaní ho zmaže.
+  samotný shell Windows (IShellLink, volaný priamo) a pri odinštalovaní ho služba zmaže.
 - Žiak obchod používa cez **ikonu POLARIS** pri hodinách (pozri nižšie), alebo príkazom v termináli.
 
 ## Ikona pre žiaka (`polaris-ziak.exe`)

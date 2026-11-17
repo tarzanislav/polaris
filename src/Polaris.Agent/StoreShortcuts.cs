@@ -28,7 +28,7 @@ public sealed class StartMenuShortcuts(Func<List<InstalledProgram>> installed) :
 
         Directory.CreateDirectory(Folder);
         var title = install.Title.Length > 0 ? install.Title : entry.DisplayName;
-        File.WriteAllBytes(PathOf(title), ShellLink.Create(exe));
+        Polaris.Windows.Shortcuts.Create(PathOf(title), exe);
         return null;
     }
 
