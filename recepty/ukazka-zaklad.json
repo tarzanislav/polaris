@@ -3,8 +3,8 @@
   // Pracovná skupina rovnaká ako Samba na serveri, časové pásmo, Windows Update a napájanie cez politiky Windows.
   "schema": 1,
   "name": "ZAKLAD",
-  "version": 2,
-  "note": "Ukážka: pracovná skupina SKOLA, stredoeurópsky čas, aktualizácie mimo vyučovania, napájanie pre učebňu, bez OneDrive a zrýchleného Edge",
+  "version": 3,
+  "note": "Ukážka: pracovná skupina SKOLA, stredoeurópsky čas, aktualizácie mimo vyučovania, napájanie pre učebňu, bez OneDrive a zrýchleného Edge, prihlásenie žiaka bez otázok o súkromí",
   "elements": [
     {
       "type": "computer",
@@ -56,6 +56,24 @@
       "name": "OneDriveSetup",
       "present": false,
       "note": "nový profil (aj žiaka po každom čistení) si OneDrive neinštaluje"
+    },
+    {
+      "type": "registry",
+      "id": "bez-otazok-o-sukromi",
+      "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\OOBE",
+      "name": "DisablePrivacyExperience",
+      "kind": "DWord",
+      "data": "1",
+      "note": "profil žiaka sa maže – bez toho by sa každý žiak pri prihlásení pýtal na polohu, diagnostiku …"
+    },
+    {
+      "type": "registry",
+      "id": "bez-uvodnej-animacie",
+      "path": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
+      "name": "EnableFirstLogonAnimation",
+      "kind": "DWord",
+      "data": "0",
+      "note": "prvé prihlásenie (u žiaka každé) bez animácie „Ahoj“ – rýchlejšie"
     }
   ]
 }

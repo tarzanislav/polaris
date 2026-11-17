@@ -331,7 +331,8 @@ Spúšťa ju **služba POLARIS agent** (nie zoznam programov po prihlásení, te
   a Školský obchod s Audacity a Inkscape.
 - `recepty/ukazka-zaklad.json`: pracovná skupina SKOLA, stredoeurópsky čas, aktualizácie mimo vyučovania
   (7 – 17 h, nová verzia Windows o 30 dní neskôr), napájanie pre učebňu (tlačidlo vypne PC, bez rýchleho spustenia),
-  Edge bez behu na pozadí, OneDrive vypnutý politikou a nové profily si ho neinštalujú.
+  Edge bez behu na pozadí, OneDrive vypnutý politikou a nové profily si ho neinštalujú, prihlásenie žiaka bez otázok
+  o súkromí a bez úvodnej animácie (profil žiaka sa maže, bez toho by sa pýtali pri každom prihlásení).
 
 Ovládače (zistenie, záloha zostavy, obnova) sú v `docs/ovladace.md`.
 
