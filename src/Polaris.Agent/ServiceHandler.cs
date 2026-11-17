@@ -35,6 +35,8 @@ internal static partial class ServiceManager
     private const uint ConfigDelayedAutoStart = 3;
     private const uint ControlStop = 1;
 
+    public const uint PreshutdownMilliseconds = 120_000;
+
     public const uint AutoStart = 2;
     public const uint DemandStart = 3;
     public const uint Disabled = 4;
@@ -190,6 +192,13 @@ internal static partial class ServiceManager
                 if (!ChangeServiceConfig2Raw(service, 2 /* SERVICE_CONFIG_FAILURE_ACTIONS */, failure))
                 {
                     throw new SystemCallException($"Obnova služby {name} po páde", Marshal.GetLastPInvokeError());
+                }
+
+                // before shutting down Windows waits for the service up to 2 minutes (profiles put back from the trezor)
+                var preshutdown = (int)PreshutdownMilliseconds;
+                if (!ChangeServiceConfig2(service, 7 /* SERVICE_CONFIG_PRESHUTDOWN_INFO */, ref preshutdown))
+                {
+                    throw new SystemCallException($"Čas služby {name} pred vypnutím", Marshal.GetLastPInvokeError());
                 }
             }
             finally

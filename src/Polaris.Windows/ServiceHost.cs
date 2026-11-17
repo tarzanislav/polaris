@@ -14,8 +14,10 @@ public static unsafe partial class ServiceHost
     private const int StateStopped = 1;
     private const int AcceptStop = 0x1;
     private const int AcceptShutdown = 0x4;
+    private const int AcceptPreshutdown = 0x100;
     private const int ControlStop = 1;
     private const int ControlShutdown = 5;
+    private const int ControlPreshutdown = 0xF;
 
     [StructLayout(LayoutKind.Sequential)]
     private struct Status
@@ -38,6 +40,13 @@ public static unsafe partial class ServiceHost
 
     private static Action<CancellationToken>? _work;
     private static readonly CancellationTokenSource Stop = new();
+    private static volatile bool _shuttingDown;
+    private static int _checkPoint;
+    private static Timer? _pending;
+
+    /// <summary>The stop came because Windows shuts down (the users are signed out already): the work may finish its
+    /// last round – the manager waits while the service reports progress, up to the time set for the service.</summary>
+    public static bool ShuttingDown => _shuttingDown;
     private static nint _statusHandle;
     private static char* _name;
 
@@ -74,7 +83,7 @@ public static unsafe partial class ServiceHost
         }
 
         Report(StateStartPending, 0);
-        Report(StateRunning, AcceptStop | AcceptShutdown);
+        Report(StateRunning, AcceptStop | AcceptPreshutdown);
         var exit = 0;
         try
         {
@@ -85,15 +94,19 @@ public static unsafe partial class ServiceHost
             exit = 1064; // ERROR_EXCEPTION_IN_SERVICE – the manager restarts the service
         }
 
+        _pending?.Dispose();
         Report(StateStopped, 0, exit);
     }
 
     [UnmanagedCallersOnly]
     private static int Handler(int control, int eventType, nint eventData, nint context)
     {
-        if (control is ControlStop or ControlShutdown)
+        if (control is ControlStop or ControlShutdown or ControlPreshutdown)
         {
+            _shuttingDown |= control is ControlShutdown or ControlPreshutdown;
             Report(StateStopPending, 0);
+            // the last round may take a while: progress every few seconds, so the manager keeps waiting
+            _pending ??= new Timer(_ => Report(StateStopPending, 0), null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
             Stop.Cancel();
         }
 
@@ -110,6 +123,7 @@ public static unsafe partial class ServiceHost
             CurrentState = state,
             ControlsAccepted = accepted,
             Win32ExitCode = exitCode,
+            CheckPoint = state == StateStopPending ? Interlocked.Increment(ref _checkPoint) : 0,
             WaitHint = state == StateRunning || state == StateStopped ? 0 : 30_000,
         };
         _ = SetServiceStatus(_statusHandle, &s);
