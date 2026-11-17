@@ -423,7 +423,7 @@ public sealed class ServiceHandler : IElementHandler
         }
 
         return different.Count == 0
-            ? new Observation(Observed.Present, names.Count == 1 && !s.IsPrefix ? Describe(ServiceManager.Read(names[0])) : $"{names.Count} služieb v poriadku")
+            ? new Observation(Observed.Present, names.Count == 1 && !s.IsPrefix ? Now(names[0]) : $"{names.Count} služieb v poriadku")
             : new Observation(Observed.Different, string.Join("; ", different));
     }
 
@@ -453,6 +453,18 @@ public sealed class ServiceHandler : IElementHandler
                     ServiceManager.SetRunning(name, run, Limit);
                 }
             }
+        }
+    }
+
+    private static string Now(string name)
+    {
+        try
+        {
+            return Describe(ServiceManager.Read(name));
+        }
+        catch (ServiceMissingException)
+        {
+            return "služba na tomto PC nie je – nie je čo vypínať";
         }
     }
 
