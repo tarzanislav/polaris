@@ -50,6 +50,7 @@ public static class AgentService
         }
 
         var startup = new StartupWatch(host);
+        var autoLogon = new AutoLogonWatch(host);
         while (!stop.IsCancellationRequested)
         {
             if (maintenance.Update(MaintenanceStore.Until(), host.Clock()) is { } change)
@@ -58,6 +59,7 @@ public static class AgentService
             }
 
             startup.Look();
+            autoLogon.Look();
 
             foreach (var (account, mode) in SessionRules.Read())
             {
@@ -93,6 +95,12 @@ public static class AgentService
             }
 
             stop.WaitHandle.WaitOne(Interval);
+        }
+
+        if (Polaris.Windows.ServiceHost.ShuttingDown)
+        {
+            LastRound(host, store);
+            autoLogon.Look();
         }
 
         maintenance.Update(null, host.Clock());
@@ -207,6 +215,67 @@ public static class AgentService
         Recipe = recipe,
         Results = [new ChangeResult(id, title, ChangeKind.Change, ok, message, 0)],
     };
+
+    /// <summary>Windows shuts down and the users are signed out: the profiles of shared accounts are cleaned or put back from
+    /// the trezor now, so the PC starts with them ready (and signs in by itself). Windows lets go of a profile a few
+    /// seconds after the sign-out – the round waits for it at most a minute.</summary>
+    private static void LastRound(AgentHost host, StoreWork store)
+    {
+        var until = host.Clock() + TimeSpan.FromMinutes(1);
+        foreach (var (account, mode) in SessionRules.Read().Where(r => r.Value is SessionCleaning.AtSignOut or SessionCleaning.Restore))
+        {
+            try
+            {
+                if (Profiles.SidOf(account) is not { } sid)
+                {
+                    continue;
+                }
+
+                while (Profiles.State(sid).Loaded && host.Clock() < until)
+                {
+                    Thread.Sleep(1000);
+                }
+
+                var result = SessionCleaner.Clean(account, mode, DateTime.Now, beforeDelete: store.RemoveFor);
+                if (result.Cleaned)
+                {
+                    Commands.WriteJournal(host.JournalPath, Simple("(relácia)", account, $"relácia konta {account} pri vypínaní", true, result.Message, host.Clock()));
+                }
+            }
+            catch (Exception e) when (e is not OutOfMemoryException)
+            {
+                Commands.WriteJournal(host.JournalPath, Simple("(relácia)", account, $"relácia konta {account} pri vypínaní", false, "chyba: " + e.Message, host.Clock()));
+            }
+        }
+    }
+
+    /// <summary>Every round: the automatic sign-in of Windows is on only when the profile of its account is ready.</summary>
+    private sealed class AutoLogonWatch(AgentHost host)
+    {
+        private string? _lastProblem;
+
+        public void Look()
+        {
+            try
+            {
+                // only a change of the rule goes to the journal, not every sign-in and sign-out
+                if (AutoLogon.Update(SessionCleaner.Pending) is { } change && change.Contains("vypnuté", StringComparison.Ordinal))
+                {
+                    Commands.WriteJournal(host.JournalPath, Simple("(prihlásenie)", "autoprihlasenie", "automatické prihlásenie", true, change, host.Clock()));
+                }
+
+                _lastProblem = null;
+            }
+            catch (Exception e) when (e is not OutOfMemoryException)
+            {
+                if (e.Message != _lastProblem)
+                {
+                    _lastProblem = e.Message;
+                    Commands.WriteJournal(host.JournalPath, Simple("(prihlásenie)", "autoprihlasenie", "automatické prihlásenie", false, "chyba: " + e.Message, host.Clock()));
+                }
+            }
+        }
+    }
 
     /// <summary>Every <see cref="Every"/>: the kept list of programs allowed to start by themselves is checked again –
     /// a program installed since then (by a recipe, the store or a person) is switched off too. A failure is written once.</summary>

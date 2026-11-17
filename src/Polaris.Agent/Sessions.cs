@@ -321,6 +321,31 @@ public sealed class SessionRuleHandler : IElementHandler
 public static class SessionCleaner
 {
     public const string AlreadyClean = "profil je už čistý";
+    public const string Preparing = "pripravuje sa trezor – profil sa nečistí, kým ho neuložíš (polaris-agent trezor ulozit)";
+
+    /// <summary>The profile of the account waits for cleaning or for being put back (the automatic sign-in waits then).</summary>
+    public static bool Pending(string account)
+    {
+        if (!SessionRules.Read().TryGetValue(account, out var mode) || mode is not (SessionCleaning.AtSignOut or SessionCleaning.Restore)
+            || Profiles.SidOf(account) is not { } sid)
+        {
+            return false;
+        }
+
+        var state = Profiles.State(sid);
+        if (!state.Exists || state.Loaded)
+        {
+            return false;
+        }
+
+        if (mode == SessionCleaning.AtSignOut)
+        {
+            return true;
+        }
+
+        var vault = new ProfileVault();
+        return !vault.Preparing(account) && (vault.Unfit(account, sid) is not null || !vault.UpToDate(account, sid));
+    }
 
     public sealed record Result(bool Cleaned, string Message);
 
@@ -363,6 +388,11 @@ public static class SessionCleaner
         if (mode == SessionCleaning.Restore && !force)
         {
             vault ??= new ProfileVault();
+            if (vault.Preparing(account))
+            {
+                return new Result(false, Preparing);
+            }
+
             unfit = vault.Unfit(account, sid);
             if (unfit is null)
             {

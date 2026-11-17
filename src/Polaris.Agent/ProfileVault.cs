@@ -20,6 +20,9 @@ public sealed partial class ProfileVault(string? folder = null, string stateKey 
 
     private const string RestoredValue = "Obnovene";
     private const string LockedValue = "Zablokovane";
+    private const string PreparingValue = "Priprava";
+
+    private static readonly Dictionary<string, (DateTime Stamp, VaultManifest? Manifest)> Cache = new(StringComparer.OrdinalIgnoreCase);
 
     public string Folder { get; } = folder ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), Polaris.Core.Product.Name, "agent", "trezor");
 
@@ -40,8 +43,24 @@ public sealed partial class ProfileVault(string? folder = null, string stateKey 
 
         try
         {
+            // the service looks every 20 seconds: a description read once is kept until its file changes
+            var stamp = File.GetLastWriteTimeUtc(file);
+            lock (Cache)
+            {
+                if (Cache.TryGetValue(file, out var known) && known.Stamp == stamp)
+                {
+                    return known.Manifest;
+                }
+            }
+
             var m = VaultRules.FromJson(File.ReadAllText(file, Encoding.UTF8));
-            return VaultRules.Problems(m).Any() ? null : m;
+            var fit = VaultRules.Problems(m).Any() ? null : m;
+            lock (Cache)
+            {
+                Cache[file] = (stamp, fit);
+            }
+
+            return fit;
         }
         catch (Exception e) when (e is InvalidDataException or Polaris.Json.JsonError or IOException)
         {
@@ -125,7 +144,28 @@ public sealed partial class ProfileVault(string? folder = null, string stateKey 
         File.Move(archive + ".novy", archive, overwrite: true);
         File.Move(description + ".novy", description);
         MarkRestored(account, sid);
+        SetPreparing(account, false);
         return new Saved(entries.Count, length, watch.Elapsed.TotalSeconds);
+    }
+
+    /// <summary>The admin prepares the profile: it is not cleaned until it is saved to the trezor.</summary>
+    public bool Preparing(string account)
+    {
+        using var key = Registry.LocalMachine.OpenSubKey(stateKey + "\\" + account);
+        return key?.GetValue(PreparingValue) is not null;
+    }
+
+    public void SetPreparing(string account, bool on)
+    {
+        using var key = Registry.LocalMachine.CreateSubKey(stateKey + "\\" + account);
+        if (on)
+        {
+            key.SetValue(PreparingValue, 1, RegistryValueKind.DWord);
+        }
+        else
+        {
+            key.DeleteValue(PreparingValue, throwOnMissingValue: false);
+        }
     }
 
     /// <summary>The profile was put back after its last sign-in already (nothing to do).</summary>
@@ -254,8 +294,80 @@ public static unsafe partial class Accounts
     public const uint PasswordNotRequired = 0x20;
     public const uint PasswordNeverExpires = 0x10000;
 
-    // USER_INFO_1: name, password, password age, privilege, home folder, comment, flags, script
-    private static readonly int FlagsAt = (4 * IntPtr.Size) + 8;
+    public const uint Script = 0x1;
+
+    /// <summary>A new standard account (member of Users) with an empty password.</summary>
+    public static void Add(string account, uint flags)
+    {
+        var name = Marshal.StringToHGlobalUni(account);
+        var password = Marshal.StringToHGlobalUni("");
+        try
+        {
+            var info = new UserInfo1 { Name = name, Password = password, Privilege = 1 /* USER_PRIV_USER */, Flags = flags | Script };
+            var status = NetUserAdd(null, 1, &info, out _);
+            if (status != 0)
+            {
+                throw new SystemCallException("Vytvorenie konta " + account, status);
+            }
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(name);
+            Marshal.FreeHGlobal(password);
+        }
+    }
+
+    public static void SetPassword(string account, string password)
+    {
+        var text = Marshal.StringToHGlobalUni(password);
+        try
+        {
+            var status = NetUserSetInfo(null, account, 1003, &text, out _);
+            if (status != 0)
+            {
+                throw new SystemCallException("Heslo konta " + account, status);
+            }
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(text);
+        }
+    }
+
+    /// <summary>Seconds since the password of the account last changed.</summary>
+    public static uint PasswordAgeSeconds(string account)
+    {
+        var status = NetUserGetInfo(null, account, 1, out var buffer);
+        if (status != 0)
+        {
+            throw new SystemCallException("Vlastnosti konta " + account, status);
+        }
+
+        try
+        {
+            return ((UserInfo1*)buffer)->PasswordAge;
+        }
+        finally
+        {
+            _ = NetApiBufferFree(buffer);
+        }
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct UserInfo1
+    {
+        public nint Name;
+        public nint Password;
+        public uint PasswordAge;
+        public uint Privilege;
+        public nint Home;
+        public nint Comment;
+        public uint Flags;
+        public nint Script;
+    }
+
+    [LibraryImport("netapi32.dll", StringMarshalling = StringMarshalling.Utf16)]
+    private static partial int NetUserAdd(string? server, int level, void* buffer, out int error);
 
     public static uint Flags(string account)
     {
@@ -267,7 +379,7 @@ public static unsafe partial class Accounts
 
         try
         {
-            return *(uint*)((byte*)buffer + FlagsAt);
+            return ((UserInfo1*)buffer)->Flags;
         }
         finally
         {

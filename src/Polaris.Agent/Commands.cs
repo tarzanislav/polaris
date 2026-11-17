@@ -42,6 +42,7 @@ public sealed class AgentHost
         [
             new RegistryHandler(), new ProgramHandler(folder), new ServiceHandler(), new FeatureHandler(), new ComputerHandler(),
             new ProfileTemplateHandler(), new SessionRuleHandler(), new SandboxHandler(), new StoreHandler(), new StartupHandler(),
+            new AccountHandler(), new AutoLogonHandler(),
         ],
         IsAdmin = () =>
         {
@@ -108,6 +109,8 @@ public static class Commands
           trezor                 trezory profilov tohto PC (pripravené profily zdieľaných kont)
           trezor ulozit KONTO    uloží profil konta, ako je teraz, do trezoru (správca; nikto nesmie byť prihlásený) –
                                  s pravidlom relácie "Restore" sa po každom odhlásení vráti presne tak
+          trezor priprav KONTO   príprava: profil konta sa nečistí, kým ho neuložíš (správca) – prihlás sa doň,
+                                 spusti programy, nastav, čo treba, odhlás sa a daj trezor ulozit
           trezor zmazat KONTO    zmaže trezor konta (správca); relácia potom maže profil ako bez trezoru
 
         Keď PC dôveruje aspoň jednej konzole, použije len recept s platným podpisom (RECEPT.podpis vedľa receptu).
@@ -115,7 +118,7 @@ public static class Commands
 
         Recept je súbor JSON s prvkami: program, registry, bookmarks, service, feature, session, keyboards,
         user-registry, sandbox (šablóna Pieskoviska), store (Školský obchod), computer, updates, power, sounds
-        a startup.
+        startup a account.
         Popis formátu: docs/recept.md v repozitári.
         """;
 
@@ -808,6 +811,18 @@ public static class Commands
                     return 0;
                 }
 
+            case "priprav":
+                if (Profiles.SidOf(name) is null)
+                {
+                    return Wrong($"Konto {name} neexistuje.", output);
+                }
+
+                vault.SetPreparing(name, true);
+                WriteJournal(host.JournalPath, AgentService.Simple("(trezor)", "trezor", "trezor profilu", true, $"príprava trezoru konta {name}", host.Clock()));
+                output.WriteLine($"Príprava trezoru konta {name}: profil sa nečistí, kým ho neuložíš.");
+                output.WriteLine($"Prihlás sa ako {name}, spusti programy, prejdi ich úvodné okná, nastav, čo treba, a odhlás sa. Potom: polaris-agent trezor ulozit {name}");
+                return 0;
+
             case "zmazat":
                 vault.Forget(name);
                 WriteJournal(host.JournalPath, AgentService.Simple("(trezor)", "trezor", "trezor profilu", true, $"trezor konta {name} zmazaný", host.Clock()));
@@ -815,7 +830,7 @@ public static class Commands
                 return 0;
 
             default:
-                return Wrong($"Neznámy príkaz trezor {action} (možné: ulozit, zmazat).", output);
+                return Wrong($"Neznámy príkaz trezor {action} (možné: priprav, ulozit, zmazat).", output);
         }
     }
 

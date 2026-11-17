@@ -7,11 +7,11 @@ pause
 exit /b
 #>
 
-# POLARIS – pilot K0 automaticky. Dvojklik spúšťa vždy ďalšiu fázu:
-#   fáza 1: konto žiaka, kontrola receptov, služba a ikona, recepty Relácia, Pieskovisko a Základ, ovládače
-#   (potom reštart a krátka skúška ako žiak – asi 5 minút ručne)
-#   fáza 2: kontrola, že profil žiaka sa vyčistil a program zo Školského obchodu je preč, programy po prihlásení,
-#   meranie prihlásenia a výpis denníka
+# POLARIS – pilot automaticky (K0 + K6). Dvojklik spúšťa vždy ďalšiu fázu:
+#   fáza 1: služba a ikona, recepty (konto žiaka bez hesla s automatickým prihlásením, trezor profilu, Základ, Služby,
+#           Slabé PC), ovládače, príprava trezoru → reštart, PC sa samo prihlási ako žiak, ty pripravíš profil
+#   fáza 2: uloženie profilu žiaka do trezoru → reštart, PC sa samo prihlási ako žiak (už rýchlo), skúška ako žiak
+#   fáza 3: kontrola, že profil sa vrátil z trezoru a program zo Školského obchodu je preč, merania, denník
 # Všetko ide do súboru POLARIS-pilot.txt na ploche – ten mi pošli. Názov PC ani hardvér sa do neho nezapisujú.
 
 $ErrorActionPreference = 'Continue'
@@ -23,9 +23,9 @@ $State = Join-Path $env:ProgramData 'POLARIS-pilot'
 $Phase = Join-Path $State 'faza.txt'
 $Log = Join-Path ([Environment]::GetFolderPath('Desktop')) 'POLARIS-pilot.txt'
 $Account = 'ziak'
-$Password = 'Skola-2026' # heslo nesmie obsahovať meno konta (pravidlo zložitosti Windows)
 $script:Bad = 0
 $AllRecipes = 'ukazka-relacia', 'ukazka-pieskovisko', 'ukazka-zaklad', 'ukazka-sluzby', 'ukazka-slabe-pc'
+$Ci = [bool]$env:POLARIS_PILOT_CI
 
 function Say($text, $color = 'Gray') {
     Write-Host $text -ForegroundColor $color
@@ -47,6 +47,29 @@ function Agent {
     return $code
 }
 
+function PupilProfile { Get-CimInstance Win32_UserProfile | Where-Object { $_.LocalPath -match "\\$Account$" } }
+
+# čaká, kým Windows pustí profil žiaka (po odhlásení to trvá pár sekúnd); najviac 3 minúty
+function WaitForSignOut {
+    $waited = 0
+    while ((PupilProfile | Where-Object { $_.Loaded }) -and $waited -lt 180) {
+        if ($waited -eq 0) { Write-Host '  čakám, kým Windows pustí profil žiaka (najviac 3 minúty) …' }
+        Start-Sleep 5
+        $waited += 5
+    }
+    return -not (PupilProfile | Where-Object { $_.Loaded })
+}
+
+function Restart($steps) {
+    Write-Host ''
+    Write-Host 'TERAZ:' -ForegroundColor Cyan
+    foreach ($line in $steps) { Write-Host "  $line" }
+    Write-Host ''
+    if ($Ci) { return } # skúška v CI: bez otázky a bez reštartu
+    $answer = Read-Host 'Reštartovať PC teraz? [a/n]'
+    if ($answer -match '^(a|ano|áno|y)$') { Restart-Computer -Force }
+}
+
 if (-not (Test-Path $Pa)) {
     Write-Host "Nenašiel som $Pa. Rozbaľ celý balík polaris-agent-windows a spusti pilot-k0.cmd z neho." -ForegroundColor Red
     return
@@ -62,31 +85,20 @@ if ($phaseNow -ne '0' -and (Test-Path $installed) -and (Sha $installed) -ne (Sha
     $phaseNow = '0'
 }
 
-if ($phaseNow -eq '2') {
+if ($phaseNow -eq '3') {
     Write-Host "Pilot je hotový. Záznam: $Log" -ForegroundColor Green
     Write-Host "Ak ho chceš urobiť znova, zmaž priečinok $State a spusti pilot-k0.cmd."
     return
 }
 
 if ($phaseNow -eq '0') {
-    Set-Content -Path $Log -Value "POLARIS – pilot K0, fáza 1 – $(Get-Date -Format 'd.M.yyyy HH:mm')" -Encoding UTF8
+    Set-Content -Path $Log -Value "POLARIS – pilot, fáza 1 – $(Get-Date -Format 'd.M.yyyy HH:mm')" -Encoding UTF8
     Say ("Windows " + [Environment]::OSVersion.Version.ToString(3))
 
     Step 'Príprava'
     Get-ChildItem -Recurse -File $Root | Unblock-File
     Agent verzia | Out-Null
     New-Item -ItemType Directory -Force 'C:\Users\Public\Documents\Ucivo' | Out-Null
-
-    Step 'Konto žiaka'
-    if (Get-LocalUser -Name $Account -ErrorAction SilentlyContinue) {
-        Say "  konto $Account už existuje (heslo nemením)"
-    }
-    else {
-        $out = & net user $Account $Password /add /passwordchg:no 2>&1 | Out-String
-        Result ($null -ne (Get-LocalUser -Name $Account -ErrorAction SilentlyContinue)) "konto $Account vytvorené $($out.Trim() -replace '\s+', ' ')"
-    }
-    $admins = (Get-LocalGroupMember -SID 'S-1-5-32-544' -ErrorAction SilentlyContinue | Where-Object { $_.Name -match "\\$Account$" })
-    Result (-not $admins) "konto $Account nie je správca"
 
     Step 'Kontrola receptov (nič nemení)'
     foreach ($r in $AllRecipes) {
@@ -115,6 +127,18 @@ if ($phaseNow -eq '0') {
         Result ($code -eq 0) "$r použitý"
     }
 
+    Step 'Konto žiaka'
+    Result ($null -ne (Get-LocalUser -Name $Account -ErrorAction SilentlyContinue)) "konto $Account je"
+    $admins = (Get-LocalGroupMember -SID 'S-1-5-32-544' -ErrorAction SilentlyContinue | Where-Object { $_.Name -match "\\$Account$" })
+    Result (-not $admins) "konto $Account nie je správca"
+    $user = Get-LocalUser -Name $Account -ErrorAction SilentlyContinue
+    Result ($user -and -not $user.UserMayChangePassword) "žiak si nemôže nastaviť heslo"
+    $lsa = (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa' -ErrorAction SilentlyContinue).LimitBlankPasswordUse
+    Result ($lsa -eq 1) 'konto bez hesla len priamo pri PC, nie cez sieť'
+    Start-Sleep 25
+    $winlogon = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon'
+    Result ($winlogon.AutoAdminLogon -eq '1' -and $winlogon.DefaultUserName -eq $Account) "po štarte sa PC prihlási samo do konta $Account"
+
     Step 'Ovládače'
     $code = Agent ovladace
     Result ($code -eq 0) 'všetky zariadenia majú ovládač'
@@ -126,41 +150,65 @@ if ($phaseNow -eq '0') {
         Result ($code -eq 0) 'záloha overená'
     }
 
+    Step 'Príprava trezoru profilu žiaka'
+    $code = Agent trezor priprav $Account
+    Result ($code -eq 0) 'profil žiaka sa nečistí, kým ho neuložíš'
+
     Set-Content -Path $Phase -Value '1'
     Say ''
     Say "Fáza 1 hotová, chýb: $script:Bad." $(if ($script:Bad -eq 0) { 'Green' } else { 'Yellow' })
-    Write-Host ''
-    Write-Host 'TERAZ (asi 5 minút):' -ForegroundColor Cyan
-    Write-Host '  1. PC sa reštartuje (dokončí Pieskovisko a pracovnú skupinu).'
-    Write-Host "  2. Prihlás sa ako .\$Account s heslom $Password (alebo tvojím, ak konto už bolo)."
-    Write-Host '  3. Klikni na ikonu POLARIS pri hodinách -> Školský obchod -> Audacity a počkaj na hlásenie o inštalácii.'
-    Write-Host '     (Ak chceš: Správca úloh -> Podrobnosti -> polaris-ziak.exe -> Ukončiť úlohu má hlásiť Prístup odmietnutý.)'
-    Write-Host '  4. Zostaň prihlásený aspoň 2 minúty (POLARIS meria pamäť), potom ODHLÁS sa (Štart -> konto -> Odhlásiť sa),'
-    Write-Host '     prihlás sa ako správca a znova dvojklik na pilot-k0.cmd.'
-    Write-Host ''
-    if ($env:POLARIS_PILOT_CI) { return } # skúška v CI: bez otázky a bez reštartu
-    $answer = Read-Host 'Reštartovať PC teraz? [a/n]'
-    if ($answer -match '^(a|ano|áno|y)$') { Restart-Computer -Force }
+    Restart @(
+        '1. PC sa reštartuje a SAMO sa prihlási ako žiak (prvýkrát pomaly – Windows pripravuje profil; POLARIS meria).',
+        '2. Priprav profil, ako ho chceš mať pre žiakov: spusti programy, ktoré zvykneš spúšťať vopred, prejdi ich úvodné',
+        '   okná, nastav, čo treba. Ostaň prihlásený aspoň 2 minúty (POLARIS meria pamäť).',
+        '3. Odhlás sa (Štart -> konto -> Odhlásiť sa), na prihlasovacej obrazovke sa prihlás ako správca a znova dvojklik',
+        '   na pilot-k0.cmd – uloží profil do trezoru.')
     return
 }
 
-# fáza 2
-Add-Content -Path $Log -Value '' -Encoding UTF8
-Say "POLARIS – pilot K0, fáza 2 – $(Get-Date -Format 'd.M.yyyy HH:mm')"
+if ($phaseNow -eq '1') {
+    Add-Content -Path $Log -Value '' -Encoding UTF8
+    Say "POLARIS – pilot, fáza 2 – $(Get-Date -Format 'd.M.yyyy HH:mm')"
 
-Step 'Čistenie relácie žiaka'
-$userProfile = Get-CimInstance Win32_UserProfile | Where-Object { $_.LocalPath -match "\\$Account$" }
-$waited = 0
-while ($userProfile -and $waited -lt 180) {
-    if ($waited -eq 0) { Write-Host '  čakám, kým služba vyčistí profil žiaka (najviac 3 minúty) …' }
-    Start-Sleep 10
-    $waited += 10
-    $userProfile = Get-CimInstance Win32_UserProfile | Where-Object { $_.LocalPath -match "\\$Account$" }
+    Step 'Uloženie profilu žiaka do trezoru'
+    Result (WaitForSignOut) 'žiak je odhlásený'
+    $code = Agent trezor ulozit $Account
+    Result ($code -eq 0) 'profil žiaka je v trezore'
+    Agent trezor | Out-Null
+
+    Set-Content -Path $Phase -Value '2'
+    Say ''
+    Say "Fáza 2 hotová, chýb: $script:Bad." $(if ($script:Bad -eq 0) { 'Green' } else { 'Yellow' })
+    Restart @(
+        '1. PC sa reštartuje a SAMO sa prihlási ako žiak – teraz z trezoru, rýchlo.',
+        '2. Ako žiak: ikona POLARIS -> Školský obchod -> Audacity (počkaj na hlásenie), na plochu ulož súbor test.txt.',
+        '   Pozri: hľadanie v Štarte, Pieskovisko Web a programovanie (internet), sieťový priečinok a tlač,',
+        '   Správca úloh -> Aplikácie pri spustení.',
+        '3. Ostaň prihlásený aspoň 2 minúty, potom sa odhlás, prihlás sa ako správca a znova dvojklik na pilot-k0.cmd.')
+    return
 }
-Result (-not $userProfile) "profil konta $Account je zmazaný"
+
+# fáza 3
+Add-Content -Path $Log -Value '' -Encoding UTF8
+Say "POLARIS – pilot, fáza 3 – $(Get-Date -Format 'd.M.yyyy HH:mm')"
+
+Step 'Profil žiaka z trezoru'
+Result (WaitForSignOut) 'žiak je odhlásený'
+$desktop = "C:\Users\$Account\Desktop\test.txt"
+$waited = 0
+while ((Test-Path $desktop) -and $waited -lt 120) {
+    if ($waited -eq 0) { Write-Host '  čakám, kým služba vráti profil z trezoru (najviac 2 minúty) …' }
+    Start-Sleep 5
+    $waited += 5
+}
+Result (-not (Test-Path $desktop)) 'súbor žiaka na ploche zmizol (profil vrátený z trezoru)'
+Result ($null -ne (PupilProfile)) 'profil ostal (nevytvára sa znova)'
 $audacity = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*', 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*' -ErrorAction SilentlyContinue |
     Where-Object { $_.DisplayName -like 'Audacity*' }
 Result (-not $audacity) 'Audacity zo Školského obchodu je odinštalovaná'
+$winlogon = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon'
+Result ($winlogon.AutoAdminLogon -eq '1') 'po ďalšom zapnutí sa PC prihlási samo'
+Agent trezor | Out-Null
 
 Step 'PC podľa receptov'
 foreach ($r in $AllRecipes) {
@@ -175,13 +223,13 @@ Step 'Programy, ktoré sa spúšťajú samy po prihlásení'
 Agent spustanie | Out-Null
 
 Step 'Meranie prihlásenia (čas do pracovnej plochy, pamäť po 2 minútach)'
-Agent meranie 3 | Out-Null
+Agent meranie 5 | Out-Null
 
 Step 'Denník'
-Agent dennik 20 | Out-Null
+Agent dennik 30 | Out-Null
 
-Set-Content -Path $Phase -Value '2'
+Set-Content -Path $Phase -Value '3'
 Say ''
-Say "Pilot hotový, chýb vo fáze 2: $script:Bad." $(if ($script:Bad -eq 0) { 'Green' } else { 'Yellow' })
+Say "Pilot hotový, chýb vo fáze 3: $script:Bad." $(if ($script:Bad -eq 0) { 'Green' } else { 'Yellow' })
 Write-Host ''
-Write-Host "Pošli mi súbor $Log (stačí jeho text) a napíš, čo si videl ako žiak: ikona, inštalácia Audacity, Správca úloh." -ForegroundColor Cyan
+Write-Host "Pošli mi súbor $Log (stačí jeho text) a napíš, čo si videl ako žiak." -ForegroundColor Cyan

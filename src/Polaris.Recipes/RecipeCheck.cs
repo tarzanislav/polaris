@@ -145,6 +145,11 @@ public static partial class RecipeCheck
             problems.Add($"Program {item.Program.DisplayName} je v recepte natrvalo aj v Školskom obchode – nechaj ho len na jednom mieste.");
         }
 
+        if (recipe.Elements.OfType<AccountElement>().Count(a => a.AutoLogon) > 1)
+        {
+            problems.Add("Automaticky sa PC môže prihlásiť len do jedného konta.");
+        }
+
         // only when every element is fine on its own: two elements must not manage the same thing
         if (problems.Count == 0)
         {
@@ -185,6 +190,7 @@ public static partial class RecipeCheck
         PowerElement w => PowerProblems(w),
         SoundsElement z => z.Present ? [] : ["zvuky sa receptom neodstraňujú – vynechaj prvok, ak má rozhodnúť Windows."],
         StartupElement t => StartupRules.Problems(t),
+        AccountElement a => AccountRules.Problems(a),
         _ => ["neznámy typ prvku."],
     };
 

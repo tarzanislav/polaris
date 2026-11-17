@@ -181,6 +181,56 @@ public static class WindowsComfortChecks
         }
     }
 
+    [Check]
+    public static void ASharedAccountWithoutPasswordCannotGetOne()
+    {
+        if (!OperatingSystem.IsWindows() || !IsAdmin())
+        {
+            return;
+        }
+
+        Account();
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static void Account()
+    {
+        var name = "polkonto" + Guid.NewGuid().ToString("N")[..4];
+        var state = $@"{TestRoot}\{Guid.NewGuid():N}";
+        var handler = new AccountHandler(state);
+        var element = new AccountElement { Id = "k", Name = name, NoPassword = true };
+        try
+        {
+            Expect.Equal(Observed.Absent, handler.Observe(element).State, "konto ešte nie je");
+            handler.Apply(element);
+            Expect.True(Profiles.SidOf(name) is not null && !Profiles.IsAdministrator(name), "konto vzniklo, bez práv správcu");
+            var flags = Accounts.Flags(name);
+            Expect.True((flags & Accounts.PasswordCannotChange) != 0 && (flags & Accounts.PasswordNeverExpires) != 0, "heslo nezmení ani nevyprší");
+            Expect.True((flags & Accounts.Disabled) == 0, "konto je zapnuté");
+            Expect.Equal(Observed.Present, handler.Observe(element).State, "po zmene je podľa receptu");
+
+            Accounts.SetFlags(name, flags & ~Accounts.PasswordCannotChange);
+            Expect.Equal(Observed.Different, handler.Observe(element).State, "zmenu dovoleného si všimne");
+            handler.Apply(element);
+            Expect.Equal(Observed.Present, handler.Observe(element).State, "a vráti ju");
+
+            // somebody gave the account a password (without trying to sign in, POLARIS sees the change of the password)
+            Registry.LocalMachine.CreateSubKey(state).SetValue(name, DateTimeOffset.UtcNow.AddHours(-1).ToString("O"));
+            Expect.True(handler.Observe(element).Detail.Contains("heslo", StringComparison.Ordinal), "heslo zmenené – nesedí");
+            handler.Apply(element);
+            Expect.Equal(Observed.Present, handler.Observe(element).State, "zase bez hesla");
+
+            Expect.Throws<InvalidOperationException>(() => handler.Apply(new AccountElement { Id = "s", Name = Environment.UserName, NoPassword = true }), "správcu nespravuje");
+        }
+        finally
+        {
+            Registry.LocalMachine.DeleteSubKeyTree(state, throwOnMissingSubKey: false);
+            using var p = Process.Start(new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "net.exe"), $"user {name} /delete") { UseShellExecute = false, RedirectStandardOutput = true })!;
+            p.StandardOutput.ReadToEnd();
+            p.WaitForExit();
+        }
+    }
+
     [SupportedOSPlatform("windows")]
     private static string Requests()
     {

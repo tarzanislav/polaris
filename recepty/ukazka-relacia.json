@@ -1,18 +1,27 @@
 {
-  // Ukážkový recept: relácia spoločného konta žiaka a predloha jeho profilu.
-  // Konto "ziak" musí na PC existovať a nesmie byť správca. Čistí ho služba POLARIS agent
-  // (polaris-agent instalovat-sluzbu).
+  // Ukážkový recept: spoločné konto žiaka bez hesla, ktoré sa po zapnutí PC prihlási samo, a jeho profil z trezoru.
+  // Trezor pripraví správca raz: polaris-agent trezor priprav ziak → prihlásiť sa ako žiak, nastaviť, odhlásiť sa →
+  // polaris-agent trezor ulozit ziak. Kým trezor nie je, profil sa po odhlásení maže (čistý štart).
+  // Čistí služba POLARIS agent (polaris-agent instalovat-sluzbu).
   "schema": 1,
   "name": "RELACIA",
-  "version": 2,
-  "note": "Ukážka: čistý profil žiaka po každom odhlásení, klávesnice, prípony súborov, Školský obchod",
+  "version": 3,
+  "note": "Ukážka: konto žiaka bez hesla s automatickým prihlásením, profil z trezoru po každom odhlásení, klávesnice, prípony súborov, Školský obchod",
   "elements": [
+    {
+      "type": "account",
+      "id": "konto-ziak",
+      "name": "ziak",
+      "noPassword": true,
+      "autoLogon": true,
+      "note": "bez hesla (žiak nepracuje s citlivými údajmi, profil sa vždy vráti), heslo si nenastaví, cez sieť sa doň nedá prihlásiť; po zapnutí PC sa prihlási samo"
+    },
     {
       "type": "session",
       "id": "relacia-ziak",
       "account": "ziak",
-      "clean": "AtSignOut",
-      "note": "každý žiak začína načisto"
+      "clean": "Restore",
+      "note": "každý žiak začína v pripravenom profile z trezoru"
     },
     {
       "type": "keyboards",

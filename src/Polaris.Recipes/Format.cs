@@ -9,7 +9,7 @@ namespace Polaris.Recipes;
 public static class RecipeFormat
 {
     public static readonly IReadOnlyList<string> Types =
-        ["program", "registry", "bookmarks", "service", "feature", "user-registry", "keyboards", "session", "sandbox", "store", "computer", "updates", "power", "sounds", "startup"];
+        ["program", "registry", "bookmarks", "service", "feature", "user-registry", "keyboards", "session", "sandbox", "store", "computer", "updates", "power", "sounds", "startup", "account"];
 
     public static Recipe Read(JsonNode root)
     {
@@ -72,6 +72,7 @@ public static class RecipeFormat
             "power" => Power(f),
             "sounds" => new SoundsElement { Scheme = f.Enum("scheme", SoundScheme.None) },
             "startup" => new StartupElement { Allow = f.Strings("allow") },
+            "account" => new AccountElement { Name = f.String("name"), NoPassword = f.Bool("noPassword", false), AutoLogon = f.Bool("autoLogon", false) },
             _ => throw JsonError.At(typeNode, $"neznámy typ prvku „{type}“ (možné: {string.Join(", ", Types)})."),
         };
         e.Id = f.String("id");
@@ -154,6 +155,9 @@ public static class RecipeFormat
             case StartupElement t:
                 o.Add("allow", JsonArray.Of(t.Allow, x => x));
                 break;
+            case AccountElement a:
+                o.Add("name", a.Name).AddIf(a.NoPassword, "noPassword", true).AddIf(a.AutoLogon, "autoLogon", true);
+                break;
             case PowerElement w:
                 o.AddIf("sleepMinutes", Number(w.SleepMinutes))
                     .AddIf("displayMinutes", Number(w.DisplayMinutes))
@@ -189,6 +193,7 @@ public static class RecipeFormat
         PowerElement => "power",
         SoundsElement => "sounds",
         StartupElement => "startup",
+        AccountElement => "account",
         _ => throw new ArgumentException("Neznámy druh prvku.", nameof(e)),
     };
 

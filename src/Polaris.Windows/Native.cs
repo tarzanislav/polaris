@@ -174,7 +174,9 @@ internal static unsafe partial class Advapi32
     public const uint TokenQuery = 0x8;
     public const uint PrivilegeEnabled = 2;
 
-    [StructLayout(LayoutKind.Sequential)]
+    /// <summary>TOKEN_PRIVILEGES with one privilege: the LUID is two DWORDs, so nothing is padded (Pack = 4) – with a
+    /// padded LUID Windows read another privilege and answered "not all assigned" (1300).</summary>
+    [StructLayout(LayoutKind.Sequential, Pack = 4)]
     public struct TokenPrivilege
     {
         public uint Count;

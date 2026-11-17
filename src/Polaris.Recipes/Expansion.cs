@@ -16,6 +16,7 @@ public static class Expansion
         KeyboardsElement k => KeyboardLayouts.Expand(k),
         UpdatesElement u => SettingsExpansion.Updates(u),
         PowerElement p => SettingsExpansion.Power(p),
+        AccountElement a => AccountRules.Expand(a),
         _ => [element],
     };
 

@@ -45,7 +45,8 @@ public static class SessionChecks
 
         var sample = RecipeText.Load(Path.Combine(Repo.Root, "recepty", "ukazka-relacia.json"));
         Expect.Sequence(Array.Empty<string>(), RecipeCheck.Problems(sample), "ukážka relácie");
-        Expect.Equal(SessionCleaning.AtSignOut, ((SessionElement)sample.Elements[0]).Clean, "čistiť po odhlásení");
+        Expect.Equal(SessionCleaning.Restore, sample.Elements.OfType<SessionElement>().Single().Clean, "po odhlásení z trezoru");
+        Expect.True(sample.Elements.OfType<AccountElement>().Single() is { NoPassword: true, AutoLogon: true }, "konto žiaka bez hesla, prihlási sa samo");
     }
 
     [Check]
