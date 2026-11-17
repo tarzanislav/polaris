@@ -25,7 +25,10 @@ public static unsafe partial class IconLauncher
     // else (WD): only to see that the process exists and to wait for its end.
     public const string ProcessSddl = "D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;0x101000;;;OW)(A;;0x101000;;;WD)";
     public const string ThreadSddl = "D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;0x100800;;;OW)(A;;0x100800;;;WD)";
-    public const string DefaultSddl = "D:(A;;GA;;;SY)(A;;GA;;;BA)(A;;0x100000;;;OW)(A;;0x100000;;;WD)";
+    // What the icon creates later (its threads above all): the owner – the pupil himself – may do everything but end,
+    // pause and change the protection (0x1303FC; checked on Windows in a pupil's position by polaris-agent skuska-ikony –
+    // an owner with less made the icon's own runtime fail at its start).
+    public const string DefaultSddl = "D:(A;;GA;;;SY)(A;;GA;;;BA)(A;;0x1303FC;;;OW)(A;;0x100000;;;WD)";
 
     public static string InstalledProgram => Path.Combine(Path.GetDirectoryName(AgentService.InstalledProgram)!, ProgramName);
 

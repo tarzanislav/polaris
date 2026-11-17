@@ -15,10 +15,6 @@ public static unsafe partial class IconSelfTest
     public static readonly IReadOnlyList<(string Name, IconProtection Protection)> Variants =
     [
         ("plná ochrana", IconProtection.Full),
-        ("bez predvolenej ochrany", new IconProtection(Process: true, Threads: true, DefaultSddl: null)),
-        ("predvolená bez ukončenia a pozastavenia (0x1303FC)", new IconProtection(true, true, "D:(A;;GA;;;SY)(A;;GA;;;BA)(A;;0x1303FC;;;OW)(A;;0x100000;;;WD)")),
-        ("predvolená bez ukončenia (0x1303FE)", new IconProtection(true, true, "D:(A;;GA;;;SY)(A;;GA;;;BA)(A;;0x1303FE;;;OW)(A;;0x100000;;;WD)")),
-        ("predvolená bez zmeny ochrany (0x1303FF)", new IconProtection(true, true, "D:(A;;GA;;;SY)(A;;GA;;;BA)(A;;0x1303FF;;;OW)(A;;0x100000;;;WD)")),
         ("bez ochrany", new IconProtection(Process: false, Threads: false, DefaultSddl: null)),
     ];
 
