@@ -241,6 +241,11 @@ public enum SessionCleaning
 
     /// <summary>Not cleaned.</summary>
     Never,
+
+    /// <summary>After every sign-out the profile is put back as it is in the trezor of the account (a prepared, tuned
+    /// profile): only the differences, in seconds, and the next sign-in is quick. Without a valid trezor the profile is
+    /// deleted as with AtSignOut.</summary>
+    Restore,
 }
 
 /// <summary>Rules of the session of a shared account: when the agent deletes its profile, so that the next pupil starts

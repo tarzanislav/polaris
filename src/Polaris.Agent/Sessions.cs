@@ -309,6 +309,7 @@ public sealed class SessionRuleHandler : IElementHandler
     {
         SessionCleaning.AtSignOut => "čistiť po odhlásení",
         SessionCleaning.EndOfDay => "čistiť po skončení dňa",
+        SessionCleaning.Restore => "po odhlásení vrátiť z trezoru",
         SessionCleaning.EndOfWeek => "čistiť po skončení týždňa",
         _ => "nečistiť",
     };
@@ -325,7 +326,7 @@ public static class SessionCleaner
 
     /// <param name="beforeDelete">Runs just before the profile is deleted (the programs of the School store of the session
     /// are removed there); its failure is reported, the profile is deleted anyway.</param>
-    public static Result Clean(string account, SessionCleaning mode, DateTime now, bool force = false, Func<string, string?>? beforeDelete = null)
+    public static Result Clean(string account, SessionCleaning mode, DateTime now, bool force = false, Func<string, string?>? beforeDelete = null, ProfileVault? vault = null)
     {
         if (SessionPolicy.NeverClean.Contains(account))
         {
@@ -358,8 +359,27 @@ public static class SessionCleaner
             return new Result(false, "podľa pravidla ešte nie je čas");
         }
 
+        string? unfit = null;
+        if (mode == SessionCleaning.Restore && !force)
+        {
+            vault ??= new ProfileVault();
+            unfit = vault.Unfit(account, sid);
+            if (unfit is null)
+            {
+                if (vault.UpToDate(account, sid))
+                {
+                    return new Result(false, AlreadyClean);
+                }
+
+                var before = beforeDelete?.Invoke(account);
+                var restored = vault.Restore(account, sid);
+                return new Result(true, $"profil konta {account} vrátený z trezoru (zmazané {restored.Removed}, vrátené {restored.Put}, "
+                    + $"{Polaris.Core.Format.Seconds(restored.Seconds)}){(before is { Length: > 0 } ? "; " + before : "")}");
+            }
+        }
+
         var note = beforeDelete?.Invoke(account);
         Profiles.Delete(sid);
-        return new Result(true, $"profil konta {account} zmazaný, ďalšie prihlásenie začne načisto{(note is { Length: > 0 } ? "; " + note : "")}");
+        return new Result(true, $"profil konta {account} zmazaný, ďalšie prihlásenie začne načisto{(unfit is null ? "" : $" (trezor: {unfit})")}{(note is { Length: > 0 } ? "; " + note : "")}");
     }
 }

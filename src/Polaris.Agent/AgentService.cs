@@ -40,6 +40,15 @@ public static class AgentService
 
         var lastMessage = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var maintenance = new MaintenanceHold(Awake.Request);
+        try
+        {
+            new ProfileVault().UnlockLeftovers(); // a restore cut by a power loss never leaves an account locked
+        }
+        catch (Exception e) when (e is not OutOfMemoryException)
+        {
+            Commands.WriteJournal(host.JournalPath, Simple("(trezor)", "trezor", "trezor profilu", false, "chyba: " + e.Message, host.Clock()));
+        }
+
         var startup = new StartupWatch(host);
         while (!stop.IsCancellationRequested)
         {

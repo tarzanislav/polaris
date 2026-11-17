@@ -1,0 +1,295 @@
+using System.Diagnostics;
+using System.Globalization;
+using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
+using System.Text;
+using Microsoft.Win32;
+using Polaris.Recipes;
+
+namespace Polaris.Agent;
+
+/// <summary>The trezor of profiles on this PC: for each shared account its prepared profile in one archive (only the
+/// system and administrators can read it) and its description. Saved when nobody is signed in to the account; after a
+/// sign-out only the differences are put back, while the account is locked for a moment so nobody signs in to a profile
+/// half put back. Whatever goes wrong, the account is never left locked and the profile never left half – it is then
+/// deleted as before (a clean start), and the journal says so.</summary>
+[SupportedOSPlatform("windows")]
+public sealed partial class ProfileVault(string? folder = null, string stateKey = ProfileVault.DefaultStateKey)
+{
+    public const string DefaultStateKey = @"SOFTWARE\POLARIS\Agent\Trezor";
+
+    private const string RestoredValue = "Obnovene";
+    private const string LockedValue = "Zablokovane";
+
+    public string Folder { get; } = folder ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), Polaris.Core.Product.Name, "agent", "trezor");
+
+    public sealed record Saved(int Entries, long Bytes, double Seconds);
+
+    public sealed record Restored(int Removed, int Put, double Seconds);
+
+    public string AccountFolder(string account) => Path.Combine(Folder, account.ToLowerInvariant());
+
+    /// <summary>The description of the account's trezor, or null when it has none (or a broken one).</summary>
+    public VaultManifest? Manifest(string account)
+    {
+        var file = Path.Combine(AccountFolder(account), VaultManifest.FileName);
+        if (!File.Exists(file))
+        {
+            return null;
+        }
+
+        try
+        {
+            var m = VaultRules.FromJson(File.ReadAllText(file, Encoding.UTF8));
+            return VaultRules.Problems(m).Any() ? null : m;
+        }
+        catch (Exception e) when (e is InvalidDataException or Polaris.Json.JsonError or IOException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Why the trezor cannot be used for the profile as it is now, or null when it fits.</summary>
+    public string? Unfit(string account, string sid)
+    {
+        if (Manifest(account) is not { } m)
+        {
+            return "konto nemá trezor";
+        }
+
+        if (!string.Equals(m.Sid, sid, StringComparison.OrdinalIgnoreCase))
+        {
+            return "trezor je z iného konta s tým istým menom – ulož ho znova";
+        }
+
+        if (ProfileFolder(sid) is not { } folder || Directory.GetCreationTimeUtc(folder).ToFileTimeUtc() != m.ProfileCreated)
+        {
+            return "profil konta vznikol znova po uložení trezoru – ulož ho znova";
+        }
+
+        var archive = Path.Combine(AccountFolder(account), VaultManifest.ArchiveName);
+        return !File.Exists(archive) || new FileInfo(archive).Length != m.ArchiveLength ? "archív trezoru chýba alebo nesedí" : null;
+    }
+
+    /// <summary>Keeps the profile of the account as it is now. Nobody may be signed in to it.</summary>
+    public Saved Save(string account, Func<DateTimeOffset> clock)
+    {
+        var sid = Profiles.SidOf(account) ?? throw new InvalidOperationException($"Konto {account} neexistuje.");
+        if (SessionPolicy.NeverClean.Contains(account) || Profiles.IsAdministrator(account))
+        {
+            throw new InvalidOperationException($"Konto {account} je správca alebo systémové – trezor je len pre zdieľané kontá žiakov.");
+        }
+
+        var state = Profiles.State(sid);
+        var profile = ProfileFolder(sid);
+        if (!state.Exists || profile is null || !Directory.Exists(profile))
+        {
+            throw new InvalidOperationException($"Konto {account} ešte nemá profil – prihlás sa doň, priprav ho a odhlás sa.");
+        }
+
+        if (state.Loaded)
+        {
+            throw new InvalidOperationException($"Na konte {account} je niekto prihlásený (alebo Windows ešte drží jeho profil) – odhlás sa a skús to o chvíľu.");
+        }
+
+        var watch = Stopwatch.StartNew();
+        var target = AccountFolder(account);
+        Directory.CreateDirectory(target);
+        AgentService.ProtectFolder(Folder);
+        var archive = Path.Combine(target, VaultManifest.ArchiveName);
+        var description = Path.Combine(target, VaultManifest.FileName);
+        var items = ProfileArchive.Read(profile, skipCaches: true);
+        List<VaultEntry> entries;
+        long length;
+        using (var stream = new FileStream(archive + ".novy", FileMode.Create, FileAccess.Write, FileShare.None, 1 << 16))
+        {
+            entries = ProfileArchive.Save(profile, items, stream);
+            stream.Flush(flushToDisk: true);
+            length = stream.Length;
+        }
+
+        var manifest = new VaultManifest
+        {
+            Account = account,
+            Sid = sid,
+            ProfileCreated = Directory.GetCreationTimeUtc(profile).ToFileTimeUtc(),
+            Windows = WindowsBuild(),
+            SavedUtc = clock(),
+            ArchiveLength = length,
+            Entries = entries,
+        };
+        File.WriteAllText(description + ".novy", VaultRules.ToJson(manifest), new UTF8Encoding(false));
+
+        // the description goes last: a trezor whose description is older than its archive does not fit and is not used
+        File.Delete(description);
+        File.Move(archive + ".novy", archive, overwrite: true);
+        File.Move(description + ".novy", description);
+        MarkRestored(account, sid);
+        return new Saved(entries.Count, length, watch.Elapsed.TotalSeconds);
+    }
+
+    /// <summary>The profile was put back after its last sign-in already (nothing to do).</summary>
+    public bool UpToDate(string account, string sid)
+    {
+        using var key = Registry.LocalMachine.OpenSubKey(stateKey + "\\" + account);
+        return key?.GetValue(RestoredValue) is string done && done == LoadTime(sid).ToString(CultureInfo.InvariantCulture) && key.GetValue(LockedValue) is null;
+    }
+
+    /// <summary>Puts back what differs from the trezor. The account is locked meanwhile; on a failure the profile is
+    /// deleted (a clean start) and the failure thrown on.</summary>
+    public Restored Restore(string account, string sid)
+    {
+        var manifest = Manifest(account) ?? throw new InvalidOperationException("Konto nemá trezor.");
+        var profile = ProfileFolder(sid) ?? throw new InvalidOperationException("Konto nemá profil.");
+        var watch = Stopwatch.StartNew();
+        Lock(account);
+        try
+        {
+            var plan = VaultRules.Plan(ProfileArchive.Read(profile, skipCaches: false), manifest);
+            using (var archive = new FileStream(Path.Combine(AccountFolder(account), VaultManifest.ArchiveName), FileMode.Open, FileAccess.Read, FileShare.Read, 1 << 16))
+            {
+                ProfileArchive.Apply(profile, plan, archive);
+            }
+
+            MarkRestored(account, sid);
+            return new Restored(plan.Remove.Count, plan.Put.Count, watch.Elapsed.TotalSeconds);
+        }
+        catch (Exception e) when (e is not OutOfMemoryException)
+        {
+            // never a half profile: the next sign-in starts clean, as without a trezor
+            try
+            {
+                Profiles.Delete(sid);
+            }
+            catch (SystemCallException)
+            {
+                // reported with the first failure
+            }
+
+            throw new InvalidOperationException("obnova z trezoru zlyhala (" + e.Message + "), profil zmazaný – ďalšie prihlásenie začne načisto", e);
+        }
+        finally
+        {
+            Unlock(account);
+        }
+    }
+
+    /// <summary>An account left locked (power lost during a restore) is unlocked.</summary>
+    public void UnlockLeftovers()
+    {
+        using var root = Registry.LocalMachine.OpenSubKey(stateKey);
+        foreach (var account in root?.GetSubKeyNames() ?? [])
+        {
+            Unlock(account);
+        }
+    }
+
+    public void Forget(string account)
+    {
+        var folder = AccountFolder(account);
+        if (Directory.Exists(folder))
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+
+        Registry.LocalMachine.DeleteSubKeyTree(stateKey + "\\" + account, throwOnMissingSubKey: false);
+    }
+
+    public static string WindowsBuild()
+    {
+        using var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows NT\CurrentVersion");
+        return $"{key?.GetValue("CurrentBuild")}.{key?.GetValue("UBR")}";
+    }
+
+    public static string? ProfileFolder(string sid)
+    {
+        using var entry = Registry.LocalMachine.OpenSubKey(Profiles.ProfileListKey + "\\" + sid);
+        return entry?.GetValue("ProfileImagePath") is string path ? Environment.ExpandEnvironmentVariables(path) : null;
+    }
+
+    /// <summary>When Windows last loaded the profile (changes with every sign-in), 0 when unknown.</summary>
+    private static long LoadTime(string sid)
+    {
+        using var entry = Registry.LocalMachine.OpenSubKey(Profiles.ProfileListKey + "\\" + sid);
+        return entry?.GetValue("LocalProfileLoadTimeHigh") is int high && entry.GetValue("LocalProfileLoadTimeLow") is int low
+            ? ((long)(uint)high << 32) | (uint)low
+            : 0;
+    }
+
+    private void MarkRestored(string account, string sid)
+    {
+        using var key = Registry.LocalMachine.CreateSubKey(stateKey + "\\" + account);
+        key.SetValue(RestoredValue, LoadTime(sid).ToString(CultureInfo.InvariantCulture), RegistryValueKind.String);
+    }
+
+    /// <summary>Locks the account (its flags are kept first, so they come back even after a power loss).</summary>
+    private void Lock(string account)
+    {
+        using var key = Registry.LocalMachine.CreateSubKey(stateKey + "\\" + account);
+        if (key.GetValue(LockedValue) is not int)
+        {
+            key.SetValue(LockedValue, (int)Accounts.Flags(account), RegistryValueKind.DWord);
+        }
+
+        Accounts.SetFlags(account, (uint)(int)key.GetValue(LockedValue)! | Accounts.Disabled);
+    }
+
+    private void Unlock(string account)
+    {
+        using var key = Registry.LocalMachine.OpenSubKey(stateKey + "\\" + account, writable: true);
+        if (key?.GetValue(LockedValue) is int flags)
+        {
+            Accounts.SetFlags(account, (uint)flags);
+            key.DeleteValue(LockedValue);
+        }
+    }
+}
+
+/// <summary>Flags of a local account (disabled, password cannot change …), through the network management of Windows.</summary>
+[SupportedOSPlatform("windows")]
+public static unsafe partial class Accounts
+{
+    public const uint Disabled = 0x2;
+    public const uint PasswordCannotChange = 0x40;
+    public const uint PasswordNotRequired = 0x20;
+    public const uint PasswordNeverExpires = 0x10000;
+
+    // USER_INFO_1: name, password, password age, privilege, home folder, comment, flags, script
+    private static readonly int FlagsAt = (4 * IntPtr.Size) + 8;
+
+    public static uint Flags(string account)
+    {
+        var status = NetUserGetInfo(null, account, 1, out var buffer);
+        if (status != 0)
+        {
+            throw new SystemCallException("Vlastnosti konta " + account, status);
+        }
+
+        try
+        {
+            return *(uint*)((byte*)buffer + FlagsAt);
+        }
+        finally
+        {
+            _ = NetApiBufferFree(buffer);
+        }
+    }
+
+    public static void SetFlags(string account, uint flags)
+    {
+        var status = NetUserSetInfo(null, account, 1008, &flags, out _);
+        if (status != 0)
+        {
+            throw new SystemCallException("Zmena konta " + account, status);
+        }
+    }
+
+    [LibraryImport("netapi32.dll", StringMarshalling = StringMarshalling.Utf16)]
+    private static partial int NetUserGetInfo(string? server, string user, int level, out nint buffer);
+
+    [LibraryImport("netapi32.dll", StringMarshalling = StringMarshalling.Utf16)]
+    private static partial int NetUserSetInfo(string? server, string user, int level, void* buffer, out int error);
+
+    [LibraryImport("netapi32.dll")]
+    private static partial int NetApiBufferFree(nint buffer);
+}

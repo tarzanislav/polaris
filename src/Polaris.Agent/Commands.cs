@@ -66,7 +66,7 @@ public sealed class AgentHost
 /// 2 = wrong input, a recipe with problems or missing rights.</summary>
 public static class Commands
 {
-    public const string Stage = "K6a";
+    public const string Stage = "K6b";
 
     public const string Help = """
         polaris-agent – uvedie toto PC do stavu podľa receptu (etapa K2: spúšťa správca na PC, bez siete)
@@ -105,6 +105,10 @@ public static class Commands
           spustanie vratit MENO | --vsetky
                                  zapne znova program, ktorý vypol POLARIS (správca); recept ho však vypne znova
           meranie [POČET]        posledné merania prihlásenia: čas do pracovnej plochy a pamäť po 2 minútach
+          trezor                 trezory profilov tohto PC (pripravené profily zdieľaných kont)
+          trezor ulozit KONTO    uloží profil konta, ako je teraz, do trezoru (správca; nikto nesmie byť prihlásený) –
+                                 s pravidlom relácie "Restore" sa po každom odhlásení vráti presne tak
+          trezor zmazat KONTO    zmaže trezor konta (správca); relácia potom maže profil ako bez trezoru
 
         Keď PC dôveruje aspoň jednej konzole, použije len recept s platným podpisom (RECEPT.podpis vedľa receptu).
           verzia
@@ -145,6 +149,7 @@ public static class Commands
                 "sluzby" => OperatingSystem.IsWindows() ? ServicesCommand(args, output, host ?? DefaultHost()) : throw new PlatformNotSupportedException(),
                 "nespat" => OperatingSystem.IsWindows() ? AwakeCommand(args, output, host ?? DefaultHost()) : throw new PlatformNotSupportedException(),
                 "spustanie" => OperatingSystem.IsWindows() ? StartupCommand(args, output, host ?? DefaultHost()) : throw new PlatformNotSupportedException(),
+                "trezor" => OperatingSystem.IsWindows() ? VaultCommand(args, output, host ?? DefaultHost()) : throw new PlatformNotSupportedException(),
                 "meranie" => Measurements(args.Length > 1 && int.TryParse(args[1], out var m) && m > 0 ? m : 5, output, host ?? DefaultHost()),
                 "skuska-ikony" => OperatingSystem.IsWindows() ? IconCheck(output, host ?? DefaultHost()) : throw new PlatformNotSupportedException(),
                 "dennik" => Journal(args.Length > 1 && int.TryParse(args[1], out var n) && n > 0 ? n : 10, output, host ?? DefaultHost()),
@@ -722,6 +727,82 @@ public static class Commands
 
         output.WriteLine("Vrátiť: polaris-agent sluzby vratit MENO | --vsetky");
         return 0;
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static int VaultCommand(string[] args, TextWriter output, AgentHost host)
+    {
+        var vault = new ProfileVault();
+        var action = args.Length > 1 ? args[1] : "";
+        if (action.Length == 0)
+        {
+            var rules = SessionRules.Read();
+            var accounts = Directory.Exists(vault.Folder) ? Directory.GetDirectories(vault.Folder).Select(Path.GetFileName).OfType<string>().ToList() : [];
+            foreach (var account in rules.Where(r => r.Value == SessionCleaning.Restore).Select(r => r.Key))
+            {
+                if (!accounts.Contains(account, StringComparer.OrdinalIgnoreCase))
+                {
+                    accounts.Add(account);
+                }
+            }
+
+            if (accounts.Count == 0)
+            {
+                output.WriteLine("Na tomto PC nie je žiadny trezor profilu. Uloženie: polaris-agent trezor ulozit KONTO");
+                return 0;
+            }
+
+            foreach (var account in accounts.Order(StringComparer.OrdinalIgnoreCase))
+            {
+                var m = vault.Manifest(account);
+                var sid = Profiles.SidOf(account);
+                var rule = rules.TryGetValue(account, out var r) ? SessionRuleHandler.Describe(r) : "bez pravidla relácie";
+                if (m is null)
+                {
+                    output.WriteLine($"  {account}: trezor nie je ({rule})");
+                    continue;
+                }
+
+                var unfit = sid is null ? "konto neexistuje" : vault.Unfit(account, sid);
+                var size = Measurement.Size(m.ArchiveLength);
+                var windows = m.Windows == ProfileVault.WindowsBuild() ? "" : $", z inej zostavy Windows ({m.Windows}) – odporúčam uložiť znova";
+                output.WriteLine($"  {account}: uložený {m.SavedUtc.ToLocalTime():d. M. yyyy H:mm}, {m.Entries.Count} položiek, {size}{windows}; {rule}"
+                    + (unfit is null ? "" : $" – NEPLATÍ: {unfit}"));
+            }
+
+            return 0;
+        }
+
+        if (!host.IsAdmin())
+        {
+            return Wrong("Trezor profilu spravuje správca.", output);
+        }
+
+        var name = args.Length > 2 ? args[2].Trim() : throw new InvalidDataException($"Použitie: polaris-agent trezor {action} KONTO");
+        switch (action)
+        {
+            case "ulozit":
+                {
+                    output.WriteLine($"Ukladám profil konta {name} do trezoru…");
+                    var saved = vault.Save(name, host.Clock);
+                    var message = $"trezor konta {name} uložený: {saved.Entries} položiek, {Measurement.Size(saved.Bytes)}, {Polaris.Core.Format.Seconds(saved.Seconds)}";
+                    WriteJournal(host.JournalPath, AgentService.Simple("(trezor)", "trezor", "trezor profilu", true, message, host.Clock()));
+                    output.WriteLine(char.ToUpperInvariant(message[0]) + message[1..] + ".");
+                    output.WriteLine(SessionRules.Read().TryGetValue(name, out var rule) && rule == SessionCleaning.Restore
+                        ? "Po každom odhlásení sa profil vráti presne do tohto stavu."
+                        : "Aby sa profil po odhlásení vracal z trezoru, daj konto do receptu: \"session\" s \"clean\": \"Restore\".");
+                    return 0;
+                }
+
+            case "zmazat":
+                vault.Forget(name);
+                WriteJournal(host.JournalPath, AgentService.Simple("(trezor)", "trezor", "trezor profilu", true, $"trezor konta {name} zmazaný", host.Clock()));
+                output.WriteLine($"Trezor konta {name} zmazaný.");
+                return 0;
+
+            default:
+                return Wrong($"Neznámy príkaz trezor {action} (možné: ulozit, zmazat).", output);
+        }
     }
 
     [SupportedOSPlatform("windows")]

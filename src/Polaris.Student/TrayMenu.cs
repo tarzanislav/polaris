@@ -71,6 +71,7 @@ public static class TrayMenu
         SessionCleaning.AtSignOut => "Po odhlásení sa tento profil vymaže",
         SessionCleaning.EndOfDay => "Po skončení dňa sa tento profil vymaže",
         SessionCleaning.EndOfWeek => "Po skončení týždňa sa tento profil vymaže",
+        SessionCleaning.Restore => "Po odhlásení sa tento profil vráti do pôvodného stavu",
         _ => null,
     };
 

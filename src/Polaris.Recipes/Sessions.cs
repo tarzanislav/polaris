@@ -110,7 +110,7 @@ public static class SessionPolicy
 
         return mode switch
         {
-            SessionCleaning.AtSignOut => true,
+            SessionCleaning.AtSignOut or SessionCleaning.Restore => true,
             SessionCleaning.EndOfDay => lastUsed is not { } d || d.Date < now.Date,
             SessionCleaning.EndOfWeek => lastUsed is not { } w || WeekStart(w) < WeekStart(now),
             _ => false,
