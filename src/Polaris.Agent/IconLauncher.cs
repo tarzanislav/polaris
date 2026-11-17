@@ -4,6 +4,13 @@ using Microsoft.Win32.SafeHandles;
 
 namespace Polaris.Agent;
 
+/// <summary>Which parts of the icon's protection are applied: the process, its first thread, the default protection of
+/// what it creates later.</summary>
+public sealed record IconProtection(bool Process, bool Threads, bool DefaultDacl)
+{
+    public static readonly IconProtection Full = new(true, true, true);
+}
+
 /// <summary>Starts the pupil's icon in a session as the signed-in user, from the service (only the system can do this).
 /// The icon gets a security descriptor that leaves its user only seeing it – not ending, pausing, debugging or changing
 /// it. Task Manager, taskkill or Stop-Process of a pupil end with "access denied". Administrators and the system keep
@@ -61,7 +68,7 @@ public static unsafe partial class IconLauncher
             throw new SystemCallException($"Konto prihlásené v relácii {session}", Marshal.GetLastPInvokeError());
         }
 
-        nint token = 0, environment = 0, processSd = 0, threadSd = 0, defaultSd = 0, desktop = 0;
+        nint token = 0;
         try
         {
             if (DuplicateTokenEx(userToken, 0x02000000 /* MAXIMUM_ALLOWED */, 0, 2 /* impersonation */, 1 /* primary */, out token) == 0)
@@ -69,18 +76,40 @@ public static unsafe partial class IconLauncher
                 throw new SystemCallException("Kópia tokenu používateľa", Marshal.GetLastPInvokeError());
             }
 
-            processSd = Descriptor(ProcessSddl);
-            threadSd = Descriptor(ThreadSddl);
-            defaultSd = Descriptor(DefaultSddl);
-            if (GetSecurityDescriptorDacl(defaultSd, out _, out var defaultDacl, out _) == 0)
+            return StartWithToken(token, program, "--zo-sluzby", IconProtection.Full, @"winsta0\default");
+        }
+        finally
+        {
+            CloseHandle(userToken);
+            if (token != 0)
             {
-                throw new SystemCallException("Predvolená ochrana", Marshal.GetLastPInvokeError());
+                CloseHandle(token);
             }
+        }
+    }
 
-            var dacl = defaultDacl;
-            if (SetTokenInformation(token, 6 /* TokenDefaultDacl */, &dacl, (uint)sizeof(nint)) == 0)
+    /// <summary>Starts the icon with a primary token (the service: the user's own; a check: a pupil's restricted one),
+    /// with the chosen parts of the protection. <paramref name="desktop"/> null = the caller's desktop.</summary>
+    public static IIconProcess StartWithToken(nint token, string program, string arguments, IconProtection protection, string? desktop)
+    {
+        nint environment = 0, processSd = 0, threadSd = 0, defaultSd = 0, desktopName = 0;
+        try
+        {
+            processSd = protection.Process ? Descriptor(ProcessSddl) : 0;
+            threadSd = protection.Threads ? Descriptor(ThreadSddl) : 0;
+            if (protection.DefaultDacl)
             {
-                throw new SystemCallException("Predvolená ochrana tokenu", Marshal.GetLastPInvokeError());
+                defaultSd = Descriptor(DefaultSddl);
+                if (GetSecurityDescriptorDacl(defaultSd, out _, out var defaultDacl, out _) == 0)
+                {
+                    throw new SystemCallException("Predvolená ochrana", Marshal.GetLastPInvokeError());
+                }
+
+                var dacl = defaultDacl;
+                if (SetTokenInformation(token, 6 /* TokenDefaultDacl */, &dacl, (uint)sizeof(nint)) == 0)
+                {
+                    throw new SystemCallException("Predvolená ochrana tokenu", Marshal.GetLastPInvokeError());
+                }
             }
 
             if (CreateEnvironmentBlock(out environment, token, 0) == 0)
@@ -88,11 +117,11 @@ public static unsafe partial class IconLauncher
                 throw new SystemCallException("Prostredie používateľa", Marshal.GetLastPInvokeError());
             }
 
-            desktop = Marshal.StringToHGlobalUni(@"winsta0\default");
-            var startup = new STARTUPINFOW { cb = sizeof(STARTUPINFOW), lpDesktop = desktop };
+            desktopName = desktop is null ? 0 : Marshal.StringToHGlobalUni(desktop);
+            var startup = new STARTUPINFOW { cb = sizeof(STARTUPINFOW), lpDesktop = desktopName };
             var processAttributes = new SECURITY_ATTRIBUTES { nLength = sizeof(SECURITY_ATTRIBUTES), lpSecurityDescriptor = processSd };
             var threadAttributes = new SECURITY_ATTRIBUTES { nLength = sizeof(SECURITY_ATTRIBUTES), lpSecurityDescriptor = threadSd };
-            var command = $"\"{program}\" --zo-sluzby\0".ToCharArray();
+            var command = $"\"{program}\" {arguments}\0".ToCharArray();
             fixed (char* commandLine = command)
             {
                 if (CreateProcessAsUser(token, program, commandLine, ref processAttributes, ref threadAttributes, 0,
@@ -107,12 +136,6 @@ public static unsafe partial class IconLauncher
         }
         finally
         {
-            CloseHandle(userToken);
-            if (token != 0)
-            {
-                CloseHandle(token);
-            }
-
             if (environment != 0)
             {
                 DestroyEnvironmentBlock(environment);
@@ -126,9 +149,9 @@ public static unsafe partial class IconLauncher
                 }
             }
 
-            if (desktop != 0)
+            if (desktopName != 0)
             {
-                Marshal.FreeHGlobal(desktop);
+                Marshal.FreeHGlobal(desktopName);
             }
         }
     }

@@ -131,6 +131,7 @@ public static class Commands
                 "zasoba" => Supply(args, output, host ?? DefaultHost()),
                 "centrum" => CentreCommand(args, output, host ?? DefaultHost()),
                 "ovladace" => DriverCommand(args, output, host ?? DefaultHost()),
+                "skuska-ikony" => OperatingSystem.IsWindows() ? IconCheck(output, host ?? DefaultHost()) : throw new PlatformNotSupportedException(),
                 "dennik" => Journal(args.Length > 1 && int.TryParse(args[1], out var n) && n > 0 ? n : 10, output, host ?? DefaultHost()),
                 _ => Wrong($"Neznámy príkaz „{args[0]}“. Zoznam príkazov: polaris-agent pomoc", output),
             };
@@ -621,6 +622,25 @@ public static class Commands
 
     private static AgentHost DefaultHost() =>
         OperatingSystem.IsWindows() ? AgentHost.Windows() : throw new PlatformNotSupportedException();
+
+    [SupportedOSPlatform("windows")]
+    private static int IconCheck(TextWriter output, AgentHost host)
+    {
+        if (!host.IsAdmin())
+        {
+            return Wrong("Skúšku ikony spúšťa správca (ikona sa spúšťa ako žiak – jeho konto bez práv správcu).", output);
+        }
+
+        var program = Path.Combine(AppContext.BaseDirectory, IconLauncher.ProgramName);
+        if (!File.Exists(program))
+        {
+            return Wrong($"Vedľa agenta chýba {IconLauncher.ProgramName}.", output);
+        }
+
+        output.WriteLine($"Ikona ako žiak (bez práv správcu), každá možnosť {IconSelfTest.Wait.TotalSeconds:0} s:");
+        var results = IconSelfTest.Run(program, output);
+        return results[0].Alive ? 0 : 1;
+    }
 
     private static int DriverCommand(string[] args, TextWriter output, AgentHost host)
     {

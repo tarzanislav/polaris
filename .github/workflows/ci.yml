@@ -123,6 +123,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & ./out/agent/polaris-agent.exe ovladace overit "$env:RUNNER_TEMP\zaloha-ovladacov"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # the icon in a pupil's position (no admin group, owner = the user) with each part of its protection
+          & ./out/agent/polaris-agent.exe skuska-ikony
+          "::notice title=skúška ikony ako žiak::kód $LASTEXITCODE"
+          $global:LASTEXITCODE = 0
           # may the system account (the agent's service) change the time zone? (the runner's admin may not)
           schtasks /create /tn PolarisPriv /ru SYSTEM /sc once /st 23:59 /f /tr "cmd /c whoami /priv > C:\polaris-priv.txt" | Out-Null
           schtasks /run /tn PolarisPriv | Out-Null
