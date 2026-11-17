@@ -121,6 +121,12 @@ if ($phaseNow -eq '0') {
         Result ($null -ne $again) 'strážca: ukončenú ikonu spustil znova do 8 s'
     }
 
+    Step 'Politika hesiel (či dovolí konto bez hesla)'
+    $policy = Join-Path $env:TEMP 'polaris-politika.inf'
+    secedit /export /cfg $policy /areas SECURITYPOLICY | Out-Null
+    foreach ($line in (Get-Content $policy -ErrorAction SilentlyContinue | Where-Object { $_ -match '^(MinimumPasswordLength|PasswordComplexity|PasswordHistorySize)\s*=' })) { Say "  $line" }
+    Remove-Item $policy -ErrorAction SilentlyContinue
+
     Step 'Recepty Relácia, Pieskovisko, Základ, Služby a Slabé PC'
     foreach ($r in $AllRecipes) {
         $code = Agent pouzi (Join-Path $Recipes "$r.json") --ano

@@ -202,7 +202,21 @@ public static class WindowsComfortChecks
         try
         {
             Expect.Equal(Observed.Absent, handler.Observe(element).State, "konto ešte nie je");
-            handler.Apply(element);
+            try
+            {
+                handler.Apply(element);
+            }
+            catch (InvalidOperationException e) when (e.Message.Contains("Politika hesiel", StringComparison.Ordinal))
+            {
+                // the runner's password policy refuses an empty password: the account is still made, safe, and the admin told
+                var refused = Accounts.Flags(name);
+                Expect.True(Profiles.SidOf(name) is not null && !Profiles.IsAdministrator(name), "konto vzniklo, bez práv správcu");
+                Expect.True((refused & Accounts.PasswordCannotChange) != 0, "heslo si nezmení");
+                Expect.True(handler.Observe(element).Detail.Contains("heslo", StringComparison.Ordinal), "a kontrola povie, že konto môže mať heslo");
+                Console.WriteLine("  (politika hesiel runnera nedovolí prázdne heslo – zvyšok skúšky vynechaný)");
+                return;
+            }
+
             Expect.True(Profiles.SidOf(name) is not null && !Profiles.IsAdministrator(name), "konto vzniklo, bez práv správcu");
             var flags = Accounts.Flags(name);
             Expect.True((flags & Accounts.PasswordCannotChange) != 0 && (flags & Accounts.PasswordNeverExpires) != 0, "heslo nezmení ani nevyprší");

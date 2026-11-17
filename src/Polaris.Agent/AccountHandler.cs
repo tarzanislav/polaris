@@ -15,6 +15,9 @@ public sealed class AccountHandler(string stateKey = AccountHandler.DefaultState
 {
     public const string DefaultStateKey = @"SOFTWARE\POLARIS\Agent\Konta";
 
+    /// <summary>NERR_PasswordTooShort: the password policy refused the password.</summary>
+    public const int PolicyRefused = 2245;
+
     /// <summary>How far the moment of the last password change may move between reads (the age is in seconds).</summary>
     private static readonly TimeSpan Tolerance = TimeSpan.FromMinutes(5);
 
@@ -80,7 +83,16 @@ public sealed class AccountHandler(string stateKey = AccountHandler.DefaultState
         Accounts.SetFlags(name, (flags & ~off) | Wanted(a));
         if (a.NoPassword && !BlankStill(name))
         {
-            Accounts.SetPassword(name, "");
+            try
+            {
+                Accounts.SetPassword(name, "");
+            }
+            catch (SystemCallException e) when (e.Code == PolicyRefused)
+            {
+                throw new InvalidOperationException(
+                    $"Politika hesiel tohto PC (zložitosť alebo najmenšia dĺžka hesla) nedovolí konto {name} bez hesla. POLARIS ju sám nemení – je to bezpečnostné rozhodnutie správcu.", e);
+            }
+
             using var key = Registry.LocalMachine.CreateSubKey(stateKey);
             key.SetValue(name, DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture), RegistryValueKind.String);
         }
@@ -90,7 +102,9 @@ public sealed class AccountHandler(string stateKey = AccountHandler.DefaultState
         Accounts.PasswordCannotChange | Accounts.PasswordNeverExpires | (a.NoPassword ? Accounts.PasswordNotRequired : 0);
 
     /// <summary>POLARIS set the empty password and nobody changed the password since.</summary>
-    private bool BlankStill(string name)
+    private bool BlankStill(string name) => HasNoPassword(name, stateKey);
+
+    public static bool HasNoPassword(string name, string stateKey = DefaultStateKey)
     {
         using var key = Registry.LocalMachine.OpenSubKey(stateKey);
         if (key?.GetValue(name) is not string text || !DateTimeOffset.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var set))
@@ -195,7 +209,9 @@ public static class AutoLogon
             return null;
         }
 
-        var ready = Profiles.SidOf(account) is { } sid && !Profiles.IsAdministrator(account) && !Profiles.State(sid).Loaded && !pending(account);
+        // never with a password (Windows would stop at a failed sign-in), never into a profile that is not ready
+        var ready = Profiles.SidOf(account) is { } sid && !Profiles.IsAdministrator(account) && AccountHandler.HasNoPassword(account)
+            && !Profiles.State(sid).Loaded && !pending(account);
         var changed = Set(winlogon, "DefaultUserName", account)
             | Set(winlogon, "DefaultDomainName", Environment.MachineName)
             | Set(winlogon, "DefaultPassword", "")
