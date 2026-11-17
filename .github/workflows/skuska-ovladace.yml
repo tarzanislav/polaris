@@ -1,0 +1,30 @@
+name: skuska-ovladace
+on:
+  push:
+    branches: [skuska/ovladace]
+jobs:
+  katalog:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v4
+      - shell: powershell
+        run: |
+          $text = [IO.File]::ReadAllText("$PWD\tools\windows\doplnit-ovladace.cmd", [Text.Encoding]::UTF8)
+          $head = $text.Substring(0, $text.IndexOf("`ntry {"))
+          iex $head
+          $r = @(Search 'VEN_8086&DEV_1E3A')
+          "výsledkov: $($r.Count)"
+          $r | Select-Object -First 5 | Format-Table -AutoSize | Out-String -Width 250
+          if ($r.Count -eq 0) { exit 1 }
+          $links = @(Links $r[0].Guid)
+          "odkazy: $links"
+          if ($links.Count -eq 0) { exit 1 }
+          New-Item -ItemType Directory -Force $Work | Out-Null
+          $cab = Join-Path $Work 'x.cab'
+          Invoke-WebRequest -UseBasicParsing -Uri $links[0] -OutFile $cab
+          $sig = Get-AuthenticodeSignature $cab
+          "podpis: $($sig.Status) $($sig.SignerCertificate.Subject)"
+          New-Item -ItemType Directory -Force "$Work\s" | Out-Null
+          & expand.exe -F:* $cab "$Work\s" | Out-Null
+          Get-ChildItem "$Work\s" -Recurse -Filter *.inf | Select-Object -First 5 FullName
+          Queries @('PCI\VEN_8086&DEV_1E3A&SUBSYS_05771028&REV_04', 'PCI\VEN_8086&DEV_1E3A&SUBSYS_05771028')
