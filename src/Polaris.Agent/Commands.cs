@@ -151,6 +151,7 @@ public static class Commands
                 "spustanie" => OperatingSystem.IsWindows() ? StartupCommand(args, output, host ?? DefaultHost()) : throw new PlatformNotSupportedException(),
                 "trezor" => OperatingSystem.IsWindows() ? VaultCommand(args, output, host ?? DefaultHost()) : throw new PlatformNotSupportedException(),
                 "meranie" => Measurements(args.Length > 1 && int.TryParse(args[1], out var m) && m > 0 ? m : 5, output, host ?? DefaultHost()),
+                "skuska-trezoru" => OperatingSystem.IsWindows() ? VaultCheck(output) : throw new PlatformNotSupportedException(),
                 "skuska-ikony" => OperatingSystem.IsWindows() ? IconCheck(output, host ?? DefaultHost()) : throw new PlatformNotSupportedException(),
                 "dennik" => Journal(args.Length > 1 && int.TryParse(args[1], out var n) && n > 0 ? n : 10, output, host ?? DefaultHost()),
                 _ => Wrong($"Neznámy príkaz „{args[0]}“. Zoznam príkazov: polaris-agent pomoc", output),
@@ -727,6 +728,19 @@ public static class Commands
 
         output.WriteLine("Vrátiť: polaris-agent sluzby vratit MENO | --vsetky");
         return 0;
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static int VaultCheck(TextWriter output)
+    {
+        output.WriteLine("Skúška trezoru profilu (skúšobné konto, na konci zmazané):");
+        var results = VaultSelfTest.Run();
+        foreach (var (ok, what) in results)
+        {
+            output.WriteLine($"  {(ok ? "✓" : "✗")} {what}");
+        }
+
+        return results.All(r => r.Ok) ? 0 : 1;
     }
 
     [SupportedOSPlatform("windows")]

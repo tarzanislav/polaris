@@ -143,6 +143,15 @@ jobs:
           schtasks /delete /tn PolarisPriv /f | Out-Null
           if (-not $tz) { "systém nemá SeTimeZonePrivilege"; exit 1 }
           "::notice title=systém a časové pásmo::$tz"
+          # the trezor of profiles as the system (the service's account: backup and restore privileges)
+          $agent = (Resolve-Path ./out/agent/polaris-agent.exe).Path
+          Set-Content C:\polaris-trezor.cmd -Encoding ascii -Value "@echo off`r`n`"$agent`" skuska-trezoru > C:\polaris-trezor.txt 2>&1`r`necho %ERRORLEVEL% > C:\polaris-trezor-kod.txt"
+          schtasks /create /tn PolarisTrezor /ru SYSTEM /sc once /st 23:59 /f /tr C:\polaris-trezor.cmd | Out-Null
+          schtasks /run /tn PolarisTrezor | Out-Null
+          for ($i = 0; $i -lt 60 -and -not (Test-Path C:\polaris-trezor-kod.txt); $i++) { Start-Sleep 2 }
+          schtasks /delete /tn PolarisTrezor /f | Out-Null
+          Get-Content C:\polaris-trezor.txt -Encoding utf8
+          if ((Get-Content C:\polaris-trezor-kod.txt -ErrorAction SilentlyContinue).Trim() -ne '0') { "skúška trezoru ako systém zlyhala"; exit 1 }
           # the service: installed into Program Files, running, then removed
           & ./out/agent/polaris-agent.exe instalovat-sluzbu
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
