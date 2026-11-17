@@ -47,10 +47,11 @@ public sealed class ComputerHandler : IElementHandler
             throw new InvalidOperationException("Nastavenia počítača sa neodstraňujú.");
         }
 
-        // the time zone first: it never needs a restart, and a failing workgroup must not keep it back
+        // each part on its own: a failing time zone must not keep the workgroup back, nor the other way round
+        var failures = new List<string>();
         if (c.TimeZone is { Length: > 0 } zone && !Same(TimeZones.Current(), zone))
         {
-            TimeZones.Set(zone);
+            Try(() => TimeZones.Set(zone), failures);
         }
 
         if (c.Workgroup is { Length: > 0 } wanted)
@@ -58,8 +59,25 @@ public sealed class ComputerHandler : IElementHandler
             var (name, state) = Workgroups.Current();
             if (state != JoinState.Workgroup || !Same(name, wanted))
             {
-                Workgroups.Join(wanted.ToUpperInvariant());
+                Try(() => Workgroups.Join(wanted.ToUpperInvariant()), failures);
             }
+        }
+
+        if (failures.Count > 0)
+        {
+            throw new InvalidOperationException(string.Join(" ", failures));
+        }
+    }
+
+    private static void Try(Action action, List<string> failures)
+    {
+        try
+        {
+            action();
+        }
+        catch (Exception e) when (e is InvalidOperationException or Polaris.Windows.SystemCallException or UnauthorizedAccessException)
+        {
+            failures.Add(e.Message);
         }
     }
 
