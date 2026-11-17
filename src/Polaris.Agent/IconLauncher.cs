@@ -6,6 +6,7 @@ namespace Polaris.Agent;
 
 /// <summary>Which parts of the icon's protection are applied: the process, its first thread, the default protection of
 /// what it creates later.</summary>
+[SupportedOSPlatform("windows")]
 public sealed record IconProtection(bool Process, bool Threads, string? DefaultSddl)
 {
     public static readonly IconProtection Full = new(true, true, IconLauncher.DefaultSddl);
