@@ -208,6 +208,43 @@ polaris-agent zasoba \\server\zasoba                                            
   patrí do Úschovne.
 - Čistí služba: `polaris-agent instalovat-sluzbu` (skopíruje agenta do Program Files, spustí službu PolarisAgent).
   Ručne hneď: `polaris-agent vycistit ziak`.
+- **`Restore` – profil z trezoru:** po každom odhlásení (a pri vypínaní PC) sa profil porovná s trezorom konta a vráti
+  sa len to, čo sa líši – súbory, priečinky, prepojenia, register konta, so svojimi oprávneniami. Pár sekúnd, profil
+  ostáva, takže ďalšie prihlásenie je rýchle (bez „Prípravy systému“) a programy sa otvárajú bez úvodných okien.
+  Bez platného trezoru sa profil zmaže ako pri `AtSignOut`.
+
+**Trezor profilu** (príprava raz, správca):
+
+```
+polaris-agent trezor priprav ziak    profil sa nečistí, kým ho neuložíš
+  → prihlás sa ako žiak, spusti programy, prejdi ich úvodné okná, nastav, čo treba, odhlás sa
+polaris-agent trezor ulozit ziak     uloží profil, ako je (nikto nesmie byť prihlásený)
+polaris-agent trezor                 stav trezorov; trezor zmazat KONTO ho zmaže
+```
+
+- Trezor je jeden archív agenta (`ProgramData\POLARIS\agent\trezor`, len systém a správcovia) cez zálohovacie
+  rozhranie Windows (BackupRead/BackupWrite), každá položka s odtlačkom SHA-256. Dočasné súbory a vyrovnávacie pamäte
+  prehliadačov sa neukladajú – pri obnove sa len zmažú.
+- Počas obnovy je konto na chvíľu vypnuté (nikto sa neprihlási do rozpracovaného profilu); po výpadku prúdu ho služba
+  pri štarte zapne. Keď obnova zlyhá, profil sa zmaže (čistý štart) – nikdy neostane polovičný.
+- Trezor neplatí, keď profil vznikol znova (zmazaný a vytvorený) alebo konto je iné s tým istým menom – vtedy sa profil
+  maže a `polaris-agent trezor` povie, že treba uložiť znova. Po aktualizácii Windows odporučí uložiť znova.
+
+### `account`: konto žiaka
+
+```json
+{ "type": "account", "id": "konto-ziak", "name": "ziak", "noPassword": true, "autoLogon": true }
+```
+
+- Konto vznikne, ak chýba (štandardné, nikdy správca – konto správcu recept odmietne). **Heslo si používateľ nemôže
+  zmeniť a nevyprší** – žiak nezamkne spoločné konto ostatným.
+- `noPassword: true` – **bez hesla**: prihlásenie jedným klikom. Windows potom také konto pustí **len priamo pri PC,
+  nikdy cez sieť** (POLARIS drží `LimitBlankPasswordUse` zapnuté). Heslo, ktoré by mu niekto neskôr nastavil, POLARIS
+  zistí (podľa času zmeny hesla, nie skúšaním prihlásenia) a vráti.
+- `autoLogon: true` – **po zapnutí sa PC prihlási samo** (len konto bez hesla; žiadne heslo sa nikam neukladá; v recepte
+  najviac jedno). Kým je na konte niekto prihlásený alebo jeho profil čaká na vrátenie z trezoru, automatické
+  prihlásenie je vypnuté – PC sa nikdy neprihlási do rozpracovaného profilu. Správca sa dostane k PC odhlásením žiaka.
+- Kontá recept nemaže; prvok vynechaný = POLARIS konto prestane spravovať (automatické prihlásenie vypne).
 
 ### `keyboards`: klávesnice a jazyky pre nové profily
 
@@ -391,7 +428,7 @@ Spúšťa ju **služba POLARIS agent** (nie zoznam programov po prihlásení, te
 - `recepty/ukazka-kancelarsky.json`: LibreOffice, 7-Zip, VLC, dve nastavenia Edge a školské záložky. Je to len
   otvorený softvér, vhodný pre školy.
 - `recepty/ukazka-pieskovisko.json`: Windows Sandbox, dve šablóny na ploche (prísna a so sieťou) a služba tlače.
-- `recepty/ukazka-relacia.json`: čistenie relácie konta `ziak`, klávesnice SK, CZ, EN, DE, viditeľné prípony súborov
+- `recepty/ukazka-relacia.json` (v3): konto `ziak` bez hesla s automatickým prihlásením, profil z trezoru po odhlásení, klávesnice SK, CZ, EN, DE, viditeľné prípony súborov
   a Školský obchod s Audacity a Inkscape.
 - `recepty/ukazka-zaklad.json`: pracovná skupina SKOLA, stredoeurópsky čas, aktualizácie mimo vyučovania
   (7 – 17 h, nová verzia Windows o 30 dní neskôr), napájanie pre učebňu (tlačidlo vypne PC, bez rýchleho spustenia),

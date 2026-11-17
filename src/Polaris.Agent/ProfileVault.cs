@@ -296,11 +296,12 @@ public static unsafe partial class Accounts
 
     public const uint Script = 0x1;
 
-    /// <summary>A new standard account (member of Users) with an empty password.</summary>
+    /// <summary>A new standard account (member of Users) with a random password nobody knows (a password policy may refuse
+    /// an empty one at creation); the empty password is set after, once the account does not require one.</summary>
     public static void Add(string account, uint flags)
     {
         var name = Marshal.StringToHGlobalUni(account);
-        var password = Marshal.StringToHGlobalUni("");
+        var password = Marshal.StringToHGlobalUni("Pa1-" + Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(16)) + "-x");
         try
         {
             var info = new UserInfo1 { Name = name, Password = password, Privilege = 1 /* USER_PRIV_USER */, Flags = flags | Script };
