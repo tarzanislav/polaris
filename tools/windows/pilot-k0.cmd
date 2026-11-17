@@ -54,7 +54,8 @@ New-Item -ItemType Directory -Force $State | Out-Null
 $phaseNow = if (Test-Path $Phase) { (Get-Content $Phase -Raw).Trim() } else { '0' }
 # a newer package than the installed agent: the pilot starts again from phase 1 (the service gets the new programs)
 $installed = Join-Path $env:ProgramFiles 'POLARIS\polaris-agent.exe'
-if ($phaseNow -ne '0' -and (Test-Path $installed) -and (Get-FileHash $installed).Hash -ne (Get-FileHash $Pa).Hash) {
+function Sha($file) { [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash([IO.File]::ReadAllBytes($file))) }
+if ($phaseNow -ne '0' -and (Test-Path $installed) -and (Sha $installed) -ne (Sha $Pa)) {
     Write-Host 'Nové zostavenie POLARIS – pilot začína znova od fázy 1.' -ForegroundColor Cyan
     $phaseNow = '0'
 }
