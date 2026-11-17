@@ -180,6 +180,10 @@ public static class Commands
         {
             return Wrong(e.Message, output);
         }
+        catch (InvalidOperationException e)
+        {
+            return Wrong(e.Message, output);
+        }
         catch (PlatformNotSupportedException)
         {
             return Wrong("Tento príkaz pracuje s PC, a preto beží len vo Windows. Na inom systéme funguje overit a odtlacok.", output);
