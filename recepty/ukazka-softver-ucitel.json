@@ -1,0 +1,18 @@
+{
+  // Ukážka pre PC učiteľov: PDFgear vie upravovať text v PDF. Na žiacke PC nie – jeho AI pomocník posiela obsah
+  // dokumentu do cloudu (rozhodnutie vlastníka 18. 11. 2026).
+  "schema": 1,
+  "name": "SOFTVER-UCITEL",
+  "version": 1,
+  "note": "Ukážka: softvér pre PC učiteľov",
+  "elements": [
+    {
+      "type": "program",
+      "id": "pdfgear",
+      "winget": "PDFgear.PDFgear",
+      "displayName": "PDFgear",
+      "match": "Prefix",
+      "note": "úprava PDF (freeware, uzavretý; AI pomocník len cez internet)"
+    }
+  ]
+}

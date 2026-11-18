@@ -17,7 +17,7 @@ public static class StoreChecks
         Program = new ProgramElement { Id = id, Winget = "Vydavatel." + display, DisplayName = display },
     };
 
-    private static StoreElement Store() => new() { Id = "obchod", Accounts = ["ziak"], MaxPerSession = 2, Items = [Item("a", "Alfa"), Item("b", "Beta"), Item("c", "Gama")] };
+    private static StoreElement Store() => new() { Id = "obchod", Accounts = ["ziak"], MaxPerSession = 2, Items = [Item("a", "Alfa"), Item("b", "Bystrica"), Item("c", "Gama")] };
 
     [Check]
     public static void TheSandboxTemplateIsStrictByDefault()

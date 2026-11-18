@@ -49,7 +49,7 @@ public static class WindowsStoreChecks
         Items =
         [
             new() { Id = "a", Title = "Alfa", Program = new() { Id = "a", Winget = "V.Alfa", DisplayName = "Alfa" } },
-            new() { Id = "b", Title = "Beta", Program = new() { Id = "b", Winget = "V.Beta", DisplayName = "Beta" } },
+            new() { Id = "b", Title = "Beta", Program = new() { Id = "b", Winget = "V.Bystrica", DisplayName = "Beta" } },
             new() { Id = "c", Title = "Gama", Program = new() { Id = "c", Winget = "V.Gama", DisplayName = "Gama" } },
         ],
     };

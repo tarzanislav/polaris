@@ -9,7 +9,7 @@ namespace Polaris.Recipes;
 public static class RecipeFormat
 {
     public static readonly IReadOnlyList<string> Types =
-        ["program", "registry", "bookmarks", "service", "feature", "user-registry", "keyboards", "session", "sandbox", "store", "computer", "updates", "power", "sounds", "startup", "account"];
+        ["program", "registry", "bookmarks", "service", "feature", "user-registry", "keyboards", "session", "sandbox", "store", "computer", "updates", "power", "sounds", "startup", "account", "folder"];
 
     public static Recipe Read(JsonNode root)
     {
@@ -72,6 +72,17 @@ public static class RecipeFormat
             "power" => Power(f),
             "sounds" => new SoundsElement { Scheme = f.Enum("scheme", SoundScheme.None) },
             "startup" => new StartupElement { Allow = f.Strings("allow") },
+            "folder" => new FolderElement
+            {
+                Path = f.String("path"),
+                Access = [.. f.Array("access").Select(n =>
+                {
+                    var a = new JsonFields(n, f.What + ", access");
+                    var access = new FolderAccess { Who = a.String("who", "Users"), Rights = a.Enum("rights", FolderRights.Modify) };
+                    a.End();
+                    return access;
+                })],
+            },
             "account" => new AccountElement { Name = f.String("name"), NoPassword = f.Bool("noPassword", false), AutoLogon = f.Bool("autoLogon", false) },
             _ => throw JsonError.At(typeNode, $"neznámy typ prvku „{type}“ (možné: {string.Join(", ", Types)})."),
         };
@@ -155,6 +166,9 @@ public static class RecipeFormat
             case StartupElement t:
                 o.Add("allow", JsonArray.Of(t.Allow, x => x));
                 break;
+            case FolderElement d:
+                o.Add("path", d.Path).Add("access", JsonArray.Of(d.Access, a => new JsonObject().Add("who", a.Who).Add("rights", a.Rights.ToString())));
+                break;
             case AccountElement a:
                 o.Add("name", a.Name).AddIf(a.NoPassword, "noPassword", true).AddIf(a.AutoLogon, "autoLogon", true);
                 break;
@@ -194,6 +208,7 @@ public static class RecipeFormat
         SoundsElement => "sounds",
         StartupElement => "startup",
         AccountElement => "account",
+        FolderElement => "folder",
         _ => throw new ArgumentException("Neznámy druh prvku.", nameof(e)),
     };
 

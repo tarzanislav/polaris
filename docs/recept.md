@@ -230,6 +230,27 @@ polaris-agent trezor                 stav trezorov; trezor zmazat KONTO ho zmaž
 - Trezor neplatí, keď profil vznikol znova (zmazaný a vytvorený) alebo konto je iné s tým istým menom – vtedy sa profil
   maže a `polaris-agent trezor` povie, že treba uložiť znova. Po aktualizácii Windows odporučí uložiť znova.
 
+### `folder`: priečinok a práva
+
+```json
+{ "type": "folder", "id": "data-ziaci", "path": "C:\\Data\\Ziaci", "access": [ { "who": "Users", "rights": "Modify" } ] }
+```
+
+- Priečinok vznikne, ak chýba; práva sa **pridajú** k tým, čo má (dedia ich súbory a priečinky vnútri), nič iné sa
+  neberie. `who`: `Users` (všetci používatelia PC), `AuthenticatedUsers` alebo meno lokálneho konta; `rights`: `Read`
+  alebo `Modify` (čítať, zapisovať, mazať – nie meniť práva).
+- Nikdy v systémových priečinkoch, v profiloch (len pod `C:\Users\Public`) ani v priečinkoch programov – žiak by mohol
+  zmeniť program, ktorý neskôr spustí správca. Priečinok sa nikdy nemaže: `present: false` vezme len práva od receptu.
+
+### Softvér: len stabilné verzie
+
+Kontrola receptu odmietne balík WinGet z testovacieho kanála (`…Beta`, `…Nightly`, `…Preview`, `…Insiders`, `…Canary`,
+`…Dev` …) aj testovaciu verziu (`3.0-beta2`, `1.2rc1` …) – v programoch aj v Školskom obchode. Programy sa inštalujú pre
+celé PC ako systém; žiak práva správcu nepotrebuje ani dočasne. Ukážkové sady: `ukazka-softver-zaklad.json` (Firefox ESR
+po slovensky, Chrome, Brave s politikami, 7-Zip, Double Commander, Java Temurin 21, PDF24 bez online nástrojov,
+SumatraPDF, Notepad++, VLC, IrfanView s pluginmi, Freeplane, priečinok `C:\Data\Ziaci`), `ukazka-softver-multimedia.json`,
+`ukazka-softver-kancelaria.json` (LibreOffice pre PC bez Office), `ukazka-softver-ucitel.json` (PDFgear len pre učiteľov).
+
 ### `account`: konto žiaka
 
 ```json

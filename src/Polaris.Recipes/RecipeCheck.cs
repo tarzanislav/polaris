@@ -196,6 +196,7 @@ public static partial class RecipeCheck
         SoundsElement z => z.Present ? [] : ["zvuky sa receptom neodstraňujú – vynechaj prvok, ak má rozhodnúť Windows."],
         StartupElement t => StartupRules.Problems(t),
         AccountElement a => AccountRules.Problems(a),
+        FolderElement d => FolderRules.Problems(d),
         _ => ["neznámy typ prvku."],
     };
 
@@ -244,6 +245,15 @@ public static partial class RecipeCheck
         if (p.Version is { Length: > 0 } v && !VersionPattern().IsMatch(v))
         {
             yield return $"verzia „{v}“ má neplatné znaky.";
+        }
+        else if (p.Version is { Length: > 0 } tv && SoftwareRules.TestVersion(tv))
+        {
+            yield return $"verzia „{tv}“ je testovacia – v učebni len stabilné verzie.";
+        }
+
+        if (p.Winget is { Length: > 0 } wid && SoftwareRules.TestChannelOf(wid) is { } channel)
+        {
+            yield return $"„{wid}“ je testovací kanál ({channel}) – v učebni len stabilné verzie.";
         }
 
         if (p.Version is { Length: > 0 } && p.Winget is not { Length: > 0 })

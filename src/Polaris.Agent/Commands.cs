@@ -42,7 +42,7 @@ public sealed class AgentHost
         [
             new RegistryHandler(), new ProgramHandler(folder), new ServiceHandler(), new FeatureHandler(), new ComputerHandler(),
             new ProfileTemplateHandler(), new SessionRuleHandler(), new SandboxHandler(), new StoreHandler(), new StartupHandler(),
-            new PasswordPolicyHandler(), new AccountHandler(), new AutoLogonHandler(),
+            new PasswordPolicyHandler(), new AccountHandler(), new AutoLogonHandler(), new FolderHandler(),
         ],
         IsAdmin = () =>
         {
@@ -118,7 +118,7 @@ public static class Commands
 
         Recept je súbor JSON s prvkami: program, registry, bookmarks, service, feature, session, keyboards,
         user-registry, sandbox (šablóna Pieskoviska), store (Školský obchod), computer, updates, power, sounds
-        startup a account.
+        startup, account a folder.
         Popis formátu: docs/recept.md v repozitári.
         """;
 

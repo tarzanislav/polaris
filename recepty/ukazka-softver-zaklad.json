@@ -1,0 +1,305 @@
+{
+  // Ukážková sada softvéru pre všetky PC učebne: prehliadače s politikami, archívy, správca súborov, Java, PDF, čítačky.
+  // Len stabilné verzie z WinGet, inštalácia pre celé PC ako systém – žiak práva správcu nepotrebuje.
+  // Skontrolovať: polaris-agent overit recepty/ukazka-softver-zaklad.json
+  "schema": 1,
+  "name": "SOFTVER-ZAKLAD",
+  "version": 1,
+  "note": "Ukážka: základný softvér učebne (rozhodnutia vlastníka 18. 11. 2026)",
+  "elements": [
+    {
+      "type": "program",
+      "id": "firefox",
+      "winget": "Mozilla.Firefox.ESR.sk",
+      "displayName": "Mozilla Firefox",
+      "match": "Prefix",
+      "note": "Firefox ESR po slovensky – veľké zmeny raz za rok (MPL-2.0)"
+    },
+    {
+      "type": "registry",
+      "id": "firefox-telemetria",
+      "path": "HKLM\\SOFTWARE\\Policies\\Mozilla\\Firefox",
+      "name": "DisableTelemetry",
+      "kind": "DWord",
+      "data": "1",
+      "note": "Firefox neposiela telemetriu"
+    },
+    {
+      "type": "registry",
+      "id": "firefox-studie",
+      "path": "HKLM\\SOFTWARE\\Policies\\Mozilla\\Firefox",
+      "name": "DisableFirefoxStudies",
+      "kind": "DWord",
+      "data": "1",
+      "note": "bez pokusov Mozilly"
+    },
+    {
+      "type": "registry",
+      "id": "firefox-pocket",
+      "path": "HKLM\\SOFTWARE\\Policies\\Mozilla\\Firefox",
+      "name": "DisablePocket",
+      "kind": "DWord",
+      "data": "1",
+      "note": "bez Pocketu"
+    },
+    {
+      "type": "registry",
+      "id": "firefox-predvoleny",
+      "path": "HKLM\\SOFTWARE\\Policies\\Mozilla\\Firefox",
+      "name": "DontCheckDefaultBrowser",
+      "kind": "DWord",
+      "data": "1",
+      "note": "nepýta sa, či má byť predvolený"
+    },
+    {
+      "type": "registry",
+      "id": "firefox-uvitanie",
+      "path": "HKLM\\SOFTWARE\\Policies\\Mozilla\\Firefox",
+      "name": "OverrideFirstRunPage",
+      "kind": "String",
+      "data": "",
+      "note": "bez uvítacej stránky pri prvom spustení"
+    },
+    {
+      "type": "program",
+      "id": "chrome",
+      "winget": "Google.Chrome",
+      "displayName": "Google Chrome",
+      "note": "Chrome (freeware)"
+    },
+    {
+      "type": "registry",
+      "id": "chrome-statistiky",
+      "path": "HKLM\\SOFTWARE\\Policies\\Google\\Chrome",
+      "name": "MetricsReportingEnabled",
+      "kind": "DWord",
+      "data": "0",
+      "note": "bez hlásenia štatistík"
+    },
+    {
+      "type": "registry",
+      "id": "chrome-predvoleny",
+      "path": "HKLM\\SOFTWARE\\Policies\\Google\\Chrome",
+      "name": "DefaultBrowserSettingEnabled",
+      "kind": "DWord",
+      "data": "0",
+      "note": "nepýta sa, či má byť predvolený"
+    },
+    {
+      "type": "registry",
+      "id": "chrome-pozadie",
+      "path": "HKLM\\SOFTWARE\\Policies\\Google\\Chrome",
+      "name": "BackgroundModeEnabled",
+      "kind": "DWord",
+      "data": "0",
+      "note": "po zatvorení nebeží na pozadí"
+    },
+    {
+      "type": "registry",
+      "id": "chrome-reklamy",
+      "path": "HKLM\\SOFTWARE\\Policies\\Google\\Chrome",
+      "name": "PromotionalTabsEnabled",
+      "kind": "DWord",
+      "data": "0",
+      "note": "bez reklamných kariet"
+    },
+    {
+      "type": "program",
+      "id": "brave",
+      "winget": "Brave.Brave",
+      "displayName": "Brave",
+      "match": "Prefix",
+      "note": "Brave – Chromium, vstavané blokovanie reklám a sledovania (MPL-2.0)"
+    },
+    {
+      "type": "registry",
+      "id": "brave-odmeny",
+      "path": "HKLM\\SOFTWARE\\Policies\\BraveSoftware\\Brave",
+      "name": "BraveRewardsDisabled",
+      "kind": "DWord",
+      "data": "1",
+      "note": "bez odmien Brave Rewards"
+    },
+    {
+      "type": "registry",
+      "id": "brave-penazenka",
+      "path": "HKLM\\SOFTWARE\\Policies\\BraveSoftware\\Brave",
+      "name": "BraveWalletDisabled",
+      "kind": "DWord",
+      "data": "1",
+      "note": "bez kryptopeňaženky"
+    },
+    {
+      "type": "registry",
+      "id": "brave-vpn",
+      "path": "HKLM\\SOFTWARE\\Policies\\BraveSoftware\\Brave",
+      "name": "BraveVPNDisabled",
+      "kind": "DWord",
+      "data": "1",
+      "note": "bez platenej VPN"
+    },
+    {
+      "type": "registry",
+      "id": "brave-tor",
+      "path": "HKLM\\SOFTWARE\\Policies\\BraveSoftware\\Brave",
+      "name": "TorDisabled",
+      "kind": "DWord",
+      "data": "1",
+      "note": "bez okien Tor"
+    },
+    {
+      "type": "registry",
+      "id": "brave-ai",
+      "path": "HKLM\\SOFTWARE\\Policies\\BraveSoftware\\Brave",
+      "name": "BraveAIChatEnabled",
+      "kind": "DWord",
+      "data": "0",
+      "note": "bez AI asistenta (posiela text stránok do cloudu)"
+    },
+    {
+      "type": "registry",
+      "id": "brave-statistiky",
+      "path": "HKLM\\SOFTWARE\\Policies\\BraveSoftware\\Brave",
+      "name": "BraveP3AEnabled",
+      "kind": "DWord",
+      "data": "0",
+      "note": "bez súkromných štatistík"
+    },
+    {
+      "type": "registry",
+      "id": "brave-pozadie",
+      "path": "HKLM\\SOFTWARE\\Policies\\BraveSoftware\\Brave",
+      "name": "BackgroundModeEnabled",
+      "kind": "DWord",
+      "data": "0",
+      "note": "po zatvorení nebeží na pozadí"
+    },
+    {
+      "type": "registry",
+      "id": "brave-predvoleny",
+      "path": "HKLM\\SOFTWARE\\Policies\\BraveSoftware\\Brave",
+      "name": "DefaultBrowserSettingEnabled",
+      "kind": "DWord",
+      "data": "0",
+      "note": "nepýta sa, či má byť predvolený"
+    },
+    {
+      "type": "program",
+      "id": "7zip",
+      "winget": "7zip.7zip",
+      "displayName": "7-Zip",
+      "match": "Prefix",
+      "note": "archívy (LGPL)"
+    },
+    {
+      "type": "program",
+      "id": "doublecmd",
+      "winget": "alexx2000.DoubleCommander",
+      "displayName": "Double Commander",
+      "match": "Prefix",
+      "note": "správca súborov v štýle Total Commandera (GPL)"
+    },
+    {
+      "type": "program",
+      "id": "java",
+      "winget": "EclipseAdoptium.Temurin.21.JRE",
+      "displayName": "Eclipse Temurin JRE",
+      "match": "Prefix",
+      "note": "Java 21, 64-bit – OpenJDK zadarmo aj pre školy (GPL s výnimkou classpath); napr. pre Moodle a Freeplane"
+    },
+    {
+      "type": "program",
+      "id": "pdf24",
+      "winget": "geeksoftwareGmbH.PDF24Creator",
+      "displayName": "PDF24 Creator",
+      "match": "Prefix",
+      "note": "PDF – spájanie, delenie, zmenšenie, prevody; súbory ostávajú na PC (zadarmo)"
+    },
+    {
+      "type": "registry",
+      "id": "pdf24-online",
+      "path": "HKLM\\SOFTWARE\\PDF24",
+      "name": "!NoOnlinePdfTools",
+      "kind": "DWord",
+      "data": "1",
+      "note": "bez online nástrojov – súbory žiakov nejdú na internet (! = používateľ to nezmení)"
+    },
+    {
+      "type": "registry",
+      "id": "pdf24-fax",
+      "path": "HKLM\\SOFTWARE\\PDF24",
+      "name": "!NoFax",
+      "kind": "DWord",
+      "data": "1",
+      "note": "bez faxu (posiela dáta von)"
+    },
+    {
+      "type": "registry",
+      "id": "pdf24-aktualizacie",
+      "path": "HKLM\\SOFTWARE\\PDF24",
+      "name": "!UpdateMode",
+      "kind": "DWord",
+      "data": "2",
+      "note": "bez vlastných aktualizácií – aktualizuje POLARIS"
+    },
+    {
+      "type": "program",
+      "id": "sumatra",
+      "winget": "SumatraPDF.SumatraPDF",
+      "displayName": "SumatraPDF",
+      "match": "Prefix",
+      "note": "rýchla čítačka PDF, EPUB, MOBI, DjVu (GPL)"
+    },
+    {
+      "type": "program",
+      "id": "notepadpp",
+      "winget": "Notepad++.Notepad++",
+      "displayName": "Notepad++",
+      "match": "Prefix",
+      "note": "textový editor (GPL)"
+    },
+    {
+      "type": "program",
+      "id": "vlc",
+      "winget": "VideoLAN.VLC",
+      "displayName": "VLC media player",
+      "note": "prehrávač médií (GPL)"
+    },
+    {
+      "type": "program",
+      "id": "irfanview",
+      "winget": "IrfanSkiljan.IrfanView",
+      "displayName": "IrfanView",
+      "match": "Prefix",
+      "note": "prehliadač obrázkov – zadarmo pre školy (EULA)"
+    },
+    {
+      "type": "program",
+      "id": "irfanview-pluginy",
+      "winget": "IrfanSkiljan.IrfanView.PlugIns",
+      "displayName": "IrfanView PlugIns",
+      "match": "Prefix",
+      "note": "oficiálna zbierka pluginov IrfanView"
+    },
+    {
+      "type": "program",
+      "id": "freeplane",
+      "winget": "Freeplane.Freeplane",
+      "displayName": "Freeplane",
+      "match": "Prefix",
+      "note": "myšlienkové mapy (GPL, potrebuje Javu)"
+    },
+    {
+      "type": "folder",
+      "id": "data-ziaci",
+      "path": "C:\\Data\\Ziaci",
+      "access": [
+        {
+          "who": "Users",
+          "rights": "Modify"
+        }
+      ],
+      "note": "spoločný priečinok na prácu žiakov – ostáva aj po vrátení profilu z trezoru"
+    }
+  ]
+}

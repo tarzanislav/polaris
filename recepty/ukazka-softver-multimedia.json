@@ -1,0 +1,122 @@
+{
+  // Ukážková sada multimédií. Ťažké programy (Blender, Kdenlive) priraď len skupine silných PC.
+  // PhotoFiltre so slovenčinou a gMKVExtractGUI vo WinGet nie sú – pribudnú ako balíky zo Zásoby.
+  "schema": 1,
+  "name": "SOFTVER-MULTIMEDIA",
+  "version": 1,
+  "note": "Ukážka: multimédiá (zoznam vlastníka a doplnky)",
+  "elements": [
+    {
+      "type": "program",
+      "id": "audacity",
+      "winget": "Audacity.Audacity",
+      "displayName": "Audacity",
+      "match": "Prefix",
+      "note": "zvuk – MP3 je vstavané (GPL); FFmpeg pribudne zo Zásoby"
+    },
+    {
+      "type": "program",
+      "id": "gimp",
+      "winget": "GIMP.GIMP.3",
+      "displayName": "GIMP",
+      "match": "Prefix",
+      "note": "úprava fotografií (GPL)"
+    },
+    {
+      "type": "program",
+      "id": "krita",
+      "winget": "KDE.Krita",
+      "displayName": "Krita",
+      "match": "Prefix",
+      "note": "kreslenie (GPL)"
+    },
+    {
+      "type": "program",
+      "id": "inkscape",
+      "winget": "Inkscape.Inkscape",
+      "displayName": "Inkscape",
+      "match": "Prefix",
+      "note": "vektorová grafika (GPL)"
+    },
+    {
+      "type": "program",
+      "id": "avidemux",
+      "winget": "Avidemux.Avidemux",
+      "displayName": "Avidemux",
+      "match": "Prefix",
+      "note": "jednoduchý strih (GPL)"
+    },
+    {
+      "type": "program",
+      "id": "shotcut",
+      "winget": "Meltytech.Shotcut",
+      "displayName": "Shotcut",
+      "match": "Prefix",
+      "note": "strih videa (GPL)"
+    },
+    {
+      "type": "program",
+      "id": "kdenlive",
+      "winget": "KDE.Kdenlive",
+      "displayName": "Kdenlive",
+      "match": "Prefix",
+      "note": "strih videa – najsilnejší open source (GPL)"
+    },
+    {
+      "type": "program",
+      "id": "openshot",
+      "winget": "OpenShot.OpenShot",
+      "displayName": "OpenShot Video Editor",
+      "match": "Prefix",
+      "note": "jednoduchý strih videa (GPL)"
+    },
+    {
+      "type": "program",
+      "id": "handbrake",
+      "winget": "HandBrake.HandBrake",
+      "displayName": "HandBrake",
+      "match": "Prefix",
+      "note": "prevod videa (GPL)"
+    },
+    {
+      "type": "program",
+      "id": "mkvtoolnix",
+      "winget": "MoritzBunkus.MKVToolNix",
+      "displayName": "MKVToolNix",
+      "match": "Prefix",
+      "note": "MKV – spájanie a stopy (GPL)"
+    },
+    {
+      "type": "program",
+      "id": "mediainfo",
+      "winget": "MediaArea.MediaInfo.GUI",
+      "displayName": "MediaInfo",
+      "match": "Prefix",
+      "note": "informácie o médiách (BSD)"
+    },
+    {
+      "type": "program",
+      "id": "subtitleedit",
+      "winget": "Nikse.SubtitleEdit",
+      "displayName": "Subtitle Edit",
+      "match": "Prefix",
+      "note": "titulky (MIT)"
+    },
+    {
+      "type": "program",
+      "id": "obs",
+      "winget": "OBSProject.OBSStudio",
+      "displayName": "OBS Studio",
+      "match": "Prefix",
+      "note": "nahrávanie obrazovky a prezentácií (GPL)"
+    },
+    {
+      "type": "program",
+      "id": "blender",
+      "winget": "BlenderFoundation.Blender",
+      "displayName": "Blender",
+      "match": "Prefix",
+      "note": "3D – len na silné PC (GPL)"
+    }
+  ]
+}

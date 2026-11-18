@@ -1,0 +1,17 @@
+{
+  // Ukážka pre PC bez Microsoft Office: LibreOffice (rozhodnutie vlastníka 18. 11. 2026).
+  "schema": 1,
+  "name": "SOFTVER-KANCELARIA",
+  "version": 1,
+  "note": "Ukážka: LibreOffice na PC bez Office",
+  "elements": [
+    {
+      "type": "program",
+      "id": "libreoffice",
+      "winget": "TheDocumentFoundation.LibreOffice",
+      "displayName": "LibreOffice",
+      "match": "Prefix",
+      "note": "kancelársky balík (MPL-2.0)"
+    }
+  ]
+}

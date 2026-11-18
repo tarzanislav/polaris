@@ -255,6 +255,37 @@ public static class WindowsComfortChecks
         }
     }
 
+    [Check]
+    public static void AFolderGetsRightsAndLosesOnlyThose()
+    {
+        if (!OperatingSystem.IsWindows() || !IsAdmin())
+        {
+            return;
+        }
+
+        var path = $@"C:\PolarisSkuska-{Guid.NewGuid():N}\Ziaci";
+        var handler = new FolderHandler();
+        var element = new FolderElement { Id = "d", Path = path, Access = [new FolderAccess { Who = "Users", Rights = FolderRights.Modify }] };
+        try
+        {
+            Expect.Equal(Observed.Absent, handler.Observe(element).State, "priečinok ešte nie je");
+            handler.Apply(element);
+            Expect.True(Directory.Exists(path), "priečinok vznikol");
+            Expect.Equal(Observed.Present, handler.Observe(element).State, "Users smú zapisovať");
+            File.WriteAllText(Path.Combine(path, "praca.txt"), "x");
+
+            element.Present = false;
+            Expect.Equal(Observed.Present, handler.Observe(element).State, "práva od receptu sú tam");
+            handler.Apply(element);
+            Expect.Equal(Observed.Absent, handler.Observe(element).State, "práva od receptu sú preč");
+            Expect.True(File.Exists(Path.Combine(path, "praca.txt")), "priečinok aj práca ostali");
+        }
+        finally
+        {
+            Directory.Delete(Path.GetDirectoryName(path)!, recursive: true);
+        }
+    }
+
     [SupportedOSPlatform("windows")]
     private static string Requests()
     {

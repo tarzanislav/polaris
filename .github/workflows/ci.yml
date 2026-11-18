@@ -105,6 +105,13 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & ./out/agent/polaris-agent.exe overit recepty/ukazka-kancelarsky.json
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # the sample software sets: valid, only stable versions, and what this PC would change
+          foreach ($set in 'zaklad', 'multimedia', 'kancelaria', 'ucitel') {
+            & ./out/agent/polaris-agent.exe overit "recepty/ukazka-softver-$set.json"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            & ./out/agent/polaris-agent.exe kontrola "recepty/ukazka-softver-$set.json"
+            if ($LASTEXITCODE -gt 1) { exit $LASTEXITCODE }
+          }
           # read only: what would change on the runner (exit code 1 = differences, that is fine here)
           $plan = (& ./out/agent/polaris-agent.exe kontrola recepty/ukazka-kancelarsky.json) -join "`n"
           if ($LASTEXITCODE -gt 1) { $plan; exit $LASTEXITCODE }
