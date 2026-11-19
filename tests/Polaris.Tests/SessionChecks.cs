@@ -63,4 +63,23 @@ public static class SessionChecks
         Expect.True(!SessionPolicy.ShouldClean(SessionCleaning.EndOfWeek, false, true, monday.AddHours(1), monday.AddDays(4)), "v piatok ešte ostáva");
         Expect.True(!SessionPolicy.ShouldClean(SessionCleaning.Never, false, true, null, monday), "nečistiť");
     }
+
+    [Check]
+    public static void ValuesOfProfilesAreKeptAsTheRecipeGaveThem()
+    {
+        var value = new UserRegistryElement { Id = "a", Path = @"Control Panel\\Desktop\WindowMetrics\", Name = "MinAnimate", Kind = RegistryKind.String, Data = "0" };
+        var again = (UserRegistryElement)ProfileValueFormat.FromJson(ProfileValueFormat.ToJson(value));
+        Expect.Equal((@"Control Panel\Desktop\WindowMetrics", "MinAnimate", RegistryKind.String, "0", true), (again.Path, again.Name, again.Kind, again.Data, again.Present), "hodnota receptu");
+        Expect.Equal(value.Key, again.Key, "ten istý kľúč");
+
+        value.Present = false;
+        Expect.True(!ProfileValueFormat.FromJson(ProfileValueFormat.ToJson(value)).Present, "odstránenie hodnoty sa drží tiež");
+        Expect.True(ProfileValueFormat.FromJson(ProfileValueFormat.ToJson(new SoundsElement())) is SoundsElement { Present: true }, "zvuková schéma");
+        Expect.Throws<InvalidDataException>(() => ProfileValueFormat.FromJson("{\"path\":\"x\",\"nieco\":1}"), "neznáme pole");
+
+        Expect.True(ProfileValueFormat.Matches(new UserRegistryElement(), new Observation(Observed.Present)), "má byť a je");
+        Expect.True(!ProfileValueFormat.Matches(new UserRegistryElement(), new Observation(Observed.Different)), "má byť a je iná");
+        Expect.True(ProfileValueFormat.Matches(new UserRegistryElement { Present = false }, new Observation(Observed.Absent)), "nemá byť a nie je");
+        Expect.True(ProfileValueFormat.Matches(new SoundsElement { Present = false }, new Observation(Observed.Different)), "zvuky nespravované");
+    }
 }

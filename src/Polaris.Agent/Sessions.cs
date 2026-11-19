@@ -7,36 +7,139 @@ using Polaris.Recipes;
 namespace Polaris.Agent;
 
 /// <summary>Values written into the template of profiles (the profile "Default"): every new profile gets them – the pupil's
-/// after every cleaning too. The registry file of the template is opened privately for this process (an application hive,
-/// no special privileges, nothing mounted for others) once for a run, and closed at its end.</summary>
+/// after every cleaning too. A profile that already exists – of a shared account, the pupil's from the trezor – gets them
+/// as well (ProfileValues), and the agent keeps them, to write them again after every return from the trezor. The
+/// registry file of the template is opened privately for this process (an application hive, no special privileges,
+/// nothing mounted for others) once for a run, and closed at its end.</summary>
 [SupportedOSPlatform("windows")]
-public sealed partial class ProfileTemplateHandler(string? hiveFile = null) : IElementHandler, IDisposable
+public sealed class ProfileTemplateHandler(string? hiveFile = null, bool? existingProfiles = null) : IElementHandler, IDisposable
 {
-    private RegistryKey? _root;
+    /// <summary>Existing profiles too – by default only with the real template (a test with a copy touches nothing else).</summary>
+    private readonly bool _existing = existingProfiles ?? hiveFile is null;
 
-    private const string Schemes = @"AppEvents\Schemes";
+    private RegistryKey? _root;
 
     public bool CanHandle(Element element) => element is UserRegistryElement or SoundsElement;
 
     public Observation Observe(Element element)
     {
-        if (element is SoundsElement)
+        var template = ProfileValues.Read(Root(), element);
+        if (!_existing || !ProfileValueFormat.Matches(element, template))
         {
-            var loud = Sounding(Root()).Count;
-            return loud == 0 && SchemeName(Root()) == ".None"
-                ? new Observation(Observed.Present, "bez zvukov")
-                : new Observation(Observed.Different, $"zvuková schéma {SchemeName(Root()) ?? "(nenastavená)"}, udalostí so zvukom: {loud}");
+            return template;
         }
 
-        var u = (UserRegistryElement)element;
-        return RegistryValues.Observe(Root(), UserRegistryPath.Normalize(u.Path), u.Name, u.Present, u.Kind, u.Data);
+        if (!ProfileValues.Remembers(element))
+        {
+            return new Observation(Observed.Different, "predloha áno; agent si ju ešte nedrží pre profily z trezoru");
+        }
+
+        foreach (var (account, sid) in ProfileValues.Managed())
+        {
+            try
+            {
+                var found = ProfileValues.InProfile(sid, root => ProfileValues.Read(root, element));
+                if (found is not null && !ProfileValueFormat.Matches(element, found))
+                {
+                    return found with { Detail = $"v profile konta {account}: {found.Detail}".TrimEnd(' ', ':') };
+                }
+            }
+            catch (SystemCallException)
+            {
+                // a profile that cannot be opened now (just signing in): written after its next return from the trezor
+            }
+        }
+
+        return template;
     }
 
     public void Apply(Element element)
     {
         var root = Root();
+        ProfileValues.Write(root, element);
+        root.Flush();
+        if (!_existing)
+        {
+            return;
+        }
+
+        ProfileValues.Remember(element);
+        var failed = new List<string>();
+        foreach (var (account, sid) in ProfileValues.Managed())
+        {
+            try
+            {
+                ProfileValues.InProfile(sid, r =>
+                {
+                    ProfileValues.Write(r, element);
+                    r.Flush();
+                    return true;
+                });
+            }
+            catch (Exception e) when (e is SystemCallException or IOException or UnauthorizedAccessException)
+            {
+                failed.Add($"{account} ({e.Message})");
+            }
+        }
+
+        if (failed.Count > 0)
+        {
+            throw new InvalidOperationException("Predloha profilov áno, existujúci profil nie: " + string.Join(", ", failed)
+                + ". Hodnotu dostane po najbližšom návrate z trezoru.");
+        }
+    }
+
+    public void Dispose()
+    {
+        _root?.Dispose(); // closing the last handle unloads the file
+        _root = null;
+    }
+
+    /// <summary>NTUSER.DAT of the profile "Default", as Windows says where it is.</summary>
+    public static string DefaultHiveFile()
+    {
+        using var list = Registry.LocalMachine.OpenSubKey(Profiles.ProfileListKey)
+            ?? throw new InvalidOperationException("Zoznam profilov Windows sa nedá otvoriť.");
+        var folder = list.GetValue("Default") as string ?? throw new InvalidOperationException("Windows neuvádza predlohu profilov (Default).");
+        return Path.Combine(Environment.ExpandEnvironmentVariables(folder), "NTUSER.DAT");
+    }
+
+    private RegistryKey Root() => _root ??= ProfileValues.OpenHive(hiveFile ?? DefaultHiveFile(), "predlohy profilov");
+}
+
+/// <summary>Values of profiles in existing profiles: the shared accounts whose sessions POLARIS cleans or returns from the
+/// trezor (never an administrator's). What a recipe gave is kept in HKLM\SOFTWARE\POLARIS\Agent\HodnotyProfilov (one value
+/// a setting) and written again into a profile just returned from the trezor, before anybody signs in.</summary>
+[SupportedOSPlatform("windows")]
+public static partial class ProfileValues
+{
+    public const string StoreKey = @"SOFTWARE\POLARIS\Agent\HodnotyProfilov";
+
+    private const string Schemes = @"AppEvents\Schemes";
+
+    public static Observation Read(RegistryKey root, Element element)
+    {
         if (element is SoundsElement)
         {
+            var loud = Sounding(root).Count;
+            return loud == 0 && SchemeName(root) == ".None"
+                ? new Observation(Observed.Present, "bez zvukov")
+                : new Observation(Observed.Different, $"zvuková schéma {SchemeName(root) ?? "(nenastavená)"}, udalostí so zvukom: {loud}");
+        }
+
+        var u = (UserRegistryElement)element;
+        return RegistryValues.Observe(root, UserRegistryPath.Normalize(u.Path), u.Name, u.Present, u.Kind, u.Data);
+    }
+
+    public static void Write(RegistryKey root, Element element)
+    {
+        if (element is SoundsElement sounds)
+        {
+            if (!sounds.Present)
+            {
+                return; // the scheme is then not managed: what the profile has stays
+            }
+
             // what the dialog "Zvuk" does when the scheme "Bez zvukov" is chosen: the scheme's name and every event silent
             using (var schemes = root.CreateSubKey(Schemes))
             {
@@ -49,13 +152,145 @@ public sealed partial class ProfileTemplateHandler(string? hiveFile = null) : IE
                 key?.SetValue("", "", RegistryValueKind.String);
             }
 
-            root.Flush();
             return;
         }
 
         var u = (UserRegistryElement)element;
         RegistryValues.Apply(root, UserRegistryPath.Normalize(u.Path), u.Name, u.Present, u.Kind, u.Data);
-        root.Flush();
+    }
+
+    /// <summary>The value is kept for the profiles, as the element has it now.</summary>
+    public static void Remember(Element element)
+    {
+        using var root = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64);
+        using var key = root.CreateSubKey(StoreKey, writable: true);
+        key.SetValue(element.Key, ProfileValueFormat.ToJson(element), RegistryValueKind.String);
+    }
+
+    public static bool Remembers(Element element)
+    {
+        using var root = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64);
+        using var key = root.OpenSubKey(StoreKey);
+        return key?.GetValue(element.Key) is string json && json == ProfileValueFormat.ToJson(element);
+    }
+
+    /// <summary>The kept values (an unreadable one is skipped – it never stops the return of a profile).</summary>
+    public static List<Element> Remembered()
+    {
+        var found = new List<Element>();
+        using var root = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64);
+        using var key = root.OpenSubKey(StoreKey);
+        foreach (var name in key?.GetValueNames() ?? [])
+        {
+            if (key!.GetValue(name) is string json)
+            {
+                try
+                {
+                    found.Add(ProfileValueFormat.FromJson(json));
+                }
+                catch (InvalidDataException)
+                {
+                }
+            }
+        }
+
+        return found;
+    }
+
+    /// <summary>The shared accounts with an existing profile that keep it for a while: returned from the trezor, or
+    /// cleaned only after the day or the week (a profile cleaned at sign-out waits for deletion).</summary>
+    public static List<(string Account, string Sid)> Managed()
+    {
+        var found = new List<(string, string)>();
+        foreach (var (account, mode) in SessionRules.Read())
+        {
+            if (SessionPolicy.NeverClean.Contains(account) || Profiles.SidOf(account) is not { } sid)
+            {
+                continue;
+            }
+
+            var state = Profiles.State(sid);
+            if (!state.Exists || (mode == SessionCleaning.AtSignOut && !state.Loaded) || Profiles.IsAdministrator(account))
+            {
+                continue;
+            }
+
+            found.Add((account, sid));
+        }
+
+        return found;
+    }
+
+    /// <summary>Work in the registry of a profile: the loaded one while its user is signed in, else its file opened
+    /// privately for a moment. Null when the profile has no registry file.</summary>
+    public static T? InProfile<T>(string sid, Func<RegistryKey, T> work)
+    {
+        using (var loaded = Registry.Users.OpenSubKey(sid, writable: true))
+        {
+            if (loaded is not null)
+            {
+                return work(loaded);
+            }
+        }
+
+        var folder = ProfileVault.ProfileFolder(sid);
+        var file = folder is null ? null : Path.Combine(folder, "NTUSER.DAT");
+        if (file is null || !File.Exists(file))
+        {
+            return default;
+        }
+
+        using var hive = OpenHive(file, "profilu");
+        return work(hive);
+    }
+
+    /// <summary>After a return from the trezor (the account still locked): every kept value into the profile's registry.
+    /// Null when all went in, else what failed (the profile stays – a value is never a reason to delete it).</summary>
+    public static string? AfterRestore(string profileFolder, IReadOnlyList<Element>? kept = null)
+    {
+        var values = kept ?? Remembered();
+        var file = Path.Combine(profileFolder, "NTUSER.DAT");
+        if (values.Count == 0 || !File.Exists(file))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var hive = OpenHive(file, "profilu");
+            var failed = 0;
+            foreach (var value in values)
+            {
+                try
+                {
+                    Write(hive, value);
+                }
+                catch (Exception e) when (e is InvalidDataException or IOException or UnauthorizedAccessException or ArgumentException)
+                {
+                    failed++;
+                }
+            }
+
+            hive.Flush();
+            return failed == 0 ? null : $"hodnoty receptu: {failed} z {values.Count} sa nezapísali";
+        }
+        catch (SystemCallException e)
+        {
+            return "hodnoty receptu sa nezapísali: " + e.Message;
+        }
+    }
+
+    /// <summary>A registry file opened only for this process (an application hive); closing the key closes the file.</summary>
+    public static RegistryKey OpenHive(string file, string what)
+    {
+        var status = RegLoadAppKey(file, out var handle, 0xF003F /* KEY_ALL_ACCESS */, 0x1 /* REG_PROCESS_APPKEY */, 0);
+        if (status != 0)
+        {
+            handle.Dispose();
+            throw new SystemCallException($"Otvorenie registra {what} {file} (nemá ho otvorený iný program?)", status);
+        }
+
+        return RegistryKey.FromHandle(handle);
     }
 
     private static string? SchemeName(RegistryKey root)
@@ -84,39 +319,6 @@ public sealed partial class ProfileTemplateHandler(string? hiveFile = null) : IE
         }
 
         return found;
-    }
-
-    public void Dispose()
-    {
-        _root?.Dispose(); // closing the last handle unloads the file
-        _root = null;
-    }
-
-    /// <summary>NTUSER.DAT of the profile "Default", as Windows says where it is.</summary>
-    public static string DefaultHiveFile()
-    {
-        using var list = Registry.LocalMachine.OpenSubKey(Profiles.ProfileListKey)
-            ?? throw new InvalidOperationException("Zoznam profilov Windows sa nedá otvoriť.");
-        var folder = list.GetValue("Default") as string ?? throw new InvalidOperationException("Windows neuvádza predlohu profilov (Default).");
-        return Path.Combine(Environment.ExpandEnvironmentVariables(folder), "NTUSER.DAT");
-    }
-
-    private RegistryKey Root()
-    {
-        if (_root is null)
-        {
-            var file = hiveFile ?? DefaultHiveFile();
-            var status = RegLoadAppKey(file, out var handle, 0xF003F /* KEY_ALL_ACCESS */, 0x1 /* REG_PROCESS_APPKEY */, 0);
-            if (status != 0)
-            {
-                handle.Dispose();
-                throw new SystemCallException($"Otvorenie predlohy profilov {file} (nemá ju otvorenú iný program?)", status);
-            }
-
-            _root = RegistryKey.FromHandle(handle);
-        }
-
-        return _root;
     }
 
     [LibraryImport("advapi32.dll", EntryPoint = "RegLoadAppKeyW", StringMarshalling = StringMarshalling.Utf16)]
@@ -404,7 +606,7 @@ public static class SessionCleaner
                 var before = beforeDelete?.Invoke(account);
                 var restored = vault.Restore(account, sid);
                 return new Result(true, $"profil konta {account} vrátený z trezoru (zmazané {restored.Removed}, vrátené {restored.Put}, "
-                    + $"{Polaris.Core.Format.Seconds(restored.Seconds)}){(before is { Length: > 0 } ? "; " + before : "")}");
+                    + $"{Polaris.Core.Format.Seconds(restored.Seconds)}){(restored.Note is { } n ? "; " + n : "")}{(before is { Length: > 0 } ? "; " + before : "")}");
             }
         }
 

@@ -28,7 +28,7 @@ public sealed partial class ProfileVault(string? folder = null, string stateKey 
 
     public sealed record Saved(int Entries, long Bytes, double Seconds);
 
-    public sealed record Restored(int Removed, int Put, double Seconds);
+    public sealed record Restored(int Removed, int Put, double Seconds, string? Note = null);
 
     public string AccountFolder(string account) => Path.Combine(Folder, account.ToLowerInvariant());
 
@@ -191,8 +191,10 @@ public sealed partial class ProfileVault(string? folder = null, string stateKey 
                 ProfileArchive.Apply(profile, plan, archive);
             }
 
+            // what recipes gave the profiles since the trezor was saved, before anybody signs in again
+            var note = ProfileValues.AfterRestore(profile);
             MarkRestored(account, sid);
-            return new Restored(plan.Remove.Count, plan.Put.Count, watch.Elapsed.TotalSeconds);
+            return new Restored(plan.Remove.Count, plan.Put.Count, watch.Elapsed.TotalSeconds, note);
         }
         catch (Exception e) when (e is not OutOfMemoryException)
         {

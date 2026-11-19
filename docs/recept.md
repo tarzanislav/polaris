@@ -302,6 +302,12 @@ SumatraPDF, Notepad++, VLC, IrfanView s pluginmi, Freeplane, priečinok `C:\Data
 
 - Hodnota v časti registra používateľa (bez `HKCU\`), zapísaná do predlohy profilov. Údaje ako pri `registry`,
   aj `Binary` – napríklad vizuálne efekty (`Control Panel\Desktop`, `UserPreferencesMask`).
+- **Aj do existujúcich profilov spoločných kont** (tých, ktoré má POLARIS v pravidle relácie – nikdy správcu): do
+  profilu žiaka z trezoru, ak práve nie je prihlásený, cez jeho súbor registra; ak je prihlásený, do jeho načítaného
+  registra (niektoré hodnoty Windows uplatní až pri ďalšom prihlásení).
+- Agent si hodnotu **drží** (`HKLM\SOFTWARE\POLARIS\Agent\HodnotyProfilov`) a zapíše ju znova **po každom návrate
+  profilu z trezoru**, ešte pred prihlásením – trezor tak starú hodnotu nevráti a nie je ho treba pripravovať znova.
+  To isté platí pre `sounds` a klávesnice. `present: false` hodnotu z predlohy aj z profilov odstráni.
 
 ### `sounds`: zvuková schéma
 

@@ -293,6 +293,61 @@ public static class WindowsAgentChecks
     }
 
     [Check]
+    public static void AProfileFromTheTrezorGetsTheValuesOfRecipes()
+    {
+        if (!OperatingSystem.IsWindows() || !IsAdmin())
+        {
+            return;
+        }
+
+        // a profile folder with a copy of the template as its registry, as after a return from the trezor
+        var folder = Path.Combine(Path.GetTempPath(), $"polaris-profil-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(folder);
+        var hive = Path.Combine(folder, "NTUSER.DAT");
+        File.Copy(ProfileTemplateHandler.DefaultHiveFile(), hive);
+        try
+        {
+            var slow = new UserRegistryElement { Id = "a", Path = @"Software\PolarisSkuska\Plocha", Name = "MinAnimate", Kind = RegistryKind.String, Data = "0" };
+            var gone = new UserRegistryElement { Id = "b", Path = @"Software\PolarisSkuska", Name = "Stara", Kind = RegistryKind.DWord, Data = "1" };
+            using (var template = new ProfileTemplateHandler(hive))
+            {
+                template.Apply(gone); // an old value the profile had when it was saved
+            }
+
+            gone.Present = false;
+            var kept = new List<Element>
+            {
+                ProfileValueFormat.FromJson(ProfileValueFormat.ToJson(slow)),
+                ProfileValueFormat.FromJson(ProfileValueFormat.ToJson(gone)),
+                new SoundsElement { Id = "z" },
+            };
+            Expect.Equal<string?>(null, ProfileValues.AfterRestore(folder, kept), "všetky hodnoty zapísané");
+            using var check = new ProfileTemplateHandler(hive);
+            Expect.Equal(Observed.Present, check.Observe(slow).State, "nová hodnota receptu v profile");
+            Expect.Equal(Observed.Absent, check.Observe(gone).State, "odstránená hodnota receptu z profilu zmizla");
+            Expect.Equal(Observed.Present, check.Observe(new SoundsElement { Id = "z" }).State, "profil bez zvukov");
+            Expect.Equal<string?>(null, ProfileValues.AfterRestore(Path.Combine(folder, "nie-je")), "profil bez registra nič");
+        }
+        finally
+        {
+            for (var i = 0; i < 10; i++)
+            {
+                try
+                {
+                    Directory.Delete(folder, recursive: true);
+                    break;
+                }
+                catch (IOException)
+                {
+                    GC.Collect();
+                    GC.WaitForPendingFinalizers();
+                    Thread.Sleep(200);
+                }
+            }
+        }
+    }
+
+    [Check]
     public static void SharedAccountProfileIsCleanedButNeverAnAdministrator()
     {
         if (!OperatingSystem.IsWindows() || !IsAdmin())
