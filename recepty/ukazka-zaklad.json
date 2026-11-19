@@ -5,7 +5,7 @@
 
   "schema": 1,
   "name": "ZAKLAD",
-  "version": 7,
+  "version": 8,
   "note": "Základ učebne – komfort a výkon: pracovná skupina SKOLA, stredoeurópsky čas, aktualizácie mimo vyučovania, napájanie bez spánku, sieť naplno, len povolené programy po prihlásení, aplikácie Store bez behu na pozadí, bez reklám a návrhov, vizuálne efekty a Prieskumník podľa správcu, ticho, žiak bez otázok pri prihlásení",
   "elements": [
     {
@@ -13,7 +13,8 @@
       "id": "pocitac",
       "workgroup": "SKOLA",
       "timeZone": "Central Europe Standard Time",
-      "note": "zmena pracovnej skupiny sa prejaví po reštarte"
+      "systemDriveLabel": "WIN11",
+      "note": "zmena pracovnej skupiny sa prejaví po reštarte; systémový disk sa volá WIN11"
     },
     {
       "type": "updates",
@@ -210,6 +211,96 @@
       "kind": "DWord",
       "data": "0",
       "note": "bez miniaplikácií (Widgets)"
+    },
+    {
+      "type": "registry",
+      "id": "edge-bocny-panel",
+      "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge",
+      "name": "HubsSidebarEnabled",
+      "kind": "DWord",
+      "data": "0",
+      "note": "Edge bez bočného panela"
+    },
+    {
+      "type": "registry",
+      "id": "edge-copilot",
+      "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge",
+      "name": "Microsoft365CopilotChatIconEnabled",
+      "kind": "DWord",
+      "data": "0",
+      "note": "Edge bez tlačidla Copilot (Chatovať)"
+    },
+    {
+      "type": "registry",
+      "id": "edge-nakupy",
+      "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge",
+      "name": "EdgeShoppingAssistantEnabled",
+      "kind": "DWord",
+      "data": "0",
+      "note": "Edge bez nákupného asistenta"
+    },
+    {
+      "type": "registry",
+      "id": "edge-odporucania",
+      "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge",
+      "name": "ShowRecommendationsEnabled",
+      "kind": "DWord",
+      "data": "0",
+      "note": "Edge bez odporúčaní a ponúk Microsoftu"
+    },
+    {
+      "type": "registry",
+      "id": "edge-personalizacia",
+      "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge",
+      "name": "PersonalizationReportingEnabled",
+      "kind": "DWord",
+      "data": "0",
+      "note": "Edge neposiela údaje na prispôsobenie reklám"
+    },
+    {
+      "type": "registry",
+      "id": "edge-predvoleny",
+      "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge",
+      "name": "DefaultBrowserSettingEnabled",
+      "kind": "DWord",
+      "data": "0",
+      "note": "Edge sa nepýta, či má byť predvolený"
+    },
+    {
+      "type": "registry",
+      "id": "hladanie-ikona-politika",
+      "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\Windows Search",
+      "name": "SearchOnTaskbarMode",
+      "kind": "DWord",
+      "data": "1",
+      "note": "vyhľadávanie na paneli úloh ako ikona – politikou, Windows ju pri prvom prihlásení neprepíše"
+    },
+    {
+      "type": "registry",
+      "id": "bez-miniaplikacii-panel",
+      "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Dsh",
+      "name": "DisableWidgetsBoard",
+      "kind": "DWord",
+      "data": "1",
+      "note": "bez tabule miniaplikácií (novšie Windows 11)"
+    },
+    {
+      "type": "user-registry",
+      "id": "bez-spotlight",
+      "path": "Software\\Policies\\Microsoft\\Windows\\CloudContent",
+      "name": "DisableWindowsSpotlightFeatures",
+      "kind": "DWord",
+      "data": "1",
+      "note": "bez Windows Spotlight (obrázky a tipy z internetu na pozadí a uzamknutej obrazovke) – miestnou politikou pre všetky kontá"
+    },
+    {
+      "type": "user-registry",
+      "id": "bez-spotlight-plocha",
+      "path": "Software\\Policies\\Microsoft\\Windows\\CloudContent",
+      "name": "DisableSpotlightCollectionOnDesktop",
+      "kind": "DWord",
+      "data": "1",
+      "note": "bez Spotlightu na ploche (ikona „Ďalšie informácie…“)"
     },
     {
       "type": "registry",

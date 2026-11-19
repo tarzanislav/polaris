@@ -123,8 +123,19 @@ public sealed class RegistryHandler : IElementHandler
     {
         var r = (RegistryValueElement)element;
         using var root = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64);
-        RegistryValues.Apply(root, Sub(r), r.Name, r.Present, r.Kind, r.Data);
+        try
+        {
+            RegistryValues.Apply(root, Sub(r), r.Name, r.Present, r.Kind, r.Data);
+        }
+        catch (UnauthorizedAccessException) when (IsPolicy(Sub(r)))
+        {
+            // a policy some protection of Windows (UCPD) lets only Windows write: through the local group policy, the way
+            // gpedit.msc does it – Windows itself then sets the value
+            new LocalPolicy().Change(user: false, Sub(r), r.Name, r.Present, r.Kind, r.Data);
+        }
     }
+
+    public static bool IsPolicy(string sub) => sub.StartsWith(@"SOFTWARE\Policies\", StringComparison.OrdinalIgnoreCase);
 
     private static string Sub(RegistryValueElement r) =>
         RegistryPath.UnderLocalMachine(r.Path) ?? throw new InvalidDataException($"Cesta {r.Path} nie je v HKLM.");

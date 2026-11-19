@@ -36,6 +36,11 @@ public sealed class ComputerHandler : IElementHandler
             }
         }
 
+        if (c.SystemDriveLabel is { Length: > 0 } label && !string.Equals(SystemDrive.VolumeLabel, label.Trim(), StringComparison.Ordinal))
+        {
+            differences.Add($"systémový disk sa volá „{SystemDrive.VolumeLabel}“, má byť {label.Trim()}");
+        }
+
         return differences.Count == 0 ? new Observation(Observed.Present) : new Observation(Observed.Different, string.Join("; ", differences));
     }
 
@@ -63,11 +68,18 @@ public sealed class ComputerHandler : IElementHandler
             }
         }
 
+        if (c.SystemDriveLabel is { Length: > 0 } label && !string.Equals(SystemDrive.VolumeLabel, label.Trim(), StringComparison.Ordinal))
+        {
+            Try(() => SystemDrive.VolumeLabel = label.Trim(), failures);
+        }
+
         if (failures.Count > 0)
         {
             throw new InvalidOperationException(string.Join(" ", failures));
         }
     }
+
+    private static DriveInfo SystemDrive => new(Path.GetPathRoot(Environment.SystemDirectory)!);
 
     private static void Try(Action action, List<string> failures)
     {
@@ -75,7 +87,7 @@ public sealed class ComputerHandler : IElementHandler
         {
             action();
         }
-        catch (Exception e) when (e is InvalidOperationException or Polaris.Windows.SystemCallException or UnauthorizedAccessException)
+        catch (Exception e) when (e is InvalidOperationException or Polaris.Windows.SystemCallException or UnauthorizedAccessException or IOException)
         {
             failures.Add(e.Message);
         }

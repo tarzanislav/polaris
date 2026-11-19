@@ -308,9 +308,14 @@ public static partial class RecipeCheck
             yield return "nastavenia počítača sa neodstraňujú – vynechaj prvok alebo pole, ktoré nemá meniť.";
         }
 
-        if (c.Workgroup is null && c.TimeZone is null)
+        if (c.Workgroup is null && c.TimeZone is null && c.SystemDriveLabel is null)
         {
-            yield return "prvok computer nič nenastavuje – vyplň workgroup alebo timeZone.";
+            yield return "prvok computer nič nenastavuje – vyplň workgroup, timeZone alebo systemDriveLabel.";
+        }
+
+        if (c.SystemDriveLabel is { } l && (l.Trim().Length is 0 or > 32 || l.IndexOfAny(['\\', '/', ':', '*', '?', '"', '<', '>', '|', '\t']) >= 0))
+        {
+            yield return $"„{l}“ nie je menovka disku (1 až 32 znakov, bez \\ / : * ? \" < > |).";
         }
 
         if (c.Workgroup is { } w && !WorkgroupPattern().IsMatch(w))

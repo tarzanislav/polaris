@@ -67,7 +67,7 @@ public static class RecipeFormat
             "session" => new SessionElement { Account = f.String("account"), Clean = f.Enum("clean", SessionCleaning.AtSignOut) },
             "sandbox" => Sandbox(f),
             "store" => Store(f),
-            "computer" => new ComputerElement { Workgroup = f.OptionalString("workgroup"), TimeZone = f.OptionalString("timeZone") },
+            "computer" => new ComputerElement { Workgroup = f.OptionalString("workgroup"), TimeZone = f.OptionalString("timeZone"), SystemDriveLabel = f.OptionalString("systemDriveLabel") },
             "updates" => Updates(f),
             "power" => Power(f),
             "sounds" => new SoundsElement { Scheme = f.Enum("scheme", SoundScheme.None) },
@@ -150,7 +150,7 @@ public static class RecipeFormat
                         .Add("program", WriteProgram(new JsonObject().AddIf(i.Program.Id.Length > 0, "id", i.Program.Id), i.Program))));
                 break;
             case ComputerElement c:
-                o.AddIf("workgroup", Text(c.Workgroup)).AddIf("timeZone", Text(c.TimeZone));
+                o.AddIf("workgroup", Text(c.Workgroup)).AddIf("timeZone", Text(c.TimeZone)).AddIf("systemDriveLabel", Text(c.SystemDriveLabel));
                 break;
             case UpdatesElement u:
                 o.AddIf("activeHoursStart", Number(u.ActiveHoursStart))

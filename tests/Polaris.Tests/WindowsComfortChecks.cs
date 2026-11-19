@@ -286,6 +286,92 @@ public static class WindowsComfortChecks
         }
     }
 
+    [Check]
+    public static void ALocalGroupPolicyIsSetByWindowsItself()
+    {
+        if (!OperatingSystem.IsWindows() || !IsAdmin())
+        {
+            return;
+        }
+
+        Policy();
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static void Policy()
+    {
+        const string Key = @"SOFTWARE\Policies\PolarisSkuska";
+        var name = "Hodnota" + Guid.NewGuid().ToString("N")[..6];
+        var policy = new LocalPolicy();
+        try
+        {
+            policy.Change(user: false, Key, name, true, RegistryKind.DWord, "1");
+            using (var key = Registry.LocalMachine.OpenSubKey(Key))
+            {
+                Expect.Equal(1, key?.GetValue(name) as int?, "Windows (gpupdate) nastavil hodnotu z miestnej politiky");
+            }
+
+            Expect.True(policy.Has(false, Key, name, RegistryKind.DWord, "1"), "v Registry.pol");
+            policy.Change(user: false, Key, name, false, RegistryKind.DWord, "");
+            using (var key = Registry.LocalMachine.OpenSubKey(Key))
+            {
+                Expect.True(key?.GetValue(name) is null, "po odstránení z politiky ju Windows zmazal");
+            }
+        }
+        finally
+        {
+            if (PolicyFile.Find(policy.Entries(false), Key, name) is not null)
+            {
+                policy.Change(user: false, Key, name, false, RegistryKind.DWord, "");
+            }
+
+            Registry.LocalMachine.DeleteSubKeyTree(Key, throwOnMissingSubKey: false);
+        }
+
+        // policies of users: only the file (Windows sets them at the sign-in); a separate folder, nothing refreshed
+        var folder = Path.Combine(Path.GetTempPath(), "polaris-politika-" + Guid.NewGuid().ToString("N")[..8]);
+        try
+        {
+            var users = new UserPolicyHandler(new LocalPolicy(folder, refresh: false));
+            var element = new UserPolicyElement { Id = "u", Path = @"Software\Policies\Microsoft\Windows\CloudContent", Name = "DisableWindowsSpotlightFeatures", Kind = RegistryKind.DWord, Data = "1" };
+            Expect.Equal(Observed.Absent, users.Observe(element).State, "ešte nie je");
+            users.Apply(element);
+            Expect.Equal(Observed.Present, users.Observe(element).State, "v politike používateľov");
+            Expect.True(File.ReadAllText(Path.Combine(folder, "gpt.ini")).Contains(PolicyIni.UserRegistry, StringComparison.Ordinal), "gpt.ini pozná register používateľov");
+            element.Present = false;
+            users.Apply(element);
+            Expect.Equal(Observed.Absent, users.Observe(element).State, "odstránená");
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    [Check]
+    public static void TheSystemDiskGetsItsLabel()
+    {
+        if (!OperatingSystem.IsWindows() || !IsAdmin())
+        {
+            return;
+        }
+
+        var drive = new DriveInfo(Path.GetPathRoot(Environment.SystemDirectory)!);
+        var before = drive.VolumeLabel;
+        var handler = new ComputerHandler();
+        var element = new ComputerElement { Id = "c", SystemDriveLabel = "POLARIS" };
+        try
+        {
+            handler.Apply(element);
+            Expect.Equal("POLARIS", new DriveInfo(drive.Name).VolumeLabel, "menovka nastavená");
+            Expect.Equal(Observed.Present, handler.Observe(element).State, "podľa prvku");
+        }
+        finally
+        {
+            new DriveInfo(drive.Name).VolumeLabel = before;
+        }
+    }
+
     [SupportedOSPlatform("windows")]
     private static string Requests()
     {

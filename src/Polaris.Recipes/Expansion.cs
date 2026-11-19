@@ -17,6 +17,11 @@ public static class Expansion
         UpdatesElement u => SettingsExpansion.Updates(u),
         PowerElement p => SettingsExpansion.Power(p),
         AccountElement a => AccountRules.Expand(a),
+        UserRegistryElement u when UserPolicyElement.IsPolicyPath(u.Path) =>
+        [
+            u,
+            new UserPolicyElement { Id = u.Id + ".politika", Note = u.Note, Present = u.Present, Path = UserRegistryPath.Normalize(u.Path), Name = u.Name, Kind = u.Kind, Data = u.Data },
+        ],
         _ => [element],
     };
 

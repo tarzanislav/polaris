@@ -40,6 +40,16 @@ public static class DriverWork
             Windows = Environment.OSVersion.Version.ToString(3),
         };
         Directory.CreateDirectory(target);
+        try
+        {
+            // only the system and administrators: a pupil neither sees nor deletes the backup (on a disk without rights,
+            // such as a USB stick with FAT, nothing to set)
+            Polaris.Windows.Security.Protect(target);
+        }
+        catch (Polaris.Windows.SystemCallException)
+        {
+        }
+
         var index = 0;
         foreach (var published in DriverStore.ThirdParty())
         {

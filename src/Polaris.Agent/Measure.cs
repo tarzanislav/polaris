@@ -72,11 +72,16 @@ public static class Measurement
 }
 
 /// <summary>The service's side: the icon says when its session's desktop is ready; the time since the sign-in is taken
-/// then, the memory two minutes later. Each sign-in once; a sign-in from before the service started is not measured.</summary>
+/// then, the memory two minutes later. Each sign-in once; a sign-in from before the service started is not measured,
+/// unless the service started with Windows (the automatic sign-in may come first).</summary>
 [SupportedOSPlatform("windows")]
 public sealed class LogonMeter(Action<RunRecord> journal, Func<DateTimeOffset> clock) : IDisposable
 {
     private readonly DateTimeOffset _serviceStarted = clock();
+
+    /// <summary>The service started with Windows (not later, by hand or after an update): a sign-in a moment before it –
+    /// the automatic sign-in is often quicker than the services – is still the sign-in after the start.</summary>
+    private readonly bool _startedWithWindows = Environment.TickCount64 < (long)TimeSpan.FromMinutes(5).TotalMilliseconds;
     private readonly Dictionary<int, DateTimeOffset> _measured = [];
     private readonly List<Timer> _timers = [];
     private readonly Lock _gate = new();
@@ -85,6 +90,7 @@ public sealed class LogonMeter(Action<RunRecord> journal, Func<DateTimeOffset> c
     {
         if (Polaris.Windows.Logons.Of(session) is not { } logon)
         {
+            Skipped(session, "Windows nepovedal čas prihlásenia relácie");
             return;
         }
 
@@ -92,13 +98,23 @@ public sealed class LogonMeter(Action<RunRecord> journal, Func<DateTimeOffset> c
         var took = now - logon.LogonUtc;
         lock (_gate)
         {
-            if (logon.LogonUtc < _serviceStarted || took > Measurement.Longest || took < TimeSpan.Zero
-                || (_measured.TryGetValue(session, out var last) && last == logon.LogonUtc))
+            if (_measured.TryGetValue(session, out var last) && last == logon.LogonUtc)
             {
-                return;
+                return; // the icon started again in the same sign-in
             }
 
             _measured[session] = logon.LogonUtc;
+            if (logon.LogonUtc < _serviceStarted && !_startedWithWindows)
+            {
+                return; // the service started later than the sign-in: not a measurement of the sign-in
+            }
+
+            if (took > Measurement.Longest || took < TimeSpan.Zero)
+            {
+                Skipped(session, $"plocha hotová {took.TotalMinutes:0} min po prihlásení – mimo merania");
+                return;
+            }
+
             Timer? timer = null;
             timer = new Timer(_ =>
             {
@@ -114,6 +130,15 @@ public sealed class LogonMeter(Action<RunRecord> journal, Func<DateTimeOffset> c
             timer.Change(Measurement.After, Timeout.InfiniteTimeSpan);
         }
     }
+
+    private void Skipped(int session, string why) =>
+        journal(new RunRecord
+        {
+            StartedUtc = clock(),
+            FinishedUtc = clock(),
+            Recipe = "(prihlásenie)",
+            Results = [new ChangeResult("meranie", $"meranie prihlásenia (relácia {session})", ChangeKind.None, true, "nezmerané: " + why, 0)],
+        });
 
     public void Dispose()
     {

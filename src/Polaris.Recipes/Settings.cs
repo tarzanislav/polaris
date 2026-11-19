@@ -12,6 +12,9 @@ public sealed class ComputerElement : Element
     /// <summary>Time zone by its name in Windows (e.g. "Central Europe Standard Time").</summary>
     public string? TimeZone { get; set; }
 
+    /// <summary>The label of the system disk (e.g. WIN11), at most 32 characters (NTFS).</summary>
+    public string? SystemDriveLabel { get; set; }
+
     public override string Key => "computer";
 
     public override string Title => "počítač (" + string.Join(", ", Parts()) + ")";
@@ -26,6 +29,11 @@ public sealed class ComputerElement : Element
         if (TimeZone is { Length: > 0 } t)
         {
             yield return "časové pásmo " + t;
+        }
+
+        if (SystemDriveLabel is { Length: > 0 } l)
+        {
+            yield return "systémový disk " + l;
         }
     }
 }

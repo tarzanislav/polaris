@@ -230,6 +230,17 @@ polaris-agent trezor                 stav trezorov; trezor zmazat KONTO ho zmaž
 - Trezor neplatí, keď profil vznikol znova (zmazaný a vytvorený) alebo konto je iné s tým istým menom – vtedy sa profil
   maže a `polaris-agent trezor` povie, že treba uložiť znova. Po aktualizácii Windows odporučí uložiť znova.
 
+### Politiky cez miestnu skupinovú politiku
+
+Niektoré politiky (napr. miniaplikácie `HKLM\SOFTWARE\Policies\Microsoft\Dsh`) chráni ovládač Windows **UCPD** – zapísať
+ich smie len program podpísaný Microsoftom. Keď Windows zápis politiky odmietne, POLARIS ju zapíše do **miestnej
+skupinovej politiky** (`%windir%\System32\GroupPolicy\Machine\Registry.pol` a `gpt.ini`, ako `gpedit.msc`) a spustí
+`gpupdate` – hodnotu potom nastaví sám Windows. Ochranu POLARIS nevypína ani neobchádza.
+
+Prvok `user-registry` s cestou `Software\Policies\…` ide **aj do miestnej politiky používateľov**
+(`…\GroupPolicy\User\Registry.pol`): Windows ju nastaví pri každom prihlásení každého konta – aj v profiloch, ktoré
+už existujú (trezor žiaka), kam predloha nových profilov nedosiahne.
+
 ### `folder`: priečinok a práva
 
 ```json
