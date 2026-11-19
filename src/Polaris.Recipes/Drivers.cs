@@ -333,8 +333,15 @@ public sealed class DriverBackup
 
     public int Schema { get; set; } = CurrentSchema;
 
-    /// <summary>The name of the hardware build (e.g. "MINI-PC"), given by the admin – never read from the hardware.</summary>
+    /// <summary>The name of the hardware build: "Maker Model - Windows 11 Pro" from the firmware and Windows, or what the
+    /// administrator gave (--meno).</summary>
     public string Name { get; set; } = "";
+
+    /// <summary>Maker and model of the PC as the firmware says it (for finding the backup of a PC of the same build).</summary>
+    public string Hardware { get; set; } = "";
+
+    /// <summary>The edition of Windows the drivers were taken from (e.g. Windows 11 Pro).</summary>
+    public string Edition { get; set; } = "";
 
     public DateTimeOffset CreatedUtc { get; set; }
 
@@ -355,6 +362,8 @@ public static partial class DriverBackupFormat
         .Add("name", b.Name)
         .Add("createdUtc", b.CreatedUtc.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture))
         .AddIf(b.Windows.Length > 0, "windows", b.Windows)
+        .AddIf(b.Hardware.Length > 0, "hardware", b.Hardware)
+        .AddIf(b.Edition.Length > 0, "edition", b.Edition)
         .Add("packages", JsonArray.Of(b.Packages, p => new JsonObject()
             .Add("folder", p.Folder)
             .Add("inf", p.Inf)
@@ -384,7 +393,7 @@ public static partial class DriverBackupFormat
                 throw new InvalidDataException($"{what}: neznáma schéma {schema}.");
             }
 
-            var b = new DriverBackup { Schema = schema, Name = f.String("name"), CreatedUtc = f.Time("createdUtc"), Windows = f.String("windows") };
+            var b = new DriverBackup { Schema = schema, Name = f.String("name"), CreatedUtc = f.Time("createdUtc"), Windows = f.String("windows"), Hardware = f.String("hardware"), Edition = f.String("edition") };
             foreach (var node in f.Array("packages"))
             {
                 var p = new JsonFields(node, $"balík ovládača ({what})");

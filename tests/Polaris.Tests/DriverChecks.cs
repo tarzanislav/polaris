@@ -114,4 +114,63 @@ public static class DriverChecks
         Expect.Equal("001-n-ovl-d", DriverBackupFormat.FolderName(1, "Náš Ovl_ád.inf"), "len malé písmená a pomlčky, nikdy dve za sebou");
         Expect.Equal("002-ovladac", DriverBackupFormat.FolderName(2, "ťť.inf"), "meno bez písmen");
     }
+
+    [Check]
+    public static void BuildIsNamedFromFirmwareAndWindows()
+    {
+        // invented makers and models: the names of real PCs of a school never go into the repository
+        Expect.Equal("Dell Skusobny 3000", DriverBuilds.Model(new HardwareInfo("Dell Inc.", "Skusobny 3000")), "známy výrobca skrátene");
+        Expect.Equal("HP Vzorovy Desk 400", DriverBuilds.Model(new HardwareInfo("Hewlett-Packard", "HP Vzorovy Desk 400")), "výrobca sa neopakuje");
+        Expect.Equal("Lenovo Vzorovy Rad 7", DriverBuilds.Model(new HardwareInfo("LENOVO", "1234AB5", "Vzorovy Rad 7")), "Lenovo: model vo verzii, nie typ stroja");
+        Expect.Equal("Lenovo 1234AB5", DriverBuilds.Model(new HardwareInfo("LENOVO", "1234AB5", "1.0")), "Lenovo bez modelu vo verzii");
+        Expect.Equal("ASUS DOSKA-Z1", DriverBuilds.Model(new HardwareInfo("System manufacturer", "System Product Name", "System Version", "ASUSTeK COMPUTER INC.", "DOSKA-Z1")), "PC zo súčiastok: podľa dosky");
+        Expect.Equal("Vyrobca Skusobny 5", DriverBuilds.Model(new HardwareInfo("Vyrobca Computer Co., Ltd.", "Skusobny 5")), "neznámy výrobca bez prípon firmy");
+        Expect.Equal<string?>(null, DriverBuilds.Model(new HardwareInfo("To be filled by O.E.M.", "To be filled by O.E.M.", "", "Default string", "Default string")), "nič o modeli");
+
+        Expect.Equal("Windows 11 Pro", DriverBuilds.Edition("Windows 10 Pro", 26200), "Windows 11 má v mene produktu 10");
+        Expect.Equal("Windows 10 Pro", DriverBuilds.Edition("Windows 10 Pro", 19045), "Windows 10");
+        Expect.Equal("Windows 11 Education", DriverBuilds.Edition("Windows 11 Education", 26100), "už správne meno");
+        Expect.Equal("Dell Skusobny 3000 - Windows 11 Pro", DriverBuilds.Name("Dell Skusobny 3000", "Windows 11 Pro"), "meno zostavy");
+        Expect.Equal("Neznámy model - Windows 11 Pro", DriverBuilds.Name(null, "Windows 11 Pro"), "bez modelu");
+        Expect.Equal("A B C. - Windows 11 Pro", DriverBuilds.FolderName("A/B:C.  - Windows 11 Pro. "), "znaky, ktoré Windows v mene nedovolí");
+    }
+
+    [Check]
+    public static void NewBackupNeverOverwritesAnOlderOne()
+    {
+        var root = Path.Combine("E:", "Ovladace");
+        var taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var day = new DateTime(2026, 11, 19);
+        var first = DriverBuilds.NewFolder(root, "Dell Skusobny 3000 - Windows 11 Pro", day, taken.Contains);
+        Expect.Equal(Path.Combine(root, "Dell Skusobny 3000 - Windows 11 Pro"), first, "prvá záloha zostavy");
+        taken.Add(first);
+        var second = DriverBuilds.NewFolder(root, "Dell Skusobny 3000 - Windows 11 Pro", day, taken.Contains);
+        Expect.Equal(first + " (2026-11-19)", second, "ďalšia s dňom");
+        taken.Add(second);
+        Expect.Equal(first + " (2026-11-19, 2)", DriverBuilds.NewFolder(root, "Dell Skusobny 3000 - Windows 11 Pro", day, taken.Contains), "v ten istý deň s číslom");
+    }
+
+    [Check]
+    public static void BackupOfTheSameBuildIsFound()
+    {
+        static FoundBackup At(string folder, string hardware, string edition, int day) =>
+            new(Path.Combine("E:", folder), new DriverBackup { Name = folder, Hardware = hardware, Edition = edition, CreatedUtc = new DateTimeOffset(2026, 11, day, 8, 0, 0, TimeSpan.Zero) });
+
+        var found = new List<FoundBackup>
+        {
+            At("Dell Skusobny 3000 - Windows 10 Pro", "Dell Skusobny 3000", "Windows 10 Pro", 20),
+            At("Dell Skusobny 3000 - Windows 11 Pro", "Dell Skusobny 3000", "Windows 11 Pro", 1),
+            At("Dell Skusobny 3000 - Windows 11 Pro (2026-11-10)", "Dell Skusobny 3000", "Windows 11 Pro", 10),
+            At("HP Vzorovy Desk 400 - Windows 11 Pro", "HP Vzorovy Desk 400", "Windows 11 Pro", 25),
+            new(Path.Combine("E:", "Dell Skusobny 3000 - Windows 11 Pro (2026-11-15)"), new DriverBackup { Name = "staršia bez modelu", CreatedUtc = new DateTimeOffset(2026, 11, 15, 8, 0, 0, TimeSpan.Zero) }),
+        };
+        Expect.Equal("Dell Skusobny 3000 - Windows 11 Pro (2026-11-15)", Path.GetFileName(DriverBuilds.Choose(found, "Dell Skusobny 3000", "Windows 11 Pro")?.Folder), "rovnaký model a Windows, najnovšia (aj záloha bez zapísaného modelu podľa mena priečinka)");
+        Expect.Equal("Dell Skusobny 3000 - Windows 10 Pro", Path.GetFileName(DriverBuilds.Choose(found, "Dell Skusobny 3000", "Windows 10 Pro")?.Folder), "iné Windows: jeho záloha");
+        Expect.Equal("HP Vzorovy Desk 400 - Windows 11 Pro", Path.GetFileName(DriverBuilds.Choose(found, "HP Vzorovy Desk 400", "Windows 11 Education")?.Folder), "rovnaký model, iné vydanie Windows");
+        Expect.Equal<FoundBackup?>(null, DriverBuilds.Choose(found, "Acer Iny 1", "Windows 11 Pro"), "iný model nič");
+
+        var backup = new DriverBackup { Name = "Dell Skusobny 3000 - Windows 11 Pro", Hardware = "Dell Skusobny 3000", Edition = "Windows 11 Pro", CreatedUtc = DateTimeOffset.UnixEpoch };
+        var again = DriverBackupFormat.FromJson(DriverBackupFormat.ToJson(backup));
+        Expect.Equal(("Dell Skusobny 3000", "Windows 11 Pro"), (again.Hardware, again.Edition), "model a Windows v ovladace.json");
+    }
 }

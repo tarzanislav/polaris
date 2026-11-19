@@ -135,9 +135,27 @@ jobs:
           # drivers: devices without a driver (1 = some are missing, fine here), then a backup checked file by file
           & ./out/agent/polaris-agent.exe ovladace
           if ($LASTEXITCODE -gt 1) { exit $LASTEXITCODE }
+          # never on a disk of the PC unless asked (the runner has only C:)
           & ./out/agent/polaris-agent.exe ovladace zaloha "$env:RUNNER_TEMP\zaloha-ovladacov" --meno RUNNER
+          if ($LASTEXITCODE -ne 2) { "záloha na disk PC bez --aj-na-tomto-pc mala byť odmietnutá"; exit 1 }
+          & ./out/agent/polaris-agent.exe ovladace zaloha "$env:RUNNER_TEMP\zaloha-ovladacov" --meno RUNNER --aj-na-tomto-pc
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & ./out/agent/polaris-agent.exe ovladace overit "$env:RUNNER_TEMP\zaloha-ovladacov"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # the folder of backups: a subfolder named by the build, a second backup beside it, both verified, found again
+          & ./out/agent/polaris-agent.exe ovladace priecinok "$env:RUNNER_TEMP\zalohy" --aj-na-tomto-pc
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & ./out/agent/polaris-agent.exe ovladace priecinok
+          foreach ($n in 1, 2) {
+            & ./out/agent/polaris-agent.exe ovladace zaloha --aj-na-tomto-pc
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+          $builds = @(Get-ChildItem "$env:RUNNER_TEMP\zalohy" -Directory)
+          $builds | ForEach-Object { "  " + $_.Name }
+          if ($builds.Count -ne 2 -or -not ($builds | Where-Object Name -like '* - Windows*')) { "zálohy zostavy nie sú v podpriečinkoch podľa zostavy"; exit 1 }
+          & ./out/agent/polaris-agent.exe ovladace overit
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & ./out/agent/polaris-agent.exe ovladace priecinok --zrusit
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           # the icon in a pupil's position (no admin group, owner = the user) with each part of its protection
           & ./out/agent/polaris-agent.exe skuska-ikony

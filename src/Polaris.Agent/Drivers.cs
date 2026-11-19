@@ -22,7 +22,7 @@ public static class DriverWork
 
     /// <summary>Copies the third-party packages of this PC (those its present devices use, or all) into an empty folder
     /// and writes ovladace.json with every file's fingerprint.</summary>
-    public static DriverBackup Backup(string target, string name, bool all, TextWriter output)
+    public static DriverBackup Backup(string target, string name, bool all, TextWriter output, string hardware = "", string edition = "")
     {
         if (Directory.Exists(target) && Directory.EnumerateFileSystemEntries(target).Any())
         {
@@ -38,16 +38,22 @@ public static class DriverWork
             Name = name,
             CreatedUtc = DateTimeOffset.UtcNow,
             Windows = Environment.OSVersion.Version.ToString(3),
+            Hardware = hardware,
+            Edition = edition,
         };
         Directory.CreateDirectory(target);
-        try
+        if (DriverPlace.OnThisPc(target) is not null)
         {
-            // only the system and administrators: a pupil neither sees nor deletes the backup (on a disk without rights,
-            // such as a USB stick with FAT, nothing to set)
-            Polaris.Windows.Security.Protect(target);
-        }
-        catch (Polaris.Windows.SystemCallException)
-        {
+            try
+            {
+                // on a disk of this PC (only when the administrator asked for it): only the system and administrators –
+                // a pupil neither sees nor deletes the backup. On a stick or a shared folder the rights stay as they are
+                // (the administrators of this PC are not those of the server).
+                Polaris.Windows.Security.Protect(target);
+            }
+            catch (Polaris.Windows.SystemCallException)
+            {
+            }
         }
 
         var index = 0;
@@ -188,4 +194,138 @@ public static class DriverWork
     }
 
     public static double Seconds(Stopwatch watch) => Math.Round(watch.Elapsed.TotalSeconds, 1);
+}
+
+/// <summary>Where backups of drivers go: the folder of backups (HKLM\SOFTWARE\POLARIS\Agent, value ZalohyOvladacov) set
+/// by the administrator – a USB stick or a shared folder; later the console keeps them on its own disk. When none is set,
+/// the folder POLARIS-ovladace on the first USB stick. Never a disk of the PC itself unless the administrator says so:
+/// the drivers are for other PCs of the build, and a disk of the PC is what a new installation erases.</summary>
+[SupportedOSPlatform("windows")]
+public static class DriverPlace
+{
+    public const string Key = @"SOFTWARE\POLARIS\Agent";
+    public const string Value = "ZalohyOvladacov";
+
+    public static string? Configured()
+    {
+        using var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(Key);
+        return key?.GetValue(Value) is string text && text.Trim().Length > 0 ? text.Trim() : null;
+    }
+
+    public static void Set(string? folder)
+    {
+        using var key = Microsoft.Win32.Registry.LocalMachine.CreateSubKey(Key);
+        if (folder is { Length: > 0 })
+        {
+            key.SetValue(Value, folder, Microsoft.Win32.RegistryValueKind.String);
+        }
+        else
+        {
+            key.DeleteValue(Value, throwOnMissingValue: false);
+        }
+    }
+
+    /// <summary>The folder of backups and how it was chosen; null when none is set and no USB stick is in.</summary>
+    public static (string Folder, string How)? Root()
+    {
+        if (Configured() is { } set)
+        {
+            return (set, "nastavený priečinok záloh");
+        }
+
+        foreach (var drive in DriveInfo.GetDrives())
+        {
+            try
+            {
+                if (drive.DriveType == DriveType.Removable && drive.IsReady)
+                {
+                    return (Path.Combine(drive.RootDirectory.FullName, DriverBuilds.DefaultFolderOnStick), $"predvolený priečinok na USB kľúči {drive.Name.TrimEnd('\\')}");
+                }
+            }
+            catch (IOException)
+            {
+                // a reader without a card
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>Why the folder is on this PC ("disk C: tohto PC"), or null for a USB stick, a shared folder, a network
+    /// drive.</summary>
+    public static string? OnThisPc(string folder)
+    {
+        var full = Path.GetFullPath(folder);
+        if (full.StartsWith(@"\\", StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        var root = Path.GetPathRoot(full);
+        if (string.IsNullOrEmpty(root))
+        {
+            return null;
+        }
+
+        try
+        {
+            var type = new DriveInfo(root).DriveType;
+            return type is DriveType.Fixed or DriveType.Ram
+                ? $"disk {root.TrimEnd('\\')} tohto PC"
+                : null;
+        }
+        catch (ArgumentException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Maker and model from the firmware, as Windows keeps them.</summary>
+    public static HardwareInfo ThisHardware()
+    {
+        using var bios = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"HARDWARE\DESCRIPTION\System\BIOS");
+        string Read(string name) => bios?.GetValue(name) as string ?? "";
+        return new HardwareInfo(Read("SystemManufacturer"), Read("SystemProductName"), Read("SystemVersion"), Read("BaseBoardManufacturer"), Read("BaseBoardProduct"));
+    }
+
+    public static string ThisEdition()
+    {
+        using var nt = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows NT\CurrentVersion");
+        return DriverBuilds.Edition(nt?.GetValue("ProductName") as string ?? "", Environment.OSVersion.Version.Build);
+    }
+
+    /// <summary>The backups in a folder: the folder itself when it is a backup, else its subfolders that are.</summary>
+    public static List<FoundBackup> Find(string folder, TextWriter? problems = null)
+    {
+        var found = new List<FoundBackup>();
+        if (File.Exists(Path.Combine(folder, DriverBackup.FileName)))
+        {
+            found.Add(new FoundBackup(folder, DriverBackupFormat.Load(folder)));
+            return found;
+        }
+
+        if (!Directory.Exists(folder))
+        {
+            return found;
+        }
+
+        foreach (var sub in Directory.EnumerateDirectories(folder).Order(StringComparer.OrdinalIgnoreCase))
+        {
+            if (!File.Exists(Path.Combine(sub, DriverBackup.FileName)))
+            {
+                continue;
+            }
+
+            try
+            {
+                found.Add(new FoundBackup(sub, DriverBackupFormat.Load(sub)));
+            }
+            catch (Exception e) when (e is InvalidDataException or IOException or UnauthorizedAccessException)
+            {
+                problems?.WriteLine($"  – {Path.GetFileName(sub)}: {e.Message}");
+            }
+        }
+
+        return found;
+    }
 }

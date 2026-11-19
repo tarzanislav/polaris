@@ -148,13 +148,14 @@ if ($phaseNow -eq '0') {
     Step 'Ovládače'
     $code = Agent ovladace
     Result ($code -eq 0) 'všetky zariadenia majú ovládač'
-    $backup = 'C:\POLARIS-ovladace'
-    if (-not (Test-Path $backup)) {
-        $code = Agent ovladace zaloha $backup --meno ETEST
-        Result ($code -eq 0) "záloha ovládačov v $backup"
-        $code = Agent ovladace overit $backup
-        Result ($code -eq 0) 'záloha overená'
+    # zálohy ovládačov už nie sú na disku PC (USB kľúč / zdieľaný priečinok, neskôr disk konzoly): stará záloha
+    # z predošlého pilota sa zmaže
+    $old = 'C:\POLARIS-ovladace'
+    if (Test-Path (Join-Path $old 'ovladace.json')) {
+        Remove-Item -LiteralPath $old -Recurse -Force -ErrorAction SilentlyContinue
+        Result (-not (Test-Path $old)) "stará záloha ovládačov z disku C: zmazaná"
     }
+    $code = Agent ovladace priecinok
 
     Step 'Príprava trezoru profilu žiaka'
     $code = Agent trezor priprav $Account

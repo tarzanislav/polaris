@@ -93,12 +93,16 @@ public static class Commands
           sluzby vratit MENO | --vsetky
                                  vráti pôvodné spúšťanie služby (správca); recept ju však zmení znova, kým ju obsahuje
           ovladace [--vsetky]    zariadenia bez ovládača (--vsetky: všetky zariadenia s ich ovládačmi)
-          ovladace zaloha PRIEČINOK --meno ZOSTAVA [--vsetky]
-                                 záloha ovládačov tejto hardvérovej zostavy do prázdneho priečinka (správca); bez
-                                 --vsetky len ovládače, ktoré zariadenia tohto PC používajú
-          ovladace overit PRIEČINOK   skontroluje zálohu: každý súbor podľa odtlačku (nič nemení)
-          ovladace obnov PRIEČINOK [--vsetky] [--ano]
-                                 nainštaluje zo zálohy ovládače, ktoré toto PC potrebuje (správca; len podpísané)
+          ovladace priecinok [CESTA | --zrusit]
+                                 priečinok záloh ovládačov: USB kľúč alebo zdieľaný priečinok, nikdy disk PC (správca);
+                                 bez nastavenia POLARIS-ovladace na pripojenom USB kľúči
+          ovladace zaloha [PRIEČINOK] [--meno ZOSTAVA] [--vsetky]
+                                 záloha ovládačov tejto hardvérovej zostavy (správca) do podpriečinka „Výrobca Model -
+                                 Windows 11 Pro“ v priečinku záloh; bez --vsetky len ovládače, ktoré zariadenia PC používajú
+          ovladace overit [PRIEČINOK] skontroluje zálohy: každý súbor podľa odtlačku (nič nemení)
+          ovladace obnov [PRIEČINOK] [--vsetky] [--ano]
+                                 nainštaluje ovládače, ktoré toto PC potrebuje, zo zálohy jeho zostavy (správca; len
+                                 podpísané); záloha sa nájde sama v priečinku záloh
           nespat [3h | 90m | koniec]
                                  údržba: PC nezaspí daný čas (najviac 24h), aby sa dalo pracovať na diaľku (správca);
                                  bez času vypíše stav
@@ -950,18 +954,38 @@ public static class Commands
         var action = args.Length > 1 && !args[1].StartsWith("--", StringComparison.Ordinal) ? args[1] : "";
         if (action == "overit")
         {
-            var folder = args.Length > 2 ? args[2] : throw new InvalidDataException("Použitie: polaris-agent ovladace overit PRIEČINOK");
-            var backup = DriverBackupFormat.Load(folder);
-            var problems = DriverBackupFormat.VerifyFiles(folder, backup);
-            output.WriteLine($"Záloha ovládačov {backup.Name}: {backup.Packages.Count} balíkov, {backup.Packages.Sum(p => p.Files.Count)} súborov, z Windows {backup.Windows}.");
-            output.WriteLine("Odtlačok: " + DriverBackupFormat.Fingerprint(backup));
-            foreach (var problem in problems)
+            var folder = Positional(args, 2)
+                ?? (OperatingSystem.IsWindows() ? DriverPlace.Root()?.Folder : null)
+                ?? throw new InvalidDataException("Použitie: polaris-agent ovladace overit PRIEČINOK (záloha alebo priečinok záloh)");
+            var found = OperatingSystem.IsWindows()
+                ? DriverPlace.Find(folder, output)
+                : [new FoundBackup(folder, DriverBackupFormat.Load(folder))];
+            if (found.Count == 0)
             {
-                output.WriteLine("  – " + problem);
+                return Wrong($"V {folder} nie je žiadna záloha ovládačov ({DriverBackup.FileName}).", output);
             }
 
-            output.WriteLine(problems.Count == 0 ? "Všetky súbory sedia." : $"Záloha má problémy ({problems.Count}) – obnova by ju odmietla.");
-            return problems.Count == 0 ? 0 : 1;
+            var bad = 0;
+            foreach (var (place, backup) in found)
+            {
+                var problems = DriverBackupFormat.VerifyFiles(place, backup);
+                if (found.Count > 1)
+                {
+                    output.WriteLine(Path.GetFileName(place) + ":");
+                }
+
+                output.WriteLine($"Záloha ovládačov {backup.Name}: {backup.Packages.Count} balíkov, {backup.Packages.Sum(p => p.Files.Count)} súborov, z Windows {backup.Windows}.");
+                output.WriteLine("Odtlačok: " + DriverBackupFormat.Fingerprint(backup));
+                foreach (var problem in problems)
+                {
+                    output.WriteLine("  – " + problem);
+                }
+
+                output.WriteLine(problems.Count == 0 ? "Všetky súbory sedia." : $"Záloha má problémy ({problems.Count}) – obnova by ju odmietla.");
+                bad += problems.Count == 0 ? 0 : 1;
+            }
+
+            return bad == 0 ? 0 : 1;
         }
 
         return OperatingSystem.IsWindows() ? WindowsDrivers(action, args, all, output, host) : throw new PlatformNotSupportedException();
@@ -989,23 +1013,80 @@ public static class Commands
                     : $"Bez ovládača: {missing.Count} z {devices.Count} zariadení. Doplniť sa dajú zo zálohy zostavy (ovladace obnov).");
                 return missing.Count == 0 ? 0 : 1;
 
-            case "zaloha":
+            case "priecinok":
                 {
-                    var folder = args.Length > 2 && !args[2].StartsWith("--", StringComparison.Ordinal) ? args[2] : throw new InvalidDataException("Použitie: polaris-agent ovladace zaloha PRIEČINOK --meno ZOSTAVA [--vsetky]");
-                    var at = Array.IndexOf(args, "--meno");
-                    var name = at > 0 && at + 1 < args.Length ? args[at + 1].Trim() : "";
-                    if (name.Length == 0)
+                    var given = Positional(args, 2);
+                    if (given is null && !args.Contains("--zrusit"))
                     {
-                        return Wrong("Zálohe daj meno zostavy: --meno ZOSTAVA (napr. --meno MINI-PC).", output);
+                        var root = DriverPlace.Root();
+                        output.WriteLine(root is { } r
+                            ? $"Priečinok záloh ovládačov: {r.Folder} ({r.How})."
+                            : "Priečinok záloh ovládačov nie je nastavený a USB kľúč nie je pripojený.");
+                        output.WriteLine("Nastaviť: polaris-agent ovladace priecinok E:\\Ovladace alebo \\\\server\\zdielanie\\Ovladace (USB kľúč, zdieľaný priečinok).");
+                        output.WriteLine("Táto zostava: " + ThisBuild().Name);
+                        return 0;
                     }
 
+                    if (!host.IsAdmin())
+                    {
+                        return Wrong("Priečinok záloh nastavuje správca.", output);
+                    }
+
+                    if (given is null)
+                    {
+                        DriverPlace.Set(null);
+                        output.WriteLine($"Nastavenie zrušené: zálohy pôjdu do {DriverBuilds.DefaultFolderOnStick} na pripojenom USB kľúči.");
+                        return 0;
+                    }
+
+                    var full = Path.GetFullPath(given);
+                    if (DriverPlace.OnThisPc(full) is { } where && !args.Contains("--aj-na-tomto-pc"))
+                    {
+                        return Wrong($"{full} je {where} – zálohy ovládačov sú pre iné PC a na disku PC by ich nová inštalácia zmazala. Daj USB kľúč alebo zdieľaný priečinok (externý USB disk, ktorý sa hlási ako pevný: --aj-na-tomto-pc).", output);
+                    }
+
+                    DriverPlace.Set(full);
+                    output.WriteLine($"Priečinok záloh ovládačov: {full}. Záloha: polaris-agent ovladace zaloha (podpriečinok podľa zostavy vytvorí sám).");
+                    return 0;
+                }
+
+            case "zaloha":
+                {
                     if (!host.IsAdmin())
                     {
                         return Wrong("Zálohu ovládačov robí správca.", output);
                     }
 
-                    output.WriteLine($"Záloha ovládačov zostavy {name} do {Path.GetFullPath(folder)}:");
-                    var backup = DriverWork.Backup(folder, name, all, output);
+                    var build = ThisBuild();
+                    var at = Array.IndexOf(args, "--meno");
+                    var name = at > 0 && at + 1 < args.Length ? args[at + 1].Trim() : build.Name;
+                    if (name.Length == 0)
+                    {
+                        return Wrong("Meno zostavy po --meno chýba.", output);
+                    }
+
+                    string folder;
+                    if (Positional(args, 2) is { } given)
+                    {
+                        folder = Path.GetFullPath(given);
+                    }
+                    else if (DriverPlace.Root() is { } root)
+                    {
+                        output.WriteLine($"Priečinok záloh: {root.Folder} ({root.How}).");
+                        folder = DriverBuilds.NewFolder(root.Folder, name, DateTime.Now, path => Directory.Exists(path) && Directory.EnumerateFileSystemEntries(path).Any());
+                    }
+                    else
+                    {
+                        return Wrong("Kam zálohovať? Pripoj USB kľúč (záloha pôjde do " + DriverBuilds.DefaultFolderOnStick + " na ňom) alebo nastav priečinok: polaris-agent ovladace priecinok \\\\server\\zdielanie\\Ovladace", output);
+                    }
+
+                    if (DriverPlace.OnThisPc(folder) is { } where && !args.Contains("--aj-na-tomto-pc"))
+                    {
+                        return Wrong($"{folder} je {where} – ovládače sa na disk PC nekopírujú (nová inštalácia by ich zmazala). Pripoj USB kľúč alebo nastav priečinok záloh (ovladace priecinok); výnimočne --aj-na-tomto-pc.", output);
+                    }
+
+                    output.WriteLine($"Záloha ovládačov zostavy {name} do {folder}:");
+                    var backup = DriverWork.Backup(folder, name, all, output, build.Model ?? "", build.Edition);
                     var unsigned = backup.Packages.Count(p => p.Signer.Length == 0);
                     output.WriteLine($"Hotovo: {backup.Packages.Count} balíkov, {backup.Packages.Sum(p => p.Files.Count)} súborov.{(unsigned > 0 ? $" Bez platného podpisu: {unsigned} (obnova ich odmietne)." : "")}");
                     output.WriteLine("Odtlačok zálohy: " + DriverBackupFormat.Fingerprint(backup));
@@ -1014,13 +1095,19 @@ public static class Commands
 
             case "obnov":
                 {
-                    var folder = args.Length > 2 && !args[2].StartsWith("--", StringComparison.Ordinal) ? args[2] : throw new InvalidDataException("Použitie: polaris-agent ovladace obnov PRIEČINOK [--vsetky] [--ano]");
                     if (!host.IsAdmin())
                     {
                         return Wrong("Ovládače inštaluje správca.", output);
                     }
 
-                    var backup = DriverBackupFormat.Load(folder);
+                    var chosen = ChooseBackup(Positional(args, 2), output);
+                    if (chosen is null)
+                    {
+                        return 1;
+                    }
+
+                    var folder = chosen.Folder;
+                    var backup = chosen.Backup;
                     var problems = DriverBackupFormat.Problems(backup);
                     if (problems.Count > 0)
                     {
@@ -1066,8 +1153,65 @@ public static class Commands
                 }
 
             default:
-                return Wrong($"Neznámy príkaz ovladace {action} (možné: zaloha, overit, obnov).", output);
+                return Wrong($"Neznámy príkaz ovladace {action} (možné: priecinok, zaloha, overit, obnov).", output);
         }
+    }
+
+    /// <summary>The argument at the place, when it is not an option (--…).</summary>
+    private static string? Positional(string[] args, int at) =>
+        args.Length > at && !args[at].StartsWith("--", StringComparison.Ordinal) ? args[at] : null;
+
+    [SupportedOSPlatform("windows")]
+    private static (string? Model, string Edition, string Name) ThisBuild()
+    {
+        var model = DriverBuilds.Model(DriverPlace.ThisHardware());
+        var edition = DriverPlace.ThisEdition();
+        return (model, edition, DriverBuilds.Name(model, edition));
+    }
+
+    /// <summary>The backup to install from: the folder given (a backup, or a folder of backups to choose from), else the
+    /// folder of backups – the backup of this build (same model, the same Windows first, the newest).</summary>
+    [SupportedOSPlatform("windows")]
+    private static FoundBackup? ChooseBackup(string? given, TextWriter output)
+    {
+        string root;
+        if (given is not null)
+        {
+            root = Path.GetFullPath(given);
+        }
+        else if (DriverPlace.Root() is { } r)
+        {
+            root = r.Folder;
+            output.WriteLine($"Priečinok záloh: {root} ({r.How}).");
+        }
+        else
+        {
+            output.WriteLine("Chyba: pripoj USB kľúč so zálohami (" + DriverBuilds.DefaultFolderOnStick + ") alebo nastav priečinok záloh: polaris-agent ovladace priecinok CESTA");
+            return null;
+        }
+
+        var found = DriverPlace.Find(root, output);
+        if (found.Count == 1 && string.Equals(found[0].Folder, root, StringComparison.OrdinalIgnoreCase))
+        {
+            return found[0];
+        }
+
+        var build = ThisBuild();
+        var chosen = DriverBuilds.Choose(found, build.Model, build.Edition);
+        if (chosen is null)
+        {
+            output.WriteLine($"Chyba: v {root} nie je záloha zostavy {build.Name} (záloh: {found.Count}). Zálohy:");
+            foreach (var f in found)
+            {
+                output.WriteLine("  " + Path.GetFileName(f.Folder));
+            }
+
+            output.WriteLine("Inú zálohu nainštaluješ s jej priečinkom: polaris-agent ovladace obnov CESTA\\K\\ZALOHE");
+            return null;
+        }
+
+        output.WriteLine($"Záloha tejto zostavy: {Path.GetFileName(chosen.Folder)} (z {chosen.Backup.CreatedUtc.ToLocalTime():d.M.yyyy}).");
+        return chosen;
     }
 
     private static int Wrong(string message, TextWriter output)
