@@ -5,8 +5,8 @@
   // Čistí služba POLARIS agent (polaris-agent instalovat-sluzbu).
   "schema": 1,
   "name": "RELACIA",
-  "version": 3,
-  "note": "Ukážka: konto žiaka bez hesla s automatickým prihlásením, profil z trezoru po každom odhlásení, klávesnice, prípony súborov, Školský obchod",
+  "version": 4,
+  "note": "Ukážka: konto žiaka bez hesla s automatickým prihlásením, profil z trezoru po každom odhlásení, pripnuté v Štarte aj pre nové kontá, klávesnice, prípony súborov, Školský obchod",
   "elements": [
     {
       "type": "account",
@@ -22,6 +22,12 @@
       "account": "ziak",
       "clean": "Restore",
       "note": "každý žiak začína v pripravenom profile z trezoru"
+    },
+    {
+      "type": "start-layout",
+      "id": "start-nove-profily",
+      "from": "ziak",
+      "note": "programy pripnuté v Štarte pri príprave trezoru žiaka dostane aj každé nové konto (napr. učiteľa) – namiesto ponúk Windows"
     },
     {
       "type": "keyboards",

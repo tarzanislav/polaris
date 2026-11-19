@@ -9,7 +9,7 @@ namespace Polaris.Recipes;
 public static class RecipeFormat
 {
     public static readonly IReadOnlyList<string> Types =
-        ["program", "registry", "bookmarks", "service", "feature", "user-registry", "keyboards", "session", "sandbox", "store", "computer", "updates", "power", "sounds", "startup", "account", "folder"];
+        ["program", "registry", "bookmarks", "service", "feature", "user-registry", "keyboards", "session", "sandbox", "store", "computer", "updates", "power", "sounds", "startup", "account", "folder", "start-layout"];
 
     public static Recipe Read(JsonNode root)
     {
@@ -84,6 +84,7 @@ public static class RecipeFormat
                 })],
             },
             "account" => new AccountElement { Name = f.String("name"), NoPassword = f.Bool("noPassword", false), AutoLogon = f.Bool("autoLogon", false) },
+            "start-layout" => new StartLayoutElement { From = f.String("from") },
             _ => throw JsonError.At(typeNode, $"neznámy typ prvku „{type}“ (možné: {string.Join(", ", Types)})."),
         };
         e.Id = f.String("id");
@@ -169,6 +170,9 @@ public static class RecipeFormat
             case FolderElement d:
                 o.Add("path", d.Path).Add("access", JsonArray.Of(d.Access, a => new JsonObject().Add("who", a.Who).Add("rights", a.Rights.ToString())));
                 break;
+            case StartLayoutElement l:
+                o.Add("from", l.From);
+                break;
             case AccountElement a:
                 o.Add("name", a.Name).AddIf(a.NoPassword, "noPassword", true).AddIf(a.AutoLogon, "autoLogon", true);
                 break;
@@ -209,6 +213,7 @@ public static class RecipeFormat
         StartupElement => "startup",
         AccountElement => "account",
         FolderElement => "folder",
+        StartLayoutElement => "start-layout",
         _ => throw new ArgumentException("Neznámy druh prvku.", nameof(e)),
     };
 

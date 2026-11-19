@@ -97,5 +97,5 @@ public static partial class AccountRules
     }
 
     [GeneratedRegex("^[^\"/\\\\\\[\\]:;|=,+*?<>@]{1,20}$")]
-    private static partial Regex NamePattern();
+    public static partial Regex NamePattern();
 }

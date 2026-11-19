@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
+using System.Security.Cryptography;
 using System.Text;
 using Microsoft.Win32;
 using Polaris.Recipes;
@@ -146,6 +147,40 @@ public sealed partial class ProfileVault(string? folder = null, string stateKey 
         MarkRestored(account, sid);
         SetPreparing(account, false);
         return new Saved(entries.Count, length, watch.Elapsed.TotalSeconds);
+    }
+
+    /// <summary>The content of files in the trezor of the account (each checked by its fingerprint): the files whose path
+    /// the filter takes, small ones only.</summary>
+    public List<(string Path, byte[] Data)> Files(string account, Func<string, bool> which, long largest)
+    {
+        var manifest = Manifest(account) ?? throw new InvalidOperationException($"Konto {account} nemá trezor (polaris-agent trezor ulozit {account}).");
+        var found = new List<(string, byte[])>();
+        var wanted = manifest.Entries.Where(e => e.Kind == VaultKind.File && which(e.Path)).ToList();
+        if (wanted.Count == 0)
+        {
+            return found;
+        }
+
+        using var archive = new FileStream(Path.Combine(AccountFolder(account), VaultManifest.ArchiveName), FileMode.Open, FileAccess.Read, FileShare.Read);
+        foreach (var e in wanted)
+        {
+            if (e.Length > largest || e.Offset < 0 || e.Offset + e.Length > archive.Length)
+            {
+                throw new InvalidDataException($"Súbor {e.Path} v trezore je príliš veľký alebo mimo archívu.");
+            }
+
+            var record = new byte[e.Length];
+            archive.Position = e.Offset;
+            archive.ReadExactly(record);
+            if (Convert.ToHexStringLower(SHA256.HashData(record)) != e.Sha256)
+            {
+                throw new InvalidDataException($"Súbor {e.Path} v trezore nesedí s odtlačkom.");
+            }
+
+            found.Add((e.Path, BackupStreams.FileData(record)));
+        }
+
+        return found;
     }
 
     /// <summary>The admin prepares the profile: it is not cleaned until it is saved to the trezor.</summary>

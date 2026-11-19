@@ -40,6 +40,9 @@ public static partial class VaultSelfTest
             File.WriteAllText(readOnly, "nemeniť");
             File.SetAttributes(readOnly, FileAttributes.ReadOnly | FileAttributes.Hidden);
             File.WriteAllText(Path.Combine(profile, @"AppData\Local\Temp\docasne.tmp"), "x");
+            var pins = Enumerable.Range(0, 3000).Select(i => (byte)(i * 7)).ToArray();
+            Directory.CreateDirectory(Path.Combine(profile, StartLayoutRules.Folder));
+            File.WriteAllBytes(Path.Combine(profile, StartLayoutRules.Folder, "start2.bin"), pins);
 
             Expect(vault.Unfit(account, sid) is not null, "bez trezoru nesedí");
             var saved = vault.Save(account, () => DateTimeOffset.UtcNow);
@@ -51,6 +54,22 @@ public static partial class VaultSelfTest
             var links = manifest.Entries.Where(e => e.Kind == VaultKind.Link).ToList();
             Expect(links.Count > 0, $"staré prepojenia profilu sú v trezore ako prepojenia ({links.Count})");
             Expect(vault.UpToDate(account, sid), "hneď po uložení nie je čo vracať");
+
+            // the pins of Start from the trezor into a template of profiles (a folder of the check, never the real one)
+            var template = Path.Combine(folder, "predloha");
+            var templatePins = Path.Combine(template, StartLayoutRules.Folder, "start2.bin");
+            Directory.CreateDirectory(Path.GetDirectoryName(templatePins)!);
+            File.WriteAllBytes(templatePins, [1, 2, 3]); // what Windows had there
+            var start = new StartLayoutHandler(vault, template, stateKey + "-start");
+            var layout = new StartLayoutElement { Id = "start", From = account };
+            Expect(start.Observe(layout).State == Observed.Absent, "pripnuté v Štarte: na začiatku pravidlo nie je");
+            start.Apply(layout);
+            Expect(start.Observe(layout).State == Observed.Present && File.ReadAllBytes(templatePins).AsSpan().SequenceEqual(pins), "pripnuté v Štarte z trezoru sú v predlohe profilov, bajt po bajte");
+            Expect(File.Exists(templatePins + StartLayoutHandler.Original), "pôvodný súbor predlohy odložený");
+            Expect(start.AfterSave(account)?.Contains("nový profil", StringComparison.Ordinal) == true, "po uložení trezoru sa rozloženie prevezme znova");
+            layout.Present = false;
+            start.Apply(layout);
+            Expect(start.Observe(layout).State == Observed.Absent && File.ReadAllBytes(templatePins).AsSpan().SequenceEqual(new byte[] { 1, 2, 3 }), "bez prvku má predloha znova pôvodný súbor");
             var before = ProfileArchive.Read(profile, skipCaches: true).Count;
 
             // the pupil's session: a new file, a changed one, a deleted one, a removed junction, a new folder
@@ -102,6 +121,7 @@ public static partial class VaultSelfTest
                 vault.UnlockLeftovers();
                 vault.Forget(account);
                 Registry.LocalMachine.DeleteSubKeyTree(stateKey, throwOnMissingSubKey: false);
+                Registry.LocalMachine.DeleteSubKeyTree(stateKey + "-start", throwOnMissingSubKey: false);
                 if (Profiles.SidOf(account) is { } sid && Profiles.State(sid).Exists)
                 {
                     Profiles.Delete(sid);

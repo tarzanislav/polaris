@@ -281,6 +281,20 @@ SumatraPDF, Notepad++, VLC, IrfanView s pluginmi, Freeplane, priečinok `C:\Data
   prihlásenie je vypnuté – PC sa nikdy neprihlási do rozpracovaného profilu. Správca sa dostane k PC odhlásením žiaka.
 - Kontá recept nemaže; prvok vynechaný = POLARIS konto prestane spravovať (automatické prihlásenie vypne).
 
+### `start-layout`: pripnuté v Štarte pre nové profily
+
+```json
+{ "type": "start-layout", "id": "start-nove-profily", "from": "ziak" }
+```
+
+- Programy, ktoré správca pripol v Štarte pri príprave trezoru konta `from`, dostane **každý nový profil** (napr.
+  učiteľa) – namiesto ikon a ponúk, ktoré dáva Windows. Žiak ich má z trezoru tak či tak.
+- Windows 11 Pro na to mimo domény a Intune politiku nemá; POLARIS skopíruje súbor Štartu z trezoru (každý bajt
+  overený odtlačkom) do predlohy profilov. Súbor Windows nepopisuje – keby ho raz ukladal inak, POLARIS to **nahlási**
+  a do predlohy nič nehádže. Rozhodnutie správcu 19. 11. 2026.
+- Kým konto trezor nemá, prvok čaká; po `polaris-agent trezor ulozit KONTO` sa rozloženie prevezme hneď.
+- Čo bolo v predlohe predtým, POLARIS odloží (`.povodny`) a vráti, keď je prvok `present: false`.
+
 ### `keyboards`: klávesnice a jazyky pre nové profily
 
 ```json
@@ -469,7 +483,7 @@ Spúšťa ju **služba POLARIS agent** (nie zoznam programov po prihlásení, te
 - `recepty/ukazka-kancelarsky.json`: LibreOffice, 7-Zip, VLC, dve nastavenia Edge a školské záložky. Je to len
   otvorený softvér, vhodný pre školy.
 - `recepty/ukazka-pieskovisko.json`: Windows Sandbox, dve šablóny na ploche (prísna a so sieťou) a služba tlače.
-- `recepty/ukazka-relacia.json` (v3): konto `ziak` bez hesla s automatickým prihlásením, profil z trezoru po odhlásení, klávesnice SK, CZ, EN, DE, viditeľné prípony súborov
+- `recepty/ukazka-relacia.json` (v4): konto `ziak` bez hesla s automatickým prihlásením, profil z trezoru po odhlásení, pripnuté v Štarte aj pre nové kontá, klávesnice SK, CZ, EN, DE, viditeľné prípony súborov
   a Školský obchod s Audacity a Inkscape.
 - `recepty/ukazka-zaklad.json`: pracovná skupina SKOLA, stredoeurópsky čas, aktualizácie mimo vyučovania
   (7 – 17 h, nová verzia Windows o 30 dní neskôr), napájanie pre učebňu (tlačidlo vypne PC, bez rýchleho spustenia),

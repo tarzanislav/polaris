@@ -43,6 +43,7 @@ public sealed class AgentHost
             new RegistryHandler(), new ProgramHandler(folder), new ServiceHandler(), new FeatureHandler(), new ComputerHandler(),
             new ProfileTemplateHandler(), new SessionRuleHandler(), new SandboxHandler(), new StoreHandler(), new StartupHandler(),
             new PasswordPolicyHandler(), new AccountHandler(), new AutoLogonHandler(), new FolderHandler(), new UserPolicyHandler(),
+            new StartLayoutHandler(),
         ],
         IsAdmin = () =>
         {
@@ -816,6 +817,11 @@ public static class Commands
                     output.WriteLine(SessionRules.Read().TryGetValue(name, out var rule) && rule == SessionCleaning.Restore
                         ? "Po každom odhlásení sa profil vráti presne do tohto stavu."
                         : "Aby sa profil po odhlásení vracal z trezoru, daj konto do receptu: \"session\" s \"clean\": \"Restore\".");
+                    if (new StartLayoutHandler(vault).AfterSave(name) is { } start)
+                    {
+                        output.WriteLine(start);
+                    }
+
                     return 0;
                 }
 

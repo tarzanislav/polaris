@@ -197,6 +197,7 @@ public static partial class RecipeCheck
         StartupElement t => StartupRules.Problems(t),
         AccountElement a => AccountRules.Problems(a),
         FolderElement d => FolderRules.Problems(d),
+        StartLayoutElement l => StartLayoutRules.Problems(l),
         _ => ["neznámy typ prvku."],
     };
 

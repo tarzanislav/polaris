@@ -102,4 +102,38 @@ public static class VaultChecks
         foreign.Sid = "S-1-5-18";
         Expect.True(VaultRules.Problems(foreign).Any(), "len konto PC");
     }
+
+    private static byte[] Stream(uint id, string name, byte[] data)
+    {
+        var nameBytes = System.Text.Encoding.Unicode.GetBytes(name);
+        var b = new byte[20 + nameBytes.Length + data.Length];
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(b, id);
+        System.Buffers.Binary.BinaryPrimitives.WriteInt64LittleEndian(b.AsSpan(8), data.Length);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(b.AsSpan(16), (uint)nameBytes.Length);
+        nameBytes.CopyTo(b, 20);
+        data.CopyTo(b, 20 + nameBytes.Length);
+        return b;
+    }
+
+    [Check]
+    public static void TheFileItselfIsReadFromItsRecordInTheTrezor()
+    {
+        byte[] pins = [9, 8, 7, 6, 5];
+        var record = Stream(3, "", [1, 1, 1, 1]).Concat(Stream(4, ":Zone.Identifier:$DATA", [2, 2])).Concat(Stream(1, "", pins)).ToArray();
+        Expect.Sequence(pins, BackupStreams.FileData(record), "dáta súboru za ochranou a pomenovaným prúdom");
+        Expect.Equal(0, BackupStreams.FileData(Stream(3, "", [1])).Length, "súbor bez dát");
+        Expect.Throws<InvalidDataException>(() => BackupStreams.FileData(record.AsSpan(0, record.Length - 2)), "skrátený záznam");
+        Expect.Throws<InvalidDataException>(() => BackupStreams.FileData(new byte[10]), "kúsok hlavičky");
+
+        var folder = StartLayoutRules.Folder;
+        Expect.True(StartLayoutRules.IsLayoutFile(folder + @"\start2.bin") && StartLayoutRules.IsLayoutFile(folder + @"\start.bin") && StartLayoutRules.IsLayoutFile(folder + @"\START3.BIN"), "súbory Štartu");
+        Expect.True(!StartLayoutRules.IsLayoutFile(folder + @"\start2.bin.bak") && !StartLayoutRules.IsLayoutFile(folder + @"\startx.bin") && !StartLayoutRules.IsLayoutFile(@"Desktop\start2.bin"), "iné súbory nie");
+
+        var recipe = RecipeText.FromJson("""{ "schema": 1, "name": "START", "elements": [ { "type": "start-layout", "id": "s", "from": "ziak" } ] }""");
+        Expect.Equal("ziak", ((StartLayoutElement)recipe.Elements[0]).From, "prvok start-layout");
+        Expect.Equal(RecipeText.Fingerprint(recipe), RecipeText.Fingerprint(RecipeText.FromJson(RecipeText.ToJson(recipe))), "zápis a čítanie");
+        Expect.Equal(0, RecipeCheck.Problems(recipe).Count, string.Join(" ", RecipeCheck.Problems(recipe)));
+        var wrong = RecipeText.FromJson("""{ "schema": 1, "name": "START", "elements": [ { "type": "start-layout", "id": "s", "from": "Administrator" } ] }""");
+        Expect.True(RecipeCheck.Problems(wrong).Any(p => p.Contains("vstavané", StringComparison.Ordinal)), "vstavané konto nemá trezor");
+    }
 }
