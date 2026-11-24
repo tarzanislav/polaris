@@ -293,4 +293,121 @@ public static class CentreLinkChecks
             Directory.Delete(dir, recursive: true);
         }
     }
+
+    [Check]
+    public static void APcRegistersWithACodeAndReportsToTheCentre()
+    {
+        var dir = Directory.CreateTempSubdirectory("polaris-pc-").FullName;
+        try
+        {
+            var (secret, pub) = RecipeSigning.NewConsoleKey("spravca", Password);
+            var keyFile = Path.Combine(dir, "spravca.kluc");
+            File.WriteAllText(keyFile, RecipeSigning.ToJson(secret));
+            var registry = new PcRegistry(Path.Combine(dir, "pc"));
+            var now = T;
+            Running? server = null;
+            var trusted = new List<TrustedConsole> { RecipeSigning.Trust(pub) };
+            var pcs = (ServerRequest r) => Polaris.Centrum.Commands.PcRoutes(registry, server!.Pin, () => trusted, () => now)(r);
+            server = new Running(Polaris.Centrum.Commands.Routes(Path.Combine(dir, "zverejnene"), null, null, pcs), dir, Polaris.Centrum.Commands.BodyPaths.Contains);
+            using var running = server;
+            var settings = Path.Combine(dir, "centrum.json");
+            (int Code, string Text) Centrum(string line)
+            {
+                var w = new StringWriter();
+                var args = new[] { "--subor", settings }.Concat(line.Split(' ', StringSplitOptions.RemoveEmptyEntries)).ToArray();
+                return (Polaris.Centrum.Commands.Run(args, w, now.ToLocalTime().DateTime, now, _ => Password), w.ToString());
+            }
+
+            string NewCode(string extra = "")
+            {
+                var (code, text) = Centrum($"kod ucebna {keyFile} --server {server.Address} {server.Pin} {extra}");
+                Expect.Equal(0, code, text);
+                return text.Split('\n')[0].Split(": ")[1].Trim();
+            }
+
+            // the PC: its two keys, who it is, a registration signed by it
+            var code = NewCode("--pocet 2");
+            Expect.True(RegistrationCode.Normalize(code) is { Length: 12 }, "kód z konzoly: " + code);
+            using var pcKey = SigningKey.Create();
+            using var secrets = System.Security.Cryptography.ECDiffieHellman.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
+            PcIdentity Identity(SigningKey k, string name)
+            {
+                using var p = k.Public();
+                return new PcIdentity(Convert.ToBase64String(p.Export()), Convert.ToBase64String(secrets.ExportSubjectPublicKeyInfo()), name, "Windows 11 Pro (26200)", "Vyrobca Skusobny 1", "0.1.0");
+            }
+
+            (bool Ok, string Message, Polaris.Json.JsonFields F) Post(string path, string body, IReadOnlyDictionary<string, string>? headers = null)
+            {
+                var answer = PinnedClient.Post(new Uri(server.Address, path.TrimStart('/')), server.Pin, Encoding.UTF8.GetBytes(body), headers ?? new Dictionary<string, string>(), 1 << 20, TimeSpan.FromSeconds(20));
+                var f = new Polaris.Json.JsonFields(Polaris.Json.JsonReader.Parse(Encoding.UTF8.GetString(answer.Body)), "odpoveď");
+                return (answer.Ok && f.Bool("ok", false), f.String("message"), f);
+            }
+
+            var identity = Identity(pcKey, "PC-01");
+            var registered = Post(CentrePaths.Register, RegistrationRequest.Make(code.ToLowerInvariant().Replace("-", " ", StringComparison.Ordinal), identity, pcKey, server.Pin, now).ToJson());
+            Expect.True(registered.Ok && registered.F.String("group") == "ucebna" && registered.F.String("pc") == identity.Id, "PC zaregistrované kódom (aj napísaným malými písmenami s medzerami): " + registered.Message);
+            Expect.True(Post(CentrePaths.Register, RegistrationRequest.Make(code, identity, pcKey, server.Pin, now).ToJson()).Ok, "opakovaná registrácia toho istého PC (stratená odpoveď) prejde");
+
+            var wrong = Post(CentrePaths.Register, RegistrationRequest.Make("AAAA-BBBB-CCCC", Identity(SigningKey.Create(), "PC-X"), pcKey, server.Pin, now).ToJson());
+            Expect.True(!wrong.Ok, "registrácia podpísaná iným kľúčom, než ktorý PC uvádza, neprejde: " + wrong.Message);
+            using var otherKey = SigningKey.Create();
+            Expect.True(Post(CentrePaths.Register, RegistrationRequest.Make("AAAA-BBBB-CCCC", Identity(otherKey, "PC-X"), otherKey, server.Pin, now).ToJson()).Message.Contains("nevydalo", StringComparison.Ordinal), "neznámy kód");
+            Expect.True(!Post(CentrePaths.Register, RegistrationRequest.Make(code, Identity(otherKey, "PC-X"), otherKey, new string('c', 64), now).ToJson()).Ok, "registrácia pre iné centrum neprejde");
+
+            // reports: only signed by the PC's own key
+            var report = new PcReport(now, "0.1.0", "Windows 11 Pro (26200)", "Vyrobca Skusobny 1", "ucebna", "ZAKLADNY", "abc", 3600, 40L << 30, 100L << 30, 1, "ziak 19. 11. 2026, 221 MB",
+                [RunReport.ToLine(new RunRecord { StartedUtc = now, FinishedUtc = now, Recipe = "ZAKLADNY", Results = [new ChangeResult("x", "služba Xbox", ChangeKind.Install, false, "prístup odmietnutý", 0)] })],
+                [RunReport.ToLine(Measurement.Record("ziak", 21, (8UL << 30, 5UL << 30), [], 0, now, now))]);
+            var body = report.ToJson();
+            var sent = Post(CentrePaths.Report, body, PcSigning.Headers(Encoding.UTF8.GetBytes(body), CentrePaths.Report, server.Pin, identity.Id, pcKey, now));
+            Expect.True(sent.Ok, "hlásenie prijaté: " + sent.Message);
+            Expect.True(!Post(CentrePaths.Report, body, PcSigning.Headers(Encoding.UTF8.GetBytes(body), CentrePaths.Report, server.Pin, identity.Id, otherKey, now)).Ok, "hlásenie podpísané cudzím kľúčom odmietnuté");
+            Expect.True(!Post(CentrePaths.Report, body + " ", PcSigning.Headers(Encoding.UTF8.GetBytes(body), CentrePaths.Report, server.Pin, identity.Id, pcKey, now)).Ok, "zmenené hlásenie odmietnuté");
+            Expect.True(!Post(CentrePaths.Report, body, PcSigning.Headers(Encoding.UTF8.GetBytes(body), CentrePaths.Report, server.Pin, identity.Id, pcKey, now.AddMinutes(-30))).Ok, "staré hlásenie odmietnuté");
+
+            // the console sees the PC
+            var (listCode, list) = Centrum($"stav {keyFile} --server {server.Address} {server.Pin}");
+            Expect.True(listCode == 0 && list.Contains("PC-01", StringComparison.Ordinal) && list.Contains("chyby receptov: 1", StringComparison.Ordinal) && list.Contains("bez ovládača: 1", StringComparison.Ordinal), "konzola vidí PC: " + list);
+            var (_, detail) = Centrum($"stav {keyFile} --server {server.Address} {server.Pin} PC-01");
+            Expect.True(detail.Contains("služba Xbox: prístup odmietnutý", StringComparison.Ordinal) && detail.Contains("pracovná plocha za 21 s", StringComparison.Ordinal) && detail.Contains("221 MB", StringComparison.Ordinal), "detail PC: " + detail);
+            now = now.AddHours(2);
+            Expect.True(Centrum($"stav {keyFile} --server {server.Address} {server.Pin}").Text.Contains("neozvalo sa", StringComparison.Ordinal), "PC, ktoré dlho mlčí");
+
+            // the code's limits: count, time, trust
+            using var second = SigningKey.Create();
+            Expect.True(Post(CentrePaths.Register, RegistrationRequest.Make(code, Identity(second, "PC-02"), second, server.Pin, now).ToJson()).Ok, "druhé PC kódom pre 2");
+            using var third = SigningKey.Create();
+            Expect.True(Post(CentrePaths.Register, RegistrationRequest.Make(code, Identity(third, "PC-03"), third, server.Pin, now).ToJson()).Message.Contains("už použilo", StringComparison.Ordinal), "tretie PC už nie");
+            var daily = NewCode();
+            now = now.AddDays(1).AddMinutes(1);
+            Expect.True(Post(CentrePaths.Register, RegistrationRequest.Make(daily, Identity(third, "PC-03"), third, server.Pin, now).ToJson()).Message.Contains("platil do", StringComparison.Ordinal), "kód po dni neplatí");
+            trusted.Clear();
+            Expect.True(Centrum($"kod ucebna {keyFile} --server {server.Address} {server.Pin}").Code != 0, "nedôverovaná konzola kód nevydá");
+            trusted.Add(RecipeSigning.Trust(pub));
+
+            // removed in the console: the PC's reports are refused
+            Expect.Equal(0, Centrum($"stav {keyFile} --server {server.Address} {server.Pin} {identity.Id[..8]} odobrat").Code, "PC odobraté");
+            Expect.True(!Post(CentrePaths.Report, body, PcSigning.Headers(Encoding.UTF8.GetBytes(body), CentrePaths.Report, server.Pin, identity.Id, pcKey, now)).Ok, "odobraté PC sa už nehlási");
+
+            // the record lets the console (which knew the code) confirm the PC for another centre
+            var kept = registry.Find(second.Public() is var p2 ? PcIdentity.IdOf(Convert.ToBase64String(p2.Export())) : "")!;
+            Expect.Equal(PcRecord.ProofOf(RegistrationCode.Normalize(code)!, kept.Pc), kept.CodeProof, "dôkaz kódu pri PC");
+            Expect.True(!Directory.EnumerateFiles(Path.Combine(dir, "pc"), "*", SearchOption.AllDirectories).Any(f => File.ReadAllText(f).Contains(RegistrationCode.Normalize(code)!, StringComparison.Ordinal)), "samotný kód centrum nikde nemá");
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Check]
+    public static void RegistrationCodesAreForgivingButExact()
+    {
+        var code = RegistrationCode.Generate();
+        Expect.True(code.Length == 14 && code[4] == '-' && code[9] == '-', "tvar XXXX-XXXX-XXXX: " + code);
+        Expect.Equal(RegistrationCode.Normalize(code), RegistrationCode.Normalize(code.ToLowerInvariant().Replace('-', ' ')), "malé písmená a medzery");
+        Expect.Equal("01V0ABCDEFGH", RegistrationCode.Normalize("oiu0-abcd-efgh"), "O → 0, I → 1, U → V");
+        Expect.True(RegistrationCode.Normalize("ABCD-EFGH") is null && RegistrationCode.Normalize("ABCD-EFGH-JKM!") is null, "krátky alebo s iným znakom");
+        Expect.True(Enumerable.Range(0, 50).Select(_ => RegistrationCode.Generate()).Distinct().Count() == 50, "kódy sa neopakujú");
+    }
 }

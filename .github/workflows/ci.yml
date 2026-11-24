@@ -211,6 +211,53 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           if (Get-Service PolarisAgent -ErrorAction SilentlyContinue) { "služba ostala"; exit 1 }
           $global:LASTEXITCODE = 0
+      - name: K7 - centre on Windows 11, a PC registered with a code from the console, its report seen by the console
+        env:
+          POLARIS_HESLO: heslo pre skusku k7 v ci
+        run: |
+          $work = Join-Path $env:RUNNER_TEMP "k7"
+          New-Item -ItemType Directory -Force $work | Out-Null
+          $c = (Resolve-Path ./out/centrum/polaris-centrum.exe).Path
+          $a = (Resolve-Path ./out/agent/polaris-agent.exe).Path
+          $data = Join-Path $work "centrum.json"
+          $cert = (& $c --subor $data server certifikat localhost 127.0.0.1) -join "`n"
+          $cert
+          $pin = ([regex]::Match($cert, '[0-9a-f]{64}')).Value
+          if (-not $pin) { "odtlačok centra sa nenašiel"; exit 1 }
+          Push-Location $work
+          & $c --subor $data kluc novy ci-konzola
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $c --subor $data server doverovat (Join-Path $work "ci-konzola.verejny.json")
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Pop-Location
+          $server = Start-Process -FilePath $c -ArgumentList @('--subor', $data, 'server', '--port', '18443') -PassThru -NoNewWindow -RedirectStandardOutput (Join-Path $work "server.txt")
+          try {
+            Start-Sleep 3
+            $key = Join-Path $work "ci-konzola.kluc"
+            $out = (& $c --subor $data kod ucebna $key --server https://127.0.0.1:18443/ $pin) -join "`n"
+            $out
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            $code = ([regex]::Match($out, '[0-9A-Z]{4}-[0-9A-Z]{4}-[0-9A-Z]{4}')).Value
+            & $a registrovat https://127.0.0.1:18443/ $pin $code --meno CI-PC
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            & $a hlasit
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            & $a registrovat https://127.0.0.1:18443/ $pin AAAA-BBBB-CCCC --meno CI-PC2
+            if ($LASTEXITCODE -eq 0) { "neznámy kód mal byť odmietnutý"; exit 1 }
+            $list = (& $c --subor $data stav $key --server https://127.0.0.1:18443/ $pin) -join "`n"
+            $list
+            if ($LASTEXITCODE -ne 0 -or $list -notmatch 'CI-PC') { "konzola PC nevidí"; exit 1 }
+            & $c --subor $data stav $key --server https://127.0.0.1:18443/ $pin CI-PC
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            # the private keys of the PC are encrypted by Windows for this machine and only for the system and administrators
+            $keys = "$env:ProgramData\POLARIS\agent\pc\kluce.bin"
+            if (-not (Test-Path $keys)) { "kľúče PC chýbajú"; exit 1 }
+            (Get-Acl "$env:ProgramData\POLARIS\agent").Access | Format-Table IdentityReference, FileSystemRights -AutoSize
+            & $a centrum -
+          } finally {
+            Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue
+            Remove-Item -Recurse -Force "$env:ProgramData\POLARIS\agent\pc" -ErrorAction SilentlyContinue
+          }
       - name: Helper scripts parse as PowerShell; the pilot goes to the top of the package
         run: |
           foreach ($file in 'tools/windows/pilot-k0.cmd', 'tools/windows/doplnit-ovladace.cmd') {

@@ -45,7 +45,12 @@ public static partial class Commands
                                               so --server ich aj odovzdá centru na serveri
           server doverovat KONZOLA.verejny.json   centrum na serveri prijme odovzdania od tejto konzoly; server konzoly
           server certifikat NÁZOV…            certifikát centra (vypíše odtlačok, ktorý sa zadá na PC)
-          server [--port 8443] [--zasoba CESTA]   centrum na sieti: HTTPS, len na čítanie (zverejnené plány, recepty, zásoba)
+          server [--port 8443] [--zasoba CESTA]   centrum na sieti: HTTPS – zverejnené plány, recepty, zásoba; registrácia
+                                              a hlásenia PC
+          kod SKUPINA KLUC --server https://SERVER:8443 ODTLAČOK [--dni 1] [--pocet 30]
+                                              kód na registráciu PC do skupiny (platí deň; centrum pozná len jeho odtlačok)
+          stav KLUC --server https://SERVER:8443 ODTLAČOK [PC [odobrat]]
+                                              PC v centre: kedy sa ozvali, profil, chyby receptov, merania, denník
           kluc novy MENO                      nový kľúč konzoly: MENO.kluc (súkromný, chránený heslom) a MENO.verejny.json
           podpisat RECEPT KLUC                podpíše recept (vznikne RECEPT.podpis); PC s dôverou k tejto konzole ho prijmú
 
@@ -131,6 +136,16 @@ public static partial class Commands
             if (words[0] is "zasoba")
             {
                 return Supply(words, output, utcNow);
+            }
+
+            if (words[0] is "kod")
+            {
+                return Code(words.Skip(1).ToList(), output, utcNow, secret ?? ReadSecret);
+            }
+
+            if (words[0] is "stav")
+            {
+                return Status(words.Skip(1).ToList(), output, utcNow, secret ?? ReadSecret);
             }
 
             var store = new ClassroomStore(file);

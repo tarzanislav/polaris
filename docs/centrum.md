@@ -101,6 +101,33 @@ Recepty z centra majú brať programy z WinGet alebo zo Zásoby (`package`), nie
 Podpis receptov: [recept.md – Podpis receptu](recept.md#podpis-receptu). Zásoba balíkov:
 [recept.md – Zásoba balíkov](recept.md#zásoba-balíkov).
 
+## Registrácia PC a hlásenia (K7)
+
+Nové PC sa do centra dostane **kódom z konzoly** – nikto nemusí na PC prepisovať odtlačky skupiny ani kľúče:
+
+```
+polaris-centrum kod ucebna spravca.kluc --server https://192.168.1.10:8443 ODTLAČOK      (konzola)
+polaris-agent registrovat https://192.168.1.10:8443 ODTLAČOK 7K3Q-9XHD-M2PA [--meno PC-07]   (PC, správca)
+polaris-centrum stav spravca.kluc --server https://192.168.1.10:8443 ODTLAČOK [PC [odobrat]]  (konzola)
+```
+
+- **Kód** platí 1 deň (`--dni` najviac 7) pre jednu skupinu a najviac 30 PC (`--pocet`). Konzola ho podpíše svojím
+  kľúčom; centrum si nechá **len jeho odtlačok**, samotný kód nikde nie je. Pri písaní sa odpustia malé písmená,
+  medzery a zámeny O/0, I/1.
+- **PC si pri registrácii vytvorí dva vlastné kľúče** (ECDSA P-256): jedným podpisuje všetko, čo posiela centru,
+  druhým raz dostane zašifrované tajomstvá (heslo správcu, licencie). Súkromné časti nikdy neopustia PC: sú v chránenom
+  priečinku agenta (len systém a správcovia), zašifrované Windows pre toto PC (kópia súboru na inom PC nefunguje).
+  Identifikátor PC je odvodený z jeho kľúča – iné PC sa zaň nevydá.
+- **Hlásenie** posiela služba po každom recepte, čistení a meraní a každých 15 minút: verzia agenta, Windows, model,
+  skupina a profil, posledných 50 záznamov denníka, merania, zariadenia bez ovládača, trezory, miesto na disku, čas od
+  zapnutia. Nikdy súbory žiakov, prehliadač ani obrazovka (dohodnuté 24. 11. 2026). Centrum drží posledné hlásenie
+  a 30 dní histórie. Hneď: `polaris-agent hlasit`.
+- **Stav** vidí len konzola, ktorej centrum dôveruje (otázka podpísaná jej kľúčom): ✓ v poriadku, ! chyby receptov
+  alebo chýbajúci ovládač, ✗ neozvalo sa 40 minút. S menom PC alebo začiatkom identifikátora ukáže detail (merania,
+  denník s chybami); `odobrat` PC z centra vymaže – jeho hlásenia sa potom odmietajú.
+- Pre **dve centrá** (Debian aj Windows 11, návrh 4.16): záznam PC nesie dôkaz kódu, ktorý vie overiť len konzola, čo
+  kód vydala – tá PC potvrdí aj druhému centru. Centrum beží rovnako aj na Windows 11 (CI to overuje).
+
 ## Pripravuje sa
 
-Hlásenia PC centru (stav, použitý profil, chyby) a konzola s prehľadom učebne.
+Druhé centrum na Windows 11 ako služba a dorovnávanie centier, webová konzola s prehľadom učebne.

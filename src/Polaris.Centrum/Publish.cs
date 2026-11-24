@@ -197,20 +197,43 @@ public static partial class Commands
 
         using var certificate = Certificates.Load(certificateFile, keyFile);
         var publication = Path.Combine(store.Folder, PublicationFolder);
-        var upload = Upload(publication, PinnedClient.Pin(certificate), () => Trusted(trustFolder), () => DateTimeOffset.UtcNow);
-        var server = new WebServer(new IPEndPoint(IPAddress.IPv6Any, port), certificate, Routes(publication, supply, upload), line => o.WriteLine(line), path => path == UploadPath);
-        o.WriteLine($"POLARIS centrum počúva na porte {port} (HTTPS, len na čítanie). Odtlačok: {PinnedClient.Pin(certificate)}");
+        var pin = PinnedClient.Pin(certificate);
+        var upload = Upload(publication, pin, () => Trusted(trustFolder), () => DateTimeOffset.UtcNow);
+        var pcs = PcRoutes(new PcRegistry(Path.Combine(store.Folder, "pc")), pin, () => Trusted(trustFolder), () => DateTimeOffset.UtcNow);
+        var server = new WebServer(new IPEndPoint(IPAddress.IPv6Any, port), certificate, Routes(publication, supply, upload, pcs), line => o.WriteLine(line), BodyPaths.Contains);
+        o.WriteLine($"POLARIS centrum počúva na porte {port} (HTTPS). Odtlačok: {pin}");
         server.RunAsync(stop).GetAwaiter().GetResult();
         o.WriteLine("Centrum zastavené.");
         return 0;
     }
 
     /// <summary>What the server hands out – nothing else exists for it.</summary>
-    public static Func<ServerRequest, ServerResponse> Routes(string publication, string? supply, Func<ServerRequest, ServerResponse>? upload = null) => request =>
+    public static Func<ServerRequest, ServerResponse> Routes(string publication, string? supply, Func<ServerRequest, ServerResponse>? upload = null, Func<ServerRequest, ServerResponse>? pcs = null) => request =>
     {
         if (request.Method == "POST")
         {
-            return request.Path == UploadPath && upload is not null ? upload(request) : ServerResponse.Text(405, "Sem sa nič neodovzdáva.");
+            if (request.Path == UploadPath && upload is not null)
+            {
+                return upload(request);
+            }
+
+            if (request.Path != UploadPath && BodyPaths.Contains(request.Path) && pcs is not null)
+            {
+                try
+                {
+                    return pcs(request);
+                }
+                catch (InvalidDataException e)
+                {
+                    return Reply(400, false, e.Message);
+                }
+                catch (Polaris.Json.JsonError e)
+                {
+                    return Reply(400, false, e.Message);
+                }
+            }
+
+            return ServerResponse.Text(405, "Sem sa nič neodovzdáva.");
         }
 
         var parts = request.Path.Split('/', StringSplitOptions.RemoveEmptyEntries);

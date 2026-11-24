@@ -37,6 +37,8 @@ public static class AgentService
         icons.Start();
         var centre = new Thread(() => FollowCentre(host, stop)) { IsBackground = true, Name = "Centrum" };
         centre.Start();
+        var reports = new Thread(() => ReportToCentre(host, stop)) { IsBackground = true, Name = "Hlásenia" };
+        reports.Start();
 
         var lastMessage = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var maintenance = new MaintenanceHold(Awake.Request);
@@ -161,6 +163,48 @@ public static class AgentService
 
     /// <summary>Every minute: the profile the timetable wants is applied when it should be; every five minutes the plan is
     /// asked from the centre. A failure is written to the journal once, not every round.</summary>
+    /// <summary>Every minute: a report to the centre when the journal grew (a recipe, a cleaning, a measurement) or 15
+    /// minutes passed. A centre that cannot be reached is tried again the next minute; the problem goes to the journal once.</summary>
+    private static void ReportToCentre(AgentHost host, CancellationToken stop)
+    {
+        var lastSent = DateTimeOffset.MinValue;
+        long lastLength = -1;
+        string? lastProblem = null;
+        while (!stop.WaitHandle.WaitOne(TimeSpan.FromMinutes(1)))
+        {
+            try
+            {
+                if (PcLink.Id() is null)
+                {
+                    continue;
+                }
+
+                var length = File.Exists(host.JournalPath) ? new FileInfo(host.JournalPath).Length : 0;
+                var now = host.Clock();
+                if (length == lastLength && now - lastSent < PcLink.ReportEvery)
+                {
+                    continue;
+                }
+
+                var (ok, message) = PcLink.Report(host);
+                if (ok)
+                {
+                    (lastSent, lastLength, lastProblem) = (now, File.Exists(host.JournalPath) ? new FileInfo(host.JournalPath).Length : 0, null);
+                }
+                else if (message != lastProblem)
+                {
+                    lastProblem = message;
+                    Commands.WriteJournal(host.JournalPath, Simple("(centrum)", "hlasenie", "hlásenie centru", false, message, now));
+                    lastLength = File.Exists(host.JournalPath) ? new FileInfo(host.JournalPath).Length : 0; // the line about it is no news
+                }
+            }
+            catch (Exception e) when (e is not OutOfMemoryException)
+            {
+                // a report never stops the service
+            }
+        }
+    }
+
     private static void FollowCentre(AgentHost host, CancellationToken stop)
     {
         CentreSync? sync = null;

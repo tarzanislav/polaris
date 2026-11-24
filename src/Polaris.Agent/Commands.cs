@@ -68,7 +68,7 @@ public sealed class AgentHost
 /// 2 = wrong input, a recipe with problems or missing rights.</summary>
 public static class Commands
 {
-    public const string Stage = "K6b";
+    public const string Stage = "K7a";
 
     public const string Help = """
         polaris-agent – uvedie toto PC do stavu podľa receptu (etapa K2: spúšťa správca na PC, bez siete)
@@ -85,6 +85,10 @@ public static class Commands
           instalovat-sluzbu      skopíruje agenta do Program Files a spustí službu POLARIS agent (čistí relácie; správca)
           odinstalovat-sluzbu    zastaví a odstráni službu (správca)
           vycistit KONTO         hneď zmaže profil zdieľaného konta, ak na ňom nikto nie je prihlásený (správca)
+          registrovat https://SERVER:8443 ODTLAČOK KÓD [--meno MENO]
+                                 zaregistruje PC v centre kódom z konzoly (polaris-centrum kod …): PC si vytvorí vlastné
+                                 kľúče, dostane skupinu a odvtedy hlási centru svoj stav (správca)
+          hlasit                 pošle centru hlásenie hneď (služba ho posiela sama každých 15 minút)
           centrum ADRESA ODTLAČOK SKUPINA   PC berie plán skupiny z centra (https://server:8443, odtlačok z centra; správca)
           centrum [teraz | -]    stav spojenia; teraz = stiahne plán a použije profil hneď; - = odpojí od centra
           zasoba [CESTA | -]     Zásoba balíkov tohto PC (napr. \\server\polaris-zasoba); bez cesty ju vypíše, - zruší
@@ -161,6 +165,8 @@ public static class Commands
                 "meranie" => Measurements(args.Length > 1 && int.TryParse(args[1], out var m) && m > 0 ? m : 5, output, host ?? DefaultHost()),
                 "skuska-trezoru" => OperatingSystem.IsWindows() ? VaultCheck(output) : throw new PlatformNotSupportedException(),
                 "skuska-ikony" => OperatingSystem.IsWindows() ? IconCheck(output, host ?? DefaultHost()) : throw new PlatformNotSupportedException(),
+                "registrovat" => OperatingSystem.IsWindows() ? RegisterCommand(args, output, host ?? DefaultHost()) : throw new PlatformNotSupportedException(),
+                "hlasit" => OperatingSystem.IsWindows() ? ReportCommand(output, host ?? DefaultHost()) : throw new PlatformNotSupportedException(),
                 "dennik" => Journal(args.Length > 1 && int.TryParse(args[1], out var n) && n > 0 ? n : 10, output, host ?? DefaultHost()),
                 _ => Wrong($"Neznámy príkaz „{args[0]}“. Zoznam príkazov: polaris-agent pomoc", output),
             };
@@ -453,6 +459,51 @@ public static class Commands
         }
 
         return result.Cleaned || result.Message.Contains("čistý", StringComparison.Ordinal) ? 0 : 1;
+    }
+
+    /// <summary>registrovat https://SERVER:8443 ODTLAČOK KÓD [--meno MENO]: the PC into the centre with a code from the console.</summary>
+    [SupportedOSPlatform("windows")]
+    private static int RegisterCommand(string[] args, TextWriter output, AgentHost host)
+    {
+        const string Usage = "Použitie: polaris-agent registrovat https://SERVER:8443 ODTLAČOK KÓD [--meno MENO]";
+        if (args.Length < 4 || !Uri.TryCreate(args[1], UriKind.Absolute, out var address) || address.Scheme != Uri.UriSchemeHttps
+            || args[2].Length != 64 || !args[2].All(char.IsAsciiHexDigit))
+        {
+            return Wrong(Usage, output);
+        }
+
+        if (!host.IsAdmin())
+        {
+            return Wrong("PC do centra registruje správca.", output);
+        }
+
+        var at = Array.IndexOf(args, "--meno");
+        var name = at > 0 && at + 1 < args.Length ? args[at + 1].Trim() : Environment.MachineName;
+        var (ok, message, _) = PcLink.Register(address, args[2].ToLowerInvariant(), args[3], name, host.Clock());
+        output.WriteLine(ok ? message : "Registrácia sa nepodarila: " + message);
+        if (!ok)
+        {
+            return 1;
+        }
+
+        var (sent, answer) = PcLink.Report(host);
+        output.WriteLine(sent ? "Prvé hlásenie centrum prijalo. Služba POLARIS agent bude hlásiť sama (po receptoch, meraniach a každých 15 minút)." : "Prvé hlásenie sa nepodarilo: " + answer);
+        output.WriteLine("Plán skupiny si služba stiahne do 5 minút (hneď: polaris-agent centrum teraz).");
+        return 0;
+    }
+
+    /// <summary>hlasit: a report to the centre now (what the service sends by itself).</summary>
+    [SupportedOSPlatform("windows")]
+    private static int ReportCommand(TextWriter output, AgentHost host)
+    {
+        if (!host.IsAdmin())
+        {
+            return Wrong("Hlásenie posiela správca (služba ho posiela sama).", output);
+        }
+
+        var (ok, message) = PcLink.Report(host);
+        output.WriteLine(ok ? "Hlásenie centrum prijalo." : "Hlásenie sa nepodarilo: " + message);
+        return ok ? 0 : 1;
     }
 
     private static int CentreCommand(string[] args, TextWriter output, AgentHost host)
