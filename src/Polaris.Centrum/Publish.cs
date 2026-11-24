@@ -166,6 +166,18 @@ public static partial class Commands
             return 0;
         }
 
+        if (rest.Count > 0 && rest[0] == "odtlacok")
+        {
+            if (!File.Exists(certificateFile))
+            {
+                throw new UsageException("Centrum nemá certifikát – najprv: server certifikat NÁZOV-SERVERA IP-ADRESA");
+            }
+
+            using var existing = Certificates.Load(certificateFile, keyFile);
+            o.WriteLine(PinnedClient.Pin(existing));
+            return 0;
+        }
+
         var trustFolder = Path.Combine(store.Folder, "konzoly");
         if (rest.Count > 0 && rest[0] is "doverovat" or "konzoly")
         {

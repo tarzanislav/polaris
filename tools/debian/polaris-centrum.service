@@ -12,10 +12,10 @@ WorkingDirectory=/srv/polaris
 ExecStart=/opt/polaris/polaris-centrum --subor /srv/polaris/centrum.json server --zasoba /srv/polaris/zasoba
 Restart=on-failure
 RestartSec=5
-# server číta; zapisuje len do zverejnene (odovzdania od dôverovaných konzol); žiadne práva navyše
+# server číta; zapisuje len do zverejnene (odovzdania od dôverovaných konzol) a pc (registrácie a hlásenia PC)
 NoNewPrivileges=yes
 ProtectSystem=strict
-ReadWritePaths=/srv/polaris/zverejnene
+ReadWritePaths=/srv/polaris/zverejnene /srv/polaris/pc
 ProtectHome=yes
 PrivateTmp=yes
 PrivateDevices=yes

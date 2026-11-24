@@ -51,20 +51,27 @@ Server odovzdáva PC len to, čo konzola zverejnila: plány skupín, recepty a Z
 jediné, čo prijme, je podpísané odovzdanie od dôverovanej konzoly. Beží cez **HTTPS** s vlastným certifikátom. PC nepotrebujú certifikačnú autoritu: centrum poznajú podľa
 **odtlačku jeho kľúča**, ktorý im zadá správca. Iný server s iným kľúčom PC odmietnu skôr, než od neho niečo prečítajú.
 
+**Inštalácia jedným skriptom.** Z balíka `polaris-centrum-linux` nakopíruj (napr. WinSCP) do jedného priečinka na
+serveri `polaris-centrum`, `polaris-centrum.service`, `instalovat-centrum.sh` a verejný kľúč konzoly
+(`MENO.verejny.json`), potom cez SSH (PuTTY):
+
 ```
-sudo useradd --system --home /srv/polaris polaris
-sudo install -d -o polaris -g polaris /srv/polaris /opt/polaris
-sudo install -m 755 polaris-centrum /opt/polaris/
-sudo -u polaris /opt/polaris/polaris-centrum --subor /srv/polaris/centrum.json server certifikat polaris-server 192.168.1.10
-sudo install -m 644 polaris-centrum.service /etc/systemd/system/
-sudo systemctl enable --now polaris-centrum
+sudo bash instalovat-centrum.sh
 ```
+
+Skript skontroluje systém (Debian alebo odvodený, x86_64, či sa program spustí), vytvorí používateľa `polaris` bez
+prihlásenia, priečinky `/srv/polaris` (dáta) a `/opt/polaris` (program), certifikát centra pre meno a adresy servera,
+nainštaluje službu systemd, pridá dôveru konzolám, **otvorí port 8443** (ufw, firewalld, iptables; nftables len
+poradí), spustí centrum, overí odpoveď a vypíše adresu a **odtlačok**. Spustiť sa dá znova kedykoľvek: aktualizuje
+program, certifikát a dáta nechá, pridá nové kľúče konzol. Odtlačok neskôr: `sudo runuser -u polaris --
+/opt/polaris/polaris-centrum --subor /srv/polaris/centrum.json server odtlacok`.
 
 - `server certifikat` vytvorí `server.pem` a `server.key` (čitateľný len pre používateľa polaris) a vypíše **odtlačok**.
   Mená a adresy za `certifikat` sú tie, ktorými PC server oslovujú.
 - Služba beží pod vlastným používateľom bez práv, s celým systémom len na čítanie (pozri `tools/debian`). Port 8443
   stačí otvoriť do siete učebne.
-- Server **zapisuje len do `zverejnene`**, a to iba odovzdania od konzol, ktorým dôveruje (nižšie).
+- Server **zapisuje len do `zverejnene`** (odovzdania od konzol, ktorým dôveruje) **a `pc`** (kódy, registrácie
+  a hlásenia PC).
 
 ### Odovzdanie z konzoly na server
 

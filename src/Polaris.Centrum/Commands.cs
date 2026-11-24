@@ -45,6 +45,7 @@ public static partial class Commands
                                               so --server ich aj odovzdá centru na serveri
           server doverovat KONZOLA.verejny.json   centrum na serveri prijme odovzdania od tejto konzoly; server konzoly
           server certifikat NÁZOV…            certifikát centra (vypíše odtlačok, ktorý sa zadá na PC)
+          server odtlacok                     odtlačok certifikátu centra (pre PC a konzolu)
           server [--port 8443] [--zasoba CESTA]   centrum na sieti: HTTPS – zverejnené plány, recepty, zásoba; registrácia
                                               a hlásenia PC
           kod SKUPINA KLUC --server https://SERVER:8443 ODTLAČOK [--dni 1] [--pocet 30]
