@@ -62,9 +62,9 @@ public sealed class PcRegistry(string root)
     /// (the same key) gets its record again – the agent may ask twice after a lost answer.</summary>
     public (PcRecord? Record, string Problem) Register(RegistrationRequest request, string serverPin, IReadOnlyList<TrustedConsole> consoles, DateTimeOffset now)
     {
-        if (RegistrationCode.Normalize(request.Code) is not { } code)
+        if (request.Ticket.Length != 64 || !request.Ticket.All(char.IsAsciiHexDigitLower) || request.CodeProof.Length != 64)
         {
-            return (null, "kód má 12 znakov (napr. 7K3Q-9XHD-M2PA)");
+            return (null, "registrácia nemá kód v správnom tvare");
         }
 
         if (!request.Proven(serverPin, now))
@@ -74,7 +74,7 @@ public sealed class PcRegistry(string root)
 
         lock (_gate)
         {
-            if (Grant(RegistrationCode.Hash(code)) is not { } grant)
+            if (Grant(RegistrationCode.GrantHash(request.Ticket)) is not { } grant)
             {
                 return (null, "taký kód centrum nevydalo");
             }
@@ -96,7 +96,7 @@ public sealed class PcRegistry(string root)
                 return (null, $"kód už použilo {used} PC – vydaj nový");
             }
 
-            var record = new PcRecord(request.Pc, grant.Group, now.ToUniversalTime(), grant.Id, PcRecord.ProofOf(code, request.Pc));
+            var record = new PcRecord(request.Pc, grant.Group, now.ToUniversalTime(), grant.Id, request.CodeProof);
             Write(Path.Combine(Pcs, record.Id + ".json"), record.ToJson());
             return (record, "");
         }

@@ -303,6 +303,8 @@ public static class CentreLinkChecks
             var (secret, pub) = RecipeSigning.NewConsoleKey("spravca", Password);
             var keyFile = Path.Combine(dir, "spravca.kluc");
             File.WriteAllText(keyFile, RecipeSigning.ToJson(secret));
+            var (_, notebook) = RecipeSigning.NewConsoleKey("notebook2", Password);
+            File.WriteAllText(Path.Combine(dir, "notebook2.verejny.json"), RecipeSigning.ToJson(notebook));
             var registry = new PcRegistry(Path.Combine(dir, "pc"));
             var now = T;
             Running? server = null;
@@ -344,15 +346,20 @@ public static class CentreLinkChecks
             }
 
             var identity = Identity(pcKey, "PC-01");
-            var registered = Post(CentrePaths.Register, RegistrationRequest.Make(code.ToLowerInvariant().Replace("-", " ", StringComparison.Ordinal), identity, pcKey, server.Pin, now).ToJson());
+            var registered = Post(CentrePaths.Register, RegistrationRequest.Make(code.ToLowerInvariant().Replace("-", " ", StringComparison.Ordinal), identity, pcKey, server.Pin, now)!.ToJson());
             Expect.True(registered.Ok && registered.F.String("group") == "ucebna" && registered.F.String("pc") == identity.Id, "PC zaregistrované kódom (aj napísaným malými písmenami s medzerami): " + registered.Message);
-            Expect.True(Post(CentrePaths.Register, RegistrationRequest.Make(code, identity, pcKey, server.Pin, now).ToJson()).Ok, "opakovaná registrácia toho istého PC (stratená odpoveď) prejde");
+            var trustText = registered.F.String("trust");
+            var normalized = RegistrationCode.Normalize(code)!;
+            Expect.Equal(RegistrationCode.Seal(normalized, trustText), registered.F.String("trustSeal"), "zoznam konzol zapečatený kódom");
+            Expect.True(RegistrationCode.Seal(normalized, trustText.Replace("spravca", "cudzia", StringComparison.Ordinal)) != registered.F.String("trustSeal"), "zmenený zoznam konzol by PC odhalilo");
+            Expect.Equal("notebook2, spravca", string.Join(", ", TrustList.FromJson(trustText).Select(c => c.Name).Order(StringComparer.Ordinal)), "PC dostane všetky konzoly správcu (kľúče vedľa kľúča konzoly)");
+            Expect.True(Post(CentrePaths.Register, RegistrationRequest.Make(code, identity, pcKey, server.Pin, now)!.ToJson()).Ok, "opakovaná registrácia toho istého PC (stratená odpoveď) prejde");
 
-            var wrong = Post(CentrePaths.Register, RegistrationRequest.Make("AAAA-BBBB-CCCC", Identity(SigningKey.Create(), "PC-X"), pcKey, server.Pin, now).ToJson());
+            var wrong = Post(CentrePaths.Register, RegistrationRequest.Make("AAAA-BBBB-CCCC", Identity(SigningKey.Create(), "PC-X"), pcKey, server.Pin, now)!.ToJson());
             Expect.True(!wrong.Ok, "registrácia podpísaná iným kľúčom, než ktorý PC uvádza, neprejde: " + wrong.Message);
             using var otherKey = SigningKey.Create();
-            Expect.True(Post(CentrePaths.Register, RegistrationRequest.Make("AAAA-BBBB-CCCC", Identity(otherKey, "PC-X"), otherKey, server.Pin, now).ToJson()).Message.Contains("nevydalo", StringComparison.Ordinal), "neznámy kód");
-            Expect.True(!Post(CentrePaths.Register, RegistrationRequest.Make(code, Identity(otherKey, "PC-X"), otherKey, new string('c', 64), now).ToJson()).Ok, "registrácia pre iné centrum neprejde");
+            Expect.True(Post(CentrePaths.Register, RegistrationRequest.Make("AAAA-BBBB-CCCC", Identity(otherKey, "PC-X"), otherKey, server.Pin, now)!.ToJson()).Message.Contains("nevydalo", StringComparison.Ordinal), "neznámy kód");
+            Expect.True(!Post(CentrePaths.Register, RegistrationRequest.Make(code, Identity(otherKey, "PC-X"), otherKey, new string('c', 64), now)!.ToJson()).Ok, "registrácia pre iné centrum neprejde");
 
             // reports: only signed by the PC's own key
             var report = new PcReport(now, "0.1.0", "Windows 11 Pro (26200)", "Vyrobca Skusobny 1", "ucebna", "ZAKLADNY", "abc", 3600, 40L << 30, 100L << 30, 1, "ziak 19. 11. 2026, 221 MB",
@@ -375,12 +382,12 @@ public static class CentreLinkChecks
 
             // the code's limits: count, time, trust
             using var second = SigningKey.Create();
-            Expect.True(Post(CentrePaths.Register, RegistrationRequest.Make(code, Identity(second, "PC-02"), second, server.Pin, now).ToJson()).Ok, "druhé PC kódom pre 2");
+            Expect.True(Post(CentrePaths.Register, RegistrationRequest.Make(code, Identity(second, "PC-02"), second, server.Pin, now)!.ToJson()).Ok, "druhé PC kódom pre 2");
             using var third = SigningKey.Create();
-            Expect.True(Post(CentrePaths.Register, RegistrationRequest.Make(code, Identity(third, "PC-03"), third, server.Pin, now).ToJson()).Message.Contains("už použilo", StringComparison.Ordinal), "tretie PC už nie");
+            Expect.True(Post(CentrePaths.Register, RegistrationRequest.Make(code, Identity(third, "PC-03"), third, server.Pin, now)!.ToJson()).Message.Contains("už použilo", StringComparison.Ordinal), "tretie PC už nie");
             var daily = NewCode();
             now = now.AddDays(1).AddMinutes(1);
-            Expect.True(Post(CentrePaths.Register, RegistrationRequest.Make(daily, Identity(third, "PC-03"), third, server.Pin, now).ToJson()).Message.Contains("platil do", StringComparison.Ordinal), "kód po dni neplatí");
+            Expect.True(Post(CentrePaths.Register, RegistrationRequest.Make(daily, Identity(third, "PC-03"), third, server.Pin, now)!.ToJson()).Message.Contains("platil do", StringComparison.Ordinal), "kód po dni neplatí");
             trusted.Clear();
             Expect.True(Centrum($"kod ucebna {keyFile} --server {server.Address} {server.Pin}").Code != 0, "nedôverovaná konzola kód nevydá");
             trusted.Add(RecipeSigning.Trust(pub));

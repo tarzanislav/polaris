@@ -165,7 +165,7 @@ public static class PcLink
 
     public static (bool Ok, string Message, CentreSettings? Settings) Register(Uri address, string pin, string code, string name, DateTimeOffset now)
     {
-        if (RegistrationCode.Normalize(code) is null)
+        if (RegistrationCode.Normalize(code) is not { } normalized)
         {
             return (false, "Kód má 12 znakov, napr. 7K3Q-9XHD-M2PA (vypíše ho konzola: polaris-centrum kod …).", null);
         }
@@ -175,8 +175,8 @@ public static class PcLink
         using (secrets)
         {
             var identity = PcKeys.Identity(signing, secrets, name);
-            var request = RegistrationRequest.Make(code, identity, signing, pin, now);
-            var answer = PinnedClient.Post(new Uri(address, Polaris.Net.CentrePaths.Register.TrimStart('/')), pin, Encoding.UTF8.GetBytes(request.ToJson()), new Dictionary<string, string>(), 64 * 1024, Limit);
+            var request = RegistrationRequest.Make(normalized, identity, signing, pin, now)!;
+            var answer = PinnedClient.Post(new Uri(address, CentrePaths.Register.TrimStart('/')), pin, Encoding.UTF8.GetBytes(request.ToJson()), new Dictionary<string, string>(), 256 * 1024, Limit);
             var (ok, message, fields) = Read(answer);
             if (!ok || fields is null)
             {
@@ -189,12 +189,25 @@ public static class PcLink
                 return (false, "Centrum odpovedalo inak, než sa čakalo – registrácia sa nezapísala.", null);
             }
 
+            // the consoles to trust, sealed by the code: only the console that issued it could have sealed them
+            var trust = fields.String("trust");
+            if (!CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(RegistrationCode.Seal(normalized, trust)), Encoding.ASCII.GetBytes(fields.String("trustSeal"))))
+            {
+                return (false, "Zoznam konzol od centra nesedí s kódom – registrácia sa nezapísala (pýta sa iné centrum, než vydalo kód?).", null);
+            }
+
+            var consoles = TrustList.FromJson(trust);
+            foreach (var console in consoles)
+            {
+                TrustStore.Add(new ConsoleKeyFile { Name = console.Name, Fingerprint = console.Fingerprint, PublicKey = Convert.ToBase64String(console.PublicKey) });
+            }
+
             var settings = new CentreSettings(address, pin, group);
             Centre.Configure(settings);
             using var k = Microsoft.Win32.Registry.LocalMachine.CreateSubKey(Centre.Key, writable: true);
             k.SetValue("Pc", identity.Id, Microsoft.Win32.RegistryValueKind.String);
             k.SetValue("Meno", name, Microsoft.Win32.RegistryValueKind.String);
-            return (true, $"PC {name} je zaregistrované v skupine {group} (identifikátor {identity.Id[..8]}).", settings);
+            return (true, $"PC {name} je zaregistrované v skupine {group} (identifikátor {identity.Id[..8]}); dôveruje konzolám: {string.Join(", ", consoles.Select(c => c.Name))}.", settings);
         }
     }
 
@@ -209,8 +222,8 @@ public static class PcLink
         using var signing = keys.Signing;
         using var secrets = keys.Secrets;
         var body = Encoding.UTF8.GetBytes(Build(host, settings).ToJson());
-        var headers = PcSigning.Headers(body, Polaris.Net.CentrePaths.Report, settings.Pin, id, signing, host.Clock());
-        var answer = PinnedClient.Post(settings.Of(Polaris.Net.CentrePaths.Report.TrimStart('/')), settings.Pin, body, headers, 64 * 1024, Limit);
+        var headers = PcSigning.Headers(body, CentrePaths.Report, settings.Pin, id, signing, host.Clock());
+        var answer = PinnedClient.Post(settings.Of(CentrePaths.Report.TrimStart('/')), settings.Pin, body, headers, 64 * 1024, Limit);
         var (ok, message, _) = Read(answer);
         return (ok, message);
     }

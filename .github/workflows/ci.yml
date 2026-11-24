@@ -257,8 +257,11 @@ jobs:
             $out
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             $code = ([regex]::Match($out, '[0-9A-Z]{4}-[0-9A-Z]{4}-[0-9A-Z]{4}')).Value
-            & $a registrovat https://127.0.0.1:18443/ $pin $code --meno CI-PC
+            $reg = (& $a registrovat https://127.0.0.1:18443/ $pin $code --meno CI-PC) -join "`n"
+            $reg
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            if ($reg -notmatch 'dôveruje konzolám: ci-konzola') { "PC nedostalo dôveru ku konzole z kódu"; exit 1 }
+            & $a konzoly
             & $a hlasit
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             & $a registrovat https://127.0.0.1:18443/ $pin AAAA-BBBB-CCCC --meno CI-PC2
@@ -276,6 +279,8 @@ jobs:
           } finally {
             Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue
             Remove-Item -Recurse -Force "$env:ProgramData\POLARIS\agent\pc" -ErrorAction SilentlyContinue
+            # the runner trusts no console again (the later steps use unsigned sample recipes)
+            Remove-Item -Recurse -Force "HKLM:\SOFTWARE\POLARIS\Agent\DoverneKonzoly" -ErrorAction SilentlyContinue
           }
       - name: Helper scripts parse as PowerShell; the pilot goes to the top of the package
         run: |

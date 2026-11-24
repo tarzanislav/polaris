@@ -119,8 +119,14 @@ polaris-centrum stav spravca.kluc --server https://192.168.1.10:8443 ODTLAČOK [
 ```
 
 - **Kód** platí 1 deň (`--dni` najviac 7) pre jednu skupinu a najviac 30 PC (`--pocet`). Konzola ho podpíše svojím
-  kľúčom; centrum si nechá **len jeho odtlačok**, samotný kód nikde nie je. Pri písaní sa odpustia malé písmená,
+  kľúčom; centrum si nechá **len odtlačok** hodnoty z neho odvodenej, samotný kód nikde nie je. Pri písaní sa odpustia malé písmená,
   medzery a zámeny O/0, I/1.
+- **Viac konzol** (napr. dva notebooky a učiteľské PC): každá má **vlastný kľúč** (`kluc novy notebook1` …) – stratený
+  notebook sa tak odoberie bez výmeny ostatných. Verejné kľúče všetkých konzol daj vedľa kľúča konzoly, ktorá kód
+  vydáva, a vedľa inštalačného skriptu na serveri (centrum im potom dôveruje). **Kód nesie zoznam konzol, ktorým má PC
+  dôverovať, zapečatený samotným kódom:** PC ho prijme bez ďalšieho kroku (žiadne `doverovat` na každom PC) a centrum
+  ho nemôže zmeniť – kód pozná len konzola a PC; centru PC ukáže iba hodnotu z kódu odvodenú. Po registrácii PC prijíma
+  len recepty a plány podpísané týmito konzolami.
 - **PC si pri registrácii vytvorí dva vlastné kľúče** (ECDSA P-256): jedným podpisuje všetko, čo posiela centru,
   druhým raz dostane zašifrované tajomstvá (heslo správcu, licencie). Súkromné časti nikdy neopustia PC: sú v chránenom
   priečinku agenta (len systém a správcovia), zašifrované Windows pre toto PC (kópia súboru na inom PC nefunguje).

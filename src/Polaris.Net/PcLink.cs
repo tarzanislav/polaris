@@ -49,13 +49,33 @@ public static class RegistrationCode
         return sb.Length == Length ? sb.ToString() : null;
     }
 
-    public static string Hash(string normalized) => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes("POLARIS-kod:" + normalized)));
+    /// <summary>What the PC shows the centre instead of the code: a value derived from it. The centre recognises it, but
+    /// never learns the code – so it never learns the key that guards the consoles' list either.</summary>
+    public static string Ticket(string normalized) => Hex("POLARIS-kod-listok:" + normalized);
+
+    /// <summary>The hash of the ticket the centre keeps with the grant.</summary>
+    public static string GrantHash(string ticket) => Hex("POLARIS-kod:" + ticket);
+
+    public static string HashOf(string normalized) => GrantHash(Ticket(normalized));
+
+    /// <summary>The key only the console that issued the code and the PC that typed it have: it seals the list of
+    /// consoles the PC is to trust (the centre passes the list on but cannot change it) and the PC's proof of the code.</summary>
+    public static byte[] SealKey(string normalized) => SHA256.HashData(Encoding.UTF8.GetBytes("POLARIS-kod-dovera:" + normalized));
+
+    public static string Seal(string normalized, string text) =>
+        Convert.ToHexStringLower(HMACSHA256.HashData(SealKey(normalized), Encoding.UTF8.GetBytes(text)));
+
+    private static string Hex(string text) => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(text)));
 }
 
 /// <summary>A console's permission to register PCs into a group: until when, how many, for which code (its hash). Signed
 /// by the console, so a centre checks it on its own and the code alone, without it, opens nothing.</summary>
-public sealed record RegistrationGrant(string Group, DateTimeOffset NotAfterUtc, int MaxUses, string CodeHash, string Console, string Signature)
+public sealed record RegistrationGrant(string Group, DateTimeOffset NotAfterUtc, int MaxUses, string CodeHash, string Console, string Signature, string Trust = "[]", string TrustSeal = "")
 {
+    /// <summary>The consoles a new PC is to trust (their public keys), sealed by the code: the PC needs no other step –
+    /// all consoles of the administrator (several notebooks, a teacher's PC) at once.</summary>
+    public List<TrustedConsole> Consoles() => TrustList.FromJson(Trust);
+
     public static readonly TimeSpan Longest = TimeSpan.FromDays(7);
     public const int MostUses = 200;
 
@@ -63,10 +83,11 @@ public sealed record RegistrationGrant(string Group, DateTimeOffset NotAfterUtc,
 
     public string Id => CodeHash[..16];
 
-    public static RegistrationGrant Sign(string group, DateTimeOffset notAfterUtc, int maxUses, string codeHash, SigningKey key)
+    public static RegistrationGrant Sign(string group, DateTimeOffset notAfterUtc, int maxUses, string normalizedCode, SigningKey key, IReadOnlyList<TrustedConsole> trust)
     {
         using var pub = key.Public();
-        var unsigned = new RegistrationGrant(group, notAfterUtc.ToUniversalTime(), maxUses, codeHash, pub.Fingerprint(), "");
+        var list = TrustList.ToJson(trust);
+        var unsigned = new RegistrationGrant(group, notAfterUtc.ToUniversalTime(), maxUses, RegistrationCode.HashOf(normalizedCode), pub.Fingerprint(), "", list, RegistrationCode.Seal(normalizedCode, list));
         return unsigned with { Signature = Convert.ToBase64String(key.Sign(unsigned.Bytes())) };
     }
 
@@ -101,14 +122,16 @@ public sealed record RegistrationGrant(string Group, DateTimeOffset NotAfterUtc,
         .Add("maxUses", MaxUses)
         .Add("codeHash", CodeHash)
         .Add("console", Console)
-        .Add("signature", Signature));
+        .Add("signature", Signature)
+        .Add("trust", Trust)
+        .Add("trustSeal", TrustSeal));
 
     public static RegistrationGrant FromJson(string json)
     {
         try
         {
             var f = new JsonFields(JsonReader.Parse(json, JsonSyntax.Strict), "kód registrácie");
-            var grant = new RegistrationGrant(f.String("group"), f.Time("notAfterUtc"), f.Int("maxUses", 1), f.String("codeHash"), f.String("console"), f.String("signature"));
+            var grant = new RegistrationGrant(f.String("group"), f.Time("notAfterUtc"), f.Int("maxUses", 1), f.String("codeHash"), f.String("console"), f.String("signature"), f.String("trust", "[]"), f.String("trustSeal"));
             f.End();
             return grant.Problems() is { } problem ? throw new InvalidDataException(problem) : grant;
         }
@@ -123,9 +146,63 @@ public sealed record RegistrationGrant(string Group, DateTimeOffset NotAfterUtc,
         !PcRules.GroupName(Group) ? "skupina: písmená, číslice, - a _ (do 40 znakov)"
         : MaxUses is < 1 or > MostUses ? $"počet PC: 1 až {MostUses}"
         : CodeHash.Length != 64 || !CodeHash.All(char.IsAsciiHexDigitLower) ? "odtlačok kódu má 64 malých šestnástkových znakov"
-        : null;
+        : TrustProblem();
 
-    private byte[] Bytes() => Framing.Build(Tag, Group, NotAfterUtc.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture), MaxUses.ToString(CultureInfo.InvariantCulture), CodeHash, Console);
+    private string? TrustProblem()
+    {
+        try
+        {
+            return Consoles().Count is < 1 or > 20 ? "kód nesie 1 až 20 konzol, ktorým majú PC dôverovať" : null;
+        }
+        catch (InvalidDataException e)
+        {
+            return e.Message;
+        }
+    }
+
+    private byte[] Bytes() => Framing.Build(Tag, Group, NotAfterUtc.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture), MaxUses.ToString(CultureInfo.InvariantCulture), CodeHash, Console, Trust, TrustSeal);
+}
+
+/// <summary>A list of consoles (name, fingerprint, public key) as one canonical JSON text.</summary>
+public static class TrustList
+{
+    public static string ToJson(IEnumerable<TrustedConsole> consoles) => JsonText.Canonical(JsonArray.Of(
+        consoles.DistinctBy(c => c.Fingerprint, StringComparer.OrdinalIgnoreCase).OrderBy(c => c.Fingerprint, StringComparer.Ordinal),
+        c => new JsonObject().Add("name", c.Name).Add("fingerprint", c.Fingerprint).Add("publicKey", Convert.ToBase64String(c.PublicKey))));
+
+    /// <summary>The consoles, each fingerprint checked against its key.</summary>
+    public static List<TrustedConsole> FromJson(string json)
+    {
+        var list = new List<TrustedConsole>();
+        try
+        {
+            if (JsonReader.Parse(json, JsonSyntax.Strict) is not JsonArray array)
+            {
+                throw new InvalidDataException("Zoznam konzol nie je pole.");
+            }
+
+            foreach (var item in array.Items)
+            {
+                var f = new JsonFields(item, "konzola");
+                var key = Convert.FromBase64String(f.String("publicKey"));
+                var console = new TrustedConsole(f.String("name"), f.String("fingerprint"), key);
+                f.End();
+                using var verifying = VerifyingKey.FromSubjectPublicKeyInfo(key);
+                if (verifying.Fingerprint() != console.Fingerprint || console.Name.Length is < 1 or > 64)
+                {
+                    throw new InvalidDataException($"Konzola {console.Name}: odtlačok nesedí s kľúčom.");
+                }
+
+                list.Add(console);
+            }
+        }
+        catch (Exception e) when (e is JsonError or FormatException or CryptographicException)
+        {
+            throw new InvalidDataException("Zoznam konzol sa nedá prečítať: " + e.Message, e);
+        }
+
+        return list;
+    }
 }
 
 /// <summary>Who a PC is to the centre: its two public keys – one it signs with (reports, requests), one secrets for it are
@@ -180,14 +257,20 @@ public sealed record PcIdentity(string SigningKey, string SecretsKey, string Nam
 }
 
 /// <summary>A PC asks to be registered: the code as typed, who it is, and its signature over both (it holds the key).</summary>
-public sealed record RegistrationRequest(string Code, PcIdentity Pc, string Time, string Proof)
+public sealed record RegistrationRequest(string Ticket, PcIdentity Pc, string Time, string Proof, string CodeProof)
 {
-    private static ReadOnlySpan<byte> Tag => "POLPCR01"u8;
+    private static ReadOnlySpan<byte> Tag => "POLPCR02"u8;
 
-    public static RegistrationRequest Make(string code, PcIdentity pc, SigningKey key, string serverPin, DateTimeOffset now)
+    /// <summary>From the code as typed (null when it is not a code): the ticket, not the code, goes to the centre.</summary>
+    public static RegistrationRequest? Make(string typedCode, PcIdentity pc, SigningKey key, string serverPin, DateTimeOffset now)
     {
+        if (RegistrationCode.Normalize(typedCode) is not { } code)
+        {
+            return null;
+        }
+
         var time = now.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture);
-        var unsigned = new RegistrationRequest(code, pc, time, "");
+        var unsigned = new RegistrationRequest(RegistrationCode.Ticket(code), pc, time, "", PcRecord.ProofOf(code, pc));
         return unsigned with { Proof = Convert.ToBase64String(key.Sign(unsigned.Bytes(serverPin))) };
     }
 
@@ -211,10 +294,11 @@ public sealed record RegistrationRequest(string Code, PcIdentity Pc, string Time
     }
 
     public string ToJson() => JsonText.Canonical(new JsonObject()
-        .Add("code", Code)
+        .Add("ticket", Ticket)
         .Add("pc", Pc.ToNode())
         .Add("time", Time)
-        .Add("proof", Proof));
+        .Add("proof", Proof)
+        .Add("codeProof", CodeProof));
 
     public static RegistrationRequest FromJson(string json)
     {
@@ -222,7 +306,7 @@ public sealed record RegistrationRequest(string Code, PcIdentity Pc, string Time
         {
             var f = new JsonFields(JsonReader.Parse(json, JsonSyntax.Strict), "registrácia PC");
             var pc = PcIdentity.From(f.Fields("pc", "PC") ?? throw new InvalidDataException("Registrácii chýba PC."));
-            var request = new RegistrationRequest(f.String("code"), pc, f.String("time"), f.String("proof"));
+            var request = new RegistrationRequest(f.String("ticket"), pc, f.String("time"), f.String("proof"), f.String("codeProof"));
             f.End();
             return request;
         }
@@ -233,7 +317,7 @@ public sealed record RegistrationRequest(string Code, PcIdentity Pc, string Time
     }
 
     private byte[] Bytes(string serverPin) =>
-        Framing.Build(Tag, RegistrationCode.Normalize(Code) ?? Code, JsonText.Canonical(Pc.ToNode()), serverPin.ToLowerInvariant(), Time);
+        Framing.Build(Tag, Ticket, JsonText.Canonical(Pc.ToNode()), serverPin.ToLowerInvariant(), Time, CodeProof);
 }
 
 /// <summary>A registered PC as the centre keeps it: who it is, its group, when, by which code. The proof of the code
@@ -244,7 +328,7 @@ public sealed record PcRecord(PcIdentity Pc, string Group, DateTimeOffset Regist
     public string Id => Pc.Id;
 
     public static string ProofOf(string normalizedCode, PcIdentity pc) =>
-        Convert.ToHexStringLower(HMACSHA256.HashData(Encoding.UTF8.GetBytes(normalizedCode), Encoding.UTF8.GetBytes(JsonText.Canonical(pc.ToNode()))));
+        RegistrationCode.Seal(normalizedCode, "PC:" + JsonText.Canonical(pc.ToNode()));
 
     public string ToJson() => JsonText.Canonical(new JsonObject()
         .Add("pc", Pc.ToNode())

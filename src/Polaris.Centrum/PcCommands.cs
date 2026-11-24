@@ -50,10 +50,16 @@ public static partial class Commands
 
             case RegisterPath:
                 {
-                    var (record, problem) = registry.Register(RegistrationRequest.FromJson(Encoding.UTF8.GetString(body)), serverPin, trusted(), now);
-                    return record is null
-                        ? Reply(403, false, problem)
-                        : Json(200, new JsonObject().Add("ok", true).Add("message", "zaregistrované").Add("pc", record.Id).Add("group", record.Group));
+                    var registration = RegistrationRequest.FromJson(Encoding.UTF8.GetString(body));
+                    var (record, problem) = registry.Register(registration, serverPin, trusted(), now);
+                    if (record is null || registry.Grant(RegistrationCode.GrantHash(registration.Ticket)) is not { } grant)
+                    {
+                        return Reply(403, false, record is null ? problem : "kód medzitým zmizol");
+                    }
+
+                    // the consoles the PC is to trust, sealed by the code: the centre hands them over unchanged
+                    return Json(200, new JsonObject().Add("ok", true).Add("message", "zaregistrované").Add("pc", record.Id).Add("group", record.Group)
+                        .Add("trust", grant.Trust).Add("trustSeal", grant.TrustSeal));
                 }
 
             case ReportPath:
@@ -130,8 +136,22 @@ public static partial class Commands
 
         var keyFile = RecipeSigning.KeyFromJson(File.ReadAllText(rest[1]));
         using var key = RecipeSigning.OpenPrivate(keyFile, secret($"Heslo ku kľúču {keyFile.Name}: ") ?? "");
+        // every console of the administrator the new PCs are to trust: this one and the public keys lying beside its key
+        var trust = new List<TrustedConsole> { RecipeSigning.Trust(keyFile) };
+        foreach (var file in Directory.GetFiles(Path.GetDirectoryName(Path.GetFullPath(rest[1]))!, "*.verejny.json").Order(StringComparer.Ordinal))
+        {
+            try
+            {
+                trust.Add(RecipeSigning.Trust(RecipeSigning.KeyFromJson(File.ReadAllText(file))));
+            }
+            catch (InvalidDataException e)
+            {
+                o.WriteLine($"Pozor: {Path.GetFileName(file)} vynechaný – {e.Message}");
+            }
+        }
+
         var code = RegistrationCode.Generate();
-        var grant = RegistrationGrant.Sign(group, utcNow.AddDays(days), uses, RegistrationCode.Hash(RegistrationCode.Normalize(code)!), key);
+        var grant = RegistrationGrant.Sign(group, utcNow.AddDays(days), uses, RegistrationCode.Normalize(code)!, key, trust);
         var answer = Ask(server, CodesPath, Utf8NoBom.GetBytes(grant.ToJson()), key, utcNow);
         if (!answer.Ok)
         {
@@ -140,7 +160,8 @@ public static partial class Commands
         }
 
         o.WriteLine($"Kód na registráciu PC do skupiny {group}: {code}");
-        o.WriteLine($"Platí {days} {(days == 1 ? "deň" : "dni")} (do {grant.NotAfterUtc.ToLocalTime():d. M. yyyy H:mm}), najviac {uses} PC. Na PC (správca):");
+        o.WriteLine($"Platí {days} {(days == 1 ? "deň" : "dni")} (do {grant.NotAfterUtc.ToLocalTime():d. M. yyyy H:mm}), najviac {uses} PC.");
+        o.WriteLine("PC budú dôverovať konzolám: " + string.Join(", ", grant.Consoles().Select(c => c.Name)) + ". Na PC (správca):");
         o.WriteLine($"  polaris-agent registrovat {server.Address} {server.Pin} {code}");
         o.WriteLine("Kód nikam neukladaj – centrum pozná len jeho odtlačok.");
         return 0;
