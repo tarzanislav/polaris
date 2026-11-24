@@ -5,7 +5,7 @@
 
   "schema": 1,
   "name": "ZAKLAD",
-  "version": 9,
+  "version": 10,
   "note": "Základ učebne – komfort a výkon: pracovná skupina SKOLA, stredoeurópsky čas, aktualizácie mimo vyučovania, napájanie bez spánku, sieť naplno, len povolené programy po prihlásení, aplikácie Store bez behu na pozadí, bez reklám a návrhov, vizuálne efekty a Prieskumník podľa správcu, ticho, žiak bez otázok pri prihlásení",
   "elements": [
     {
@@ -50,6 +50,15 @@
       "kind": "DWord",
       "data": "0",
       "note": "Edge nebeží na pozadí po prihlásení (pre všetky kontá)"
+    },
+    {
+      "type": "registry",
+      "id": "edge-bez-behu-po-zavreti",
+      "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge",
+      "name": "BackgroundModeEnabled",
+      "kind": "DWord",
+      "data": "0",
+      "note": "zavretý Edge naozaj skončí – nebeží ďalej na pozadí (rozšírenia, oznámenia)"
     },
     {
       "type": "registry",
