@@ -5,7 +5,7 @@
 
   "schema": 1,
   "name": "ZAKLAD",
-  "version": 8,
+  "version": 9,
   "note": "Základ učebne – komfort a výkon: pracovná skupina SKOLA, stredoeurópsky čas, aktualizácie mimo vyučovania, napájanie bez spánku, sieť naplno, len povolené programy po prihlásení, aplikácie Store bez behu na pozadí, bez reklám a návrhov, vizuálne efekty a Prieskumník podľa správcu, ticho, žiak bez otázok pri prihlásení",
   "elements": [
     {
@@ -603,6 +603,24 @@
       "kind": "DWord",
       "data": "0",
       "note": "bez návrhov v Nastaveniach"
+    },
+    {
+      "type": "user-registry",
+      "id": "bez-uvitania-windows",
+      "path": "Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager",
+      "name": "SubscribedContent-310093Enabled",
+      "kind": "DWord",
+      "data": "0",
+      "note": "bez okna „Začíname / Dobrý deň“ po prihlásení a po aktualizáciách (zistené pri pilote 24. 11.)"
+    },
+    {
+      "type": "user-registry",
+      "id": "bez-dokoncenia-nastavenia",
+      "path": "Software\\Microsoft\\Windows\\CurrentVersion\\UserProfileEngagement",
+      "name": "ScoobeSystemSettingEnabled",
+      "kind": "DWord",
+      "data": "0",
+      "note": "bez ponuky „Dokončite nastavenie zariadenia“ po prihlásení"
     },
     {
       "type": "user-registry",
