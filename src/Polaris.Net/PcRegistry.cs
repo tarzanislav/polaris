@@ -35,6 +35,16 @@ public sealed class PcRegistry(string root)
         return PcRules.Id(id) && File.Exists(file) ? PcRecord.FromJson(File.ReadAllText(file, Utf8)) : null;
     }
 
+    /// <summary>What proves the PC's registration to another centre: its signed request and the code it used, or null.</summary>
+    public (RegistrationRequest Request, RegistrationGrant Grant)? Proof(string id)
+    {
+        var request = Path.Combine(Pcs, id + ".registracia.json");
+        var grant = Path.Combine(Pcs, id + ".kod.json");
+        return PcRules.Id(id) && File.Exists(request) && File.Exists(grant)
+            ? (RegistrationRequest.FromJson(File.ReadAllText(request, Utf8)), RegistrationGrant.FromJson(File.ReadAllText(grant, Utf8)))
+            : null;
+    }
+
     public List<PcRecord> All()
     {
         var list = new List<PcRecord>();
@@ -43,7 +53,7 @@ public sealed class PcRegistry(string root)
             return list;
         }
 
-        foreach (var file in Directory.GetFiles(Pcs, "*.json").Order(StringComparer.Ordinal))
+        foreach (var file in Directory.GetFiles(Pcs, "*.json").Where(f => PcRules.Id(Path.GetFileNameWithoutExtension(f))).Order(StringComparer.Ordinal))
         {
             try
             {
@@ -97,6 +107,10 @@ public sealed class PcRegistry(string root)
             }
 
             var record = new PcRecord(request.Pc, grant.Group, now.ToUniversalTime(), grant.Id, request.CodeProof);
+            // the PC's own signed registration and the console's signed code beside the record: a second centre added later
+            // (design 4.16) checks both itself – it does not have to believe this one
+            Write(Path.Combine(Pcs, record.Id + ".registracia.json"), request.ToJson());
+            Write(Path.Combine(Pcs, record.Id + ".kod.json"), grant.ToJson());
             Write(Path.Combine(Pcs, record.Id + ".json"), record.ToJson());
             return (record, "");
         }
@@ -113,6 +127,8 @@ public sealed class PcRegistry(string root)
             }
 
             File.Delete(file);
+            File.Delete(Path.Combine(Pcs, id + ".registracia.json"));
+            File.Delete(Path.Combine(Pcs, id + ".kod.json"));
             return true;
         }
     }

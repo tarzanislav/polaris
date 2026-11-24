@@ -399,6 +399,10 @@ public static class CentreLinkChecks
             // the record lets the console (which knew the code) confirm the PC for another centre
             var kept = registry.Find(second.Public() is var p2 ? PcIdentity.IdOf(Convert.ToBase64String(p2.Export())) : "")!;
             Expect.Equal(PcRecord.ProofOf(RegistrationCode.Normalize(code)!, kept.Pc), kept.CodeProof, "dôkaz kódu pri PC");
+            var proof = registry.Proof(kept.Id);
+            Expect.True(proof is { } pr && pr.Request.Proven(server.Pin, pr.Request.Time is var t ? DateTimeOffset.Parse(t, System.Globalization.CultureInfo.InvariantCulture) : now)
+                && RegistrationCode.GrantHash(pr.Request.Ticket) == pr.Grant.CodeHash && pr.Grant.Check(trusted, pr.Grant.NotAfterUtc.AddMinutes(-1)).Console is not null,
+                "registrácia PC sa dá neskôr overiť aj inde: podpis PC, kód z konzoly, podpis konzoly");
             Expect.True(!Directory.EnumerateFiles(Path.Combine(dir, "pc"), "*", SearchOption.AllDirectories).Any(f => File.ReadAllText(f).Contains(RegistrationCode.Normalize(code)!, StringComparison.Ordinal)), "samotný kód centrum nikde nemá");
         }
         finally
