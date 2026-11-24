@@ -284,10 +284,15 @@ public static partial class ProfileValues
     /// application hive); a file Windows left with changes still in its logs after a sign-out (it then answers 1009,
     /// "corrupt") is loaded as Windows loads it at a sign-in – it finishes those changes – under a name of its own in
     /// HKEY_LOCAL_MACHINE for a moment, and unloaded at the end.</summary>
-    public static ProfileHive OpenProfile(string file, string what)
+    public static ProfileHive OpenProfile(string file, string what, bool asWindows = false)
     {
         try
         {
+            if (asWindows)
+            {
+                throw new SystemCallException("Otvorenie ako pri prihlásení", 1009);
+            }
+
             return new ProfileHive(OpenHive(file, what), null);
         }
         catch (SystemCallException e) when (e.Code != 32 /* in use */ && e.Code != 5 /* access denied */)

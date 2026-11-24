@@ -131,6 +131,16 @@ public static partial class VaultSelfTest
                 Expect(false, "hodnota receptu do profilu po odhlásení: " + e.Message);
             }
 
+            // the way of Windows itself (what the pilot needed: privately Windows answered 1009 there)
+            using (var windows = ProfileValues.OpenProfile(Path.Combine(profile, "NTUSER.DAT"), "profilu", asWindows: true))
+            {
+                value.Data = "9";
+                ProfileValues.Write(windows.Root, value);
+                windows.Root.Flush();
+                Expect(windows.AsWindows && ProfileValues.Read(windows.Root, value).State == Observed.Present, "register profilu načítaný ako pri prihlásení: hodnota zapísaná");
+            }
+
+            Expect(ProfileValues.InProfile(sid, r => ProfileValues.Read(r, value))?.State == Observed.Present, "po uvoľnení registra hodnota ostala v súbore profilu");
             value.Data = "8";
             Expect(ProfileValues.AfterRestore(profile, [value]) is null && ProfileValues.InProfile(sid, r => ProfileValues.Read(r, value))?.State == Observed.Present, "hodnoty receptu po návrate z trezoru do takého registra");
 
