@@ -152,6 +152,8 @@ public static class ComfortChecks
         var line = RunReport.ReadJournal(RunReport.ToLine(run) + "\n").Single();
         Expect.Equal(run.Results.Count, line.Results.Count, "riadok denníka sa prečíta späť");
 
+        var withoutIcon = Measurement.Record("ziak", null, (8UL << 30, 5UL << 30), group, 0, at, at);
+        Expect.True(withoutIcon.Results[0].Message.Contains("nezmeraný", StringComparison.Ordinal) && withoutIcon.Results.Count > 2, "bez ikony: pamäť áno, čas plochy nie");
         var gone = Measurement.Record("ziak", 40, null, [], 0, at, at);
         Expect.True(gone.Results.Any(r => r.Message == "relácia už skončila"), "relácia skončila pred meraním");
         Expect.Equal("512 MB", Measurement.Size(512L << 20), "MB");

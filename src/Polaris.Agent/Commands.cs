@@ -333,11 +333,11 @@ public static class Commands
     private static int Measurements(int count, TextWriter output, AgentHost host)
     {
         var runs = File.Exists(host.JournalPath)
-            ? RunReport.ReadJournal(File.ReadAllText(host.JournalPath, Encoding.UTF8)).Where(r => r.Recipe == Measurement.Recipe).TakeLast(count).ToList()
+            ? RunReport.ReadJournal(File.ReadAllText(host.JournalPath, Encoding.UTF8)).Where(r => r.Recipe is Measurement.Recipe or Measurement.SkippedRecipe).TakeLast(count).ToList()
             : [];
         if (runs.Count == 0)
         {
-            output.WriteLine("Zatiaľ žiadne meranie – meria služba POLARIS agent pri každom prihlásení (ikona dá vedieť, kedy je plocha hotová).");
+            output.WriteLine("Zatiaľ žiadne meranie – meria služba POLARIS agent pri každom prihlásení (ikona dá vedieť, kedy je plocha hotová; bez nej služba zmeria pamäť po 3 minútach).");
             return 0;
         }
 

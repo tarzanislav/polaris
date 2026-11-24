@@ -88,7 +88,22 @@ internal sealed unsafe class Tray
         {
             // the taskbar took the icon: the desktop is ready – the agent measures how long the sign-in took
             _readySaid = true;
-            _ = Task.Run(() => StoreClient.Ask(new StoreRequest { Command = StoreClient.ReadyCommand }, StoreClient.ReadyLimit, connectMilliseconds: 3000));
+            _ = Task.Run(SayReady);
+        }
+    }
+
+    /// <summary>"Ready" to the agent; tried again a few times when the service is busy or not up yet (sign-in right after
+    /// the start of Windows).</summary>
+    private static void SayReady()
+    {
+        for (var attempt = 0; attempt < 6; attempt++)
+        {
+            if (StoreClient.Ask(new StoreRequest { Command = StoreClient.ReadyCommand }, StoreClient.ReadyLimit, connectMilliseconds: 3000).Ok)
+            {
+                return;
+            }
+
+            Thread.Sleep(TimeSpan.FromSeconds(5));
         }
     }
 

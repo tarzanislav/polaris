@@ -33,7 +33,7 @@ public static class AgentService
         using var meter = new LogonMeter(journal, host.Clock);
         var door = new Thread(() => StorePipe.Serve(store, Log, stop, ready: meter.Ready)) { IsBackground = true, Name = "Školský obchod" };
         door.Start();
-        var icons = new Thread(() => WatchIcons(host, stop)) { IsBackground = true, Name = "Ikona žiaka" };
+        var icons = new Thread(() => WatchIcons(host, stop, meter)) { IsBackground = true, Name = "Ikona žiaka" };
         icons.Start();
         var centre = new Thread(() => FollowCentre(host, stop)) { IsBackground = true, Name = "Centrum" };
         centre.Start();
@@ -119,7 +119,7 @@ public static class AgentService
 
     /// <summary>Every <see cref="IconWatch.Look"/>: the pupil's icon runs in every signed-in session; a fallen one is
     /// started again. When the service stops, the icons it started end.</summary>
-    private static void WatchIcons(AgentHost host, CancellationToken stop)
+    private static void WatchIcons(AgentHost host, CancellationToken stop, LogonMeter meter)
     {
         var program = IconLauncher.InstalledProgram;
         var watch = new IconWatch(
@@ -135,9 +135,19 @@ public static class AgentService
         {
             while (!stop.IsCancellationRequested)
             {
+                var sessions = IconLauncher.ActiveSessions();
                 if (File.Exists(program))
                 {
-                    watch.Check(IconLauncher.ActiveSessions(), host.Clock());
+                    watch.Check(sessions, host.Clock());
+                }
+
+                try
+                {
+                    meter.Seen(sessions);
+                }
+                catch (Exception e) when (e is not OutOfMemoryException)
+                {
+                    // a measurement never stops the icons
                 }
 
                 stop.WaitHandle.WaitOne(IconWatch.Look);

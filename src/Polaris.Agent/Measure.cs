@@ -13,6 +13,9 @@ public sealed record ProcessUse(string Name, long Bytes, int Count);
 public static class Measurement
 {
     public const string Recipe = "(meranie)";
+
+    /// <summary>The journal record of a sign-in that was not measured (and why).</summary>
+    public const string SkippedRecipe = "(prihlásenie)";
     public static readonly TimeSpan After = TimeSpan.FromMinutes(2);
 
     /// <summary>A sign-in longer ago than this is not measured (the icon started again later, not at the sign-in).</summary>
@@ -20,9 +23,13 @@ public static class Measurement
 
     public const int Top = 10;
 
+    /// <summary>When the icon has not said "ready" this long after a sign-in, the service measures without it (the time of
+    /// the desktop is then not known, the memory still is).</summary>
+    public static readonly TimeSpan WaitForIcon = TimeSpan.FromMinutes(3);
+
     public static RunRecord Record(
         string account,
-        double logonSeconds,
+        double? logonSeconds,
         (ulong Total, ulong Available)? memory,
         IReadOnlyList<ProcessUse> session,
         long services,
@@ -31,7 +38,9 @@ public static class Measurement
     {
         var results = new List<ChangeResult>
         {
-            Line("prihlasenie", $"prihlásenie konta {account}", $"pracovná plocha za {Polaris.Core.Format.Decimal(logonSeconds, 0)} s"),
+            Line("prihlasenie", $"prihlásenie konta {account}", logonSeconds is { } seconds
+                ? $"pracovná plocha za {Polaris.Core.Format.Decimal(seconds, 0)} s"
+                : $"čas plochy nezmeraný (ikona sa do {WaitForIcon.TotalMinutes:0} min neozvala)"),
         };
         if (memory is { } m && m.Total > 0)
         {
@@ -86,6 +95,7 @@ public sealed class LogonMeter(Action<RunRecord> journal, Func<DateTimeOffset> c
     private readonly List<Timer> _timers = [];
     private readonly Lock _gate = new();
 
+    /// <summary>The icon of the session says its desktop is ready: the time since the sign-in now, the memory later.</summary>
     public void Ready(int session)
     {
         if (Polaris.Windows.Logons.Of(session) is not { } logon)
@@ -95,30 +105,59 @@ public sealed class LogonMeter(Action<RunRecord> journal, Func<DateTimeOffset> c
         }
 
         var now = clock();
-        var took = now - logon.LogonUtc;
+        Start(logon, now - logon.LogonUtc, now, fromIcon: true);
+    }
+
+    /// <summary>Every look of the service at the sessions: a sign-in whose icon has not said "ready" in
+    /// <see cref="Measurement.WaitForIcon"/> is measured without it – a measurement never depends on the icon alone.</summary>
+    public void Seen(IEnumerable<int> sessions)
+    {
+        var now = clock();
+        foreach (var session in sessions)
+        {
+            if (Polaris.Windows.Logons.Of(session) is { } logon && now - logon.LogonUtc >= Measurement.WaitForIcon)
+            {
+                Start(logon, null, now, fromIcon: false);
+            }
+        }
+    }
+
+    private void Start(Polaris.Windows.SessionLogon logon, TimeSpan? took, DateTimeOffset now, bool fromIcon)
+    {
+        var session = logon.Session;
         lock (_gate)
         {
             if (_measured.TryGetValue(session, out var last) && last == logon.LogonUtc)
             {
-                return; // the icon started again in the same sign-in
+                return; // this sign-in is measured (or waits for its measurement) already
             }
 
             _measured[session] = logon.LogonUtc;
-            if (logon.LogonUtc < _serviceStarted && !_startedWithWindows)
+            if (!fromIcon && now - logon.LogonUtc > Measurement.Longest)
             {
-                return; // the service started later than the sign-in: not a measurement of the sign-in
+                return; // a sign-in long before (the service started later): nothing to say about it
             }
 
-            if (took > Measurement.Longest || took < TimeSpan.Zero)
+            if (logon.LogonUtc < _serviceStarted - TimeSpan.FromSeconds(5) && !_startedWithWindows)
             {
-                Skipped(session, $"plocha hotová {took.TotalMinutes:0} min po prihlásení – mimo merania");
+                Skipped(session, "služba sa spustila až po prihlásení (napr. po aktualizácii) – meria sa nasledujúce prihlásenie");
                 return;
             }
 
+            var since = now - logon.LogonUtc;
+            if (since > Measurement.Longest || since < TimeSpan.Zero)
+            {
+                Skipped(session, fromIcon
+                    ? $"plocha hotová {since.TotalMinutes:0} min po prihlásení – mimo merania"
+                    : $"prihlásenie pred {since.TotalMinutes:0} min – mimo merania");
+                return;
+            }
+
+            // from the icon: the memory two minutes after the desktop was ready; without it: now (the sign-in is past)
             Timer? timer = null;
             timer = new Timer(_ =>
             {
-                Measure(logon, took.TotalSeconds, now);
+                Measure(logon, took?.TotalSeconds, now);
                 lock (_gate)
                 {
                     _timers.Remove(timer!);
@@ -127,7 +166,7 @@ public sealed class LogonMeter(Action<RunRecord> journal, Func<DateTimeOffset> c
                 timer!.Dispose();
             });
             _timers.Add(timer);
-            timer.Change(Measurement.After, Timeout.InfiniteTimeSpan);
+            timer.Change(fromIcon ? Measurement.After : TimeSpan.Zero, Timeout.InfiniteTimeSpan);
         }
     }
 
@@ -136,7 +175,7 @@ public sealed class LogonMeter(Action<RunRecord> journal, Func<DateTimeOffset> c
         {
             StartedUtc = clock(),
             FinishedUtc = clock(),
-            Recipe = "(prihlásenie)",
+            Recipe = Measurement.SkippedRecipe,
             Results = [new ChangeResult("meranie", $"meranie prihlásenia (relácia {session})", ChangeKind.None, true, "nezmerané: " + why, 0)],
         });
 
@@ -149,7 +188,7 @@ public sealed class LogonMeter(Action<RunRecord> journal, Func<DateTimeOffset> c
         }
     }
 
-    private void Measure(Polaris.Windows.SessionLogon logon, double seconds, DateTimeOffset ready)
+    private void Measure(Polaris.Windows.SessionLogon logon, double? seconds, DateTimeOffset ready)
     {
         try
         {
