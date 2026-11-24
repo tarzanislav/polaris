@@ -17,7 +17,7 @@ public sealed class ProfileTemplateHandler(string? hiveFile = null, bool? existi
     /// <summary>Existing profiles too – by default only with the real template (a test with a copy touches nothing else).</summary>
     private readonly bool _existing = existingProfiles ?? hiveFile is null;
 
-    private RegistryKey? _root;
+    private ProfileHive? _root;
 
     public bool CanHandle(Element element) => element is UserRegistryElement or SoundsElement;
 
@@ -44,7 +44,7 @@ public sealed class ProfileTemplateHandler(string? hiveFile = null, bool? existi
                     return found with { Detail = $"v profile konta {account}: {found.Detail}".TrimEnd(' ', ':') };
                 }
             }
-            catch (SystemCallException)
+            catch (Exception e) when (e is SystemCallException or InvalidOperationException)
             {
                 // a profile that cannot be opened now (just signing in): written after its next return from the trezor
             }
@@ -76,7 +76,7 @@ public sealed class ProfileTemplateHandler(string? hiveFile = null, bool? existi
                     return true;
                 });
             }
-            catch (Exception e) when (e is SystemCallException or IOException or UnauthorizedAccessException)
+            catch (Exception e) when (e is SystemCallException or IOException or UnauthorizedAccessException or InvalidOperationException)
             {
                 failed.Add($"{account} ({e.Message})");
             }
@@ -104,7 +104,7 @@ public sealed class ProfileTemplateHandler(string? hiveFile = null, bool? existi
         return Path.Combine(Environment.ExpandEnvironmentVariables(folder), "NTUSER.DAT");
     }
 
-    private RegistryKey Root() => _root ??= ProfileValues.OpenHive(hiveFile ?? DefaultHiveFile(), "predlohy profilov");
+    private RegistryKey Root() => (_root ??= ProfileValues.OpenProfile(hiveFile ?? DefaultHiveFile(), "predlohy profilov")).Root;
 }
 
 /// <summary>Values of profiles in existing profiles: the shared accounts whose sessions POLARIS cleans or returns from the
@@ -240,8 +240,8 @@ public static partial class ProfileValues
             return default;
         }
 
-        using var hive = OpenHive(file, "profilu");
-        return work(hive);
+        using var hive = OpenProfile(file, "profilu");
+        return work(hive.Root);
     }
 
     /// <summary>After a return from the trezor (the account still locked): every kept value into the profile's registry.
@@ -257,13 +257,13 @@ public static partial class ProfileValues
 
         try
         {
-            using var hive = OpenHive(file, "profilu");
+            using var hive = OpenProfile(file, "profilu");
             var failed = 0;
             foreach (var value in values)
             {
                 try
                 {
-                    Write(hive, value);
+                    Write(hive.Root, value);
                 }
                 catch (Exception e) when (e is InvalidDataException or IOException or UnauthorizedAccessException or ArgumentException)
                 {
@@ -271,12 +271,37 @@ public static partial class ProfileValues
                 }
             }
 
-            hive.Flush();
+            hive.Root.Flush();
             return failed == 0 ? null : $"hodnoty receptu: {failed} z {values.Count} sa nezapísali";
         }
-        catch (SystemCallException e)
+        catch (Exception e) when (e is SystemCallException or InvalidOperationException)
         {
             return "hodnoty receptu sa nezapísali: " + e.Message;
+        }
+    }
+
+    /// <summary>The registry file of a profile or of the template: privately for this process when Windows lets it (an
+    /// application hive); a file Windows left with changes still in its logs after a sign-out (it then answers 1009,
+    /// "corrupt") is loaded as Windows loads it at a sign-in – it finishes those changes – under a name of its own in
+    /// HKEY_LOCAL_MACHINE for a moment, and unloaded at the end.</summary>
+    public static ProfileHive OpenProfile(string file, string what)
+    {
+        try
+        {
+            return new ProfileHive(OpenHive(file, what), null);
+        }
+        catch (SystemCallException e) when (e.Code != 32 /* in use */ && e.Code != 5 /* access denied */)
+        {
+            var loaded = Polaris.Windows.LoadedHive.Load(file, "POLARIS-profil-" + Guid.NewGuid().ToString("N")[..8]);
+            try
+            {
+                return new ProfileHive(loaded.Open("", writable: true), loaded);
+            }
+            catch
+            {
+                loaded.Dispose();
+                throw;
+            }
         }
     }
 
@@ -613,5 +638,22 @@ public static class SessionCleaner
         var note = beforeDelete?.Invoke(account);
         Profiles.Delete(sid);
         return new Result(true, $"profil konta {account} zmazaný, ďalšie prihlásenie začne načisto{(unfit is null ? "" : $" (trezor: {unfit})")}{(note is { Length: > 0 } ? "; " + note : "")}");
+    }
+}
+
+/// <summary>The registry of a profile opened for a moment: the root key and, when it had to be loaded as Windows loads it,
+/// the loaded file – unloaded after the key is closed.</summary>
+[SupportedOSPlatform("windows")]
+public sealed class ProfileHive(RegistryKey root, Polaris.Windows.LoadedHive? loaded) : IDisposable
+{
+    public RegistryKey Root { get; } = root;
+
+    /// <summary>Loaded as at a sign-in (not privately as an application hive).</summary>
+    public bool AsWindows => loaded is not null;
+
+    public void Dispose()
+    {
+        Root.Dispose();
+        loaded?.Dispose();
     }
 }

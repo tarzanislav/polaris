@@ -21,7 +21,8 @@ public static partial class VaultSelfTest
         var folder = Path.Combine(Path.GetTempPath(), "polaris-trezor-" + Guid.NewGuid().ToString("N")[..8]);
         var stateKey = @"SOFTWARE\PolarisSkuska\Trezor" + Guid.NewGuid().ToString("N")[..8];
         var vault = new ProfileVault(folder, stateKey);
-        Net("user", account, "Ab1-" + Guid.NewGuid().ToString("N")[..10], "/add");
+        var password = "Ab1-" + Guid.NewGuid().ToString("N")[..10];
+        Net("user", account, password, "/add");
         try
         {
             var sid = Profiles.SidOf(account) ?? throw new InvalidOperationException("skúšobné konto sa nevytvorilo");
@@ -103,6 +104,36 @@ public static partial class VaultSelfTest
             Expect((Accounts.Flags(account) & Accounts.Disabled) == 0, "konto nie je zablokované");
             Expect(SessionCleaner.Clean(account, SessionCleaning.Restore, DateTime.Now, vault: vault).Message == SessionCleaner.AlreadyClean, "druhýkrát niet čo vracať");
 
+            // a real sign-in and sign-out (the registry of the profile as Windows leaves it, its changes partly still in
+            // the logs), then a value of a recipe into it – as after the sign-out of a pupil
+            var signIn = SignInAndOut(account, password);
+            Expect(string.IsNullOrEmpty(signIn), "prihlásenie a odhlásenie skúšobného konta" + (string.IsNullOrEmpty(signIn) ? "" : ": " + signIn));
+            var value = new UserRegistryElement { Id = "hodnota", Path = @"Software\PolarisSkuska", Name = "PoOdhlaseni", Kind = RegistryKind.DWord, Data = "7" };
+            try
+            {
+                using (var opened = ProfileValues.OpenProfile(Path.Combine(profile, "NTUSER.DAT"), "profilu"))
+                {
+                    Expect(true, opened.AsWindows
+                        ? "register po odhlásení otvorený ako pri prihlásení (súkromne ho Windows neotvoril)"
+                        : "register po odhlásení otvorený súkromne");
+                }
+
+                ProfileValues.InProfile(sid, r =>
+                {
+                    ProfileValues.Write(r, value);
+                    r.Flush();
+                    return true;
+                });
+                Expect(ProfileValues.InProfile(sid, r => ProfileValues.Read(r, value))?.State == Observed.Present, "hodnota receptu v registri profilu po skutočnom odhlásení");
+            }
+            catch (Exception e) when (e is SystemCallException or InvalidOperationException)
+            {
+                Expect(false, "hodnota receptu do profilu po odhlásení: " + e.Message);
+            }
+
+            value.Data = "8";
+            Expect(ProfileValues.AfterRestore(profile, [value]) is null && ProfileValues.InProfile(sid, r => ProfileValues.Read(r, value))?.State == Observed.Present, "hodnoty receptu po návrate z trezoru do takého registra");
+
             // a profile made again does not fit the old trezor – deleted as without one
             Profiles.Delete(sid);
             Expect(CreateProfile(sid, account, path, (uint)path.Length) == 0, "nový profil");
@@ -155,6 +186,75 @@ public static partial class VaultSelfTest
         p.StandardError.ReadToEnd();
         p.WaitForExit();
     }
+
+    /// <summary>Signs the account in and out as Windows does (its profile and registry loaded, a value changed, unloaded).
+    /// Null or empty when it went; else why not.</summary>
+    private static string? SignInAndOut(string account, string password)
+    {
+        Polaris.Windows.Privileges.Enable(Polaris.Windows.Privileges.Backup);
+        Polaris.Windows.Privileges.Enable(Polaris.Windows.Privileges.Restore);
+        if (!LogonUser(account, ".", password, 2 /* interactive */, 0, out var token))
+        {
+            return "LogonUser: chyba " + Marshal.GetLastPInvokeError();
+        }
+
+        try
+        {
+            var info = new ProfileInfo { Size = Marshal.SizeOf<ProfileInfo>(), Flags = 1 /* PI_NOUI */, UserName = Marshal.StringToHGlobalUni(account) };
+            try
+            {
+                if (!LoadUserProfile(token, ref info))
+                {
+                    return "LoadUserProfile: chyba " + Marshal.GetLastPInvokeError();
+                }
+
+                using (var user = Registry.Users.OpenSubKey(Profiles.SidOf(account)!, writable: true))
+                using (var key = user?.CreateSubKey(@"Software\PolarisSkuska", writable: true))
+                {
+                    key?.SetValue("Prihlaseny", DateTime.UtcNow.ToString("O", System.Globalization.CultureInfo.InvariantCulture));
+                }
+
+                return UnloadUserProfile(token, info.Profile) ? "" : "UnloadUserProfile: chyba " + Marshal.GetLastPInvokeError();
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(info.UserName);
+            }
+        }
+        finally
+        {
+            CloseHandle(token);
+        }
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct ProfileInfo
+    {
+        public int Size;
+        public int Flags;
+        public nint UserName;
+        public nint ProfilePath;
+        public nint DefaultPath;
+        public nint ServerName;
+        public nint PolicyPath;
+        public nint Profile;
+    }
+
+    [LibraryImport("advapi32.dll", EntryPoint = "LogonUserW", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool LogonUser(string user, string domain, string password, int type, int provider, out nint token);
+
+    [LibraryImport("userenv.dll", EntryPoint = "LoadUserProfileW", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool LoadUserProfile(nint token, ref ProfileInfo info);
+
+    [LibraryImport("userenv.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool UnloadUserProfile(nint token, nint profile);
+
+    [LibraryImport("kernel32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool CloseHandle(nint handle);
 
     [LibraryImport("userenv.dll", EntryPoint = "CreateProfile", StringMarshalling = StringMarshalling.Utf16)]
     private static partial int CreateProfile(string sid, string userName, [Out] char[] profilePath, uint length);
