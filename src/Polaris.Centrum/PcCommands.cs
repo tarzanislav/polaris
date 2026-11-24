@@ -136,9 +136,37 @@ public static partial class Commands
 
         var keyFile = RecipeSigning.KeyFromJson(File.ReadAllText(rest[1]));
         using var key = RecipeSigning.OpenPrivate(keyFile, secret($"Heslo ku kľúču {keyFile.Name}: ") ?? "");
-        // every console of the administrator the new PCs are to trust: this one and the public keys lying beside its key
+        var (ok, message, code, grant) = IssueCode(server, rest[1], keyFile, key, group, days, uses, utcNow, o.WriteLine);
+        if (!ok || code is null || grant is null)
+        {
+            o.WriteLine("Centrum kód neprijalo: " + message);
+            return 1;
+        }
+
+        o.WriteLine($"Kód na registráciu PC do skupiny {group}: {code}");
+        o.WriteLine($"Platí {days} {(days == 1 ? "deň" : "dni")} (do {grant.NotAfterUtc.ToLocalTime():d. M. yyyy H:mm}), najviac {uses} PC.");
+        o.WriteLine("PC budú dôverovať konzolám: " + string.Join(", ", grant.Consoles().Select(c => c.Name)) + ". Na PC (správca):");
+        o.WriteLine("  " + RegisterCommand(server, code));
+        o.WriteLine("Kód nikam neukladaj – centrum pozná len jeho odtlačok.");
+        return 0;
+    }
+
+    /// <summary>What to run on the PC (PowerShell as administrator, the agent installed as a service) to register it.</summary>
+    internal static string RegisterCommand((Uri Address, string Pin) server, string code) =>
+        $"& \"$env:ProgramFiles\\{Polaris.Core.Product.Name}\\polaris-agent.exe\" registrovat {server.Address} {server.Pin} {code}";
+
+    /// <summary>A code for the group, sealed with the consoles the new PCs are to trust (this one and the public keys lying
+    /// beside its key file), handed to the centre.</summary>
+    internal static (bool Ok, string Message, string? Code, RegistrationGrant? Grant) IssueCode(
+        (Uri Address, string Pin) server, string keyPath, ConsoleKeyFile keyFile, SigningKey key, string group, int days, int uses, DateTimeOffset now, Action<string> warn)
+    {
+        if (!PcRules.GroupName(group))
+        {
+            return (false, "Skupina: písmená, číslice, - a _ (do 40 znakov).", null, null);
+        }
+
         var trust = new List<TrustedConsole> { RecipeSigning.Trust(keyFile) };
-        foreach (var file in Directory.GetFiles(Path.GetDirectoryName(Path.GetFullPath(rest[1]))!, "*.verejny.json").Order(StringComparer.Ordinal))
+        foreach (var file in Directory.GetFiles(Path.GetDirectoryName(Path.GetFullPath(keyPath))!, "*.verejny.json").Order(StringComparer.Ordinal))
         {
             try
             {
@@ -146,25 +174,32 @@ public static partial class Commands
             }
             catch (InvalidDataException e)
             {
-                o.WriteLine($"Pozor: {Path.GetFileName(file)} vynechaný – {e.Message}");
+                warn($"Pozor: {Path.GetFileName(file)} vynechaný – {e.Message}");
             }
         }
 
         var code = RegistrationCode.Generate();
-        var grant = RegistrationGrant.Sign(group, utcNow.AddDays(days), uses, RegistrationCode.Normalize(code)!, key, trust);
-        var answer = Ask(server, CodesPath, Utf8NoBom.GetBytes(grant.ToJson()), key, utcNow);
-        if (!answer.Ok)
+        var grant = RegistrationGrant.Sign(group, now.AddDays(days), uses, RegistrationCode.Normalize(code)!, key, trust);
+        var answer = Ask(server, CodesPath, Utf8NoBom.GetBytes(grant.ToJson()), key, now);
+        return answer.Ok ? (true, answer.Message, code, grant) : (false, answer.Message, null, null);
+    }
+
+    /// <summary>The PCs of the centre with their last reports, as a trusted console asks for them.</summary>
+    internal static (bool Ok, string Message, DateTimeOffset Now, List<PcView> Pcs) FetchPcs((Uri Address, string Pin) server, SigningKey key, DateTimeOffset now)
+    {
+        var answer = Ask(server, PcsPath, Utf8NoBom.GetBytes(JsonText.Canonical(new JsonObject().Add("command", "list").Add("pc", ""))), key, now);
+        if (!answer.Ok || answer.Fields is not { } f)
         {
-            o.WriteLine("Centrum kód neprijalo: " + answer.Message);
-            return 1;
+            return (false, answer.Message, now, []);
         }
 
-        o.WriteLine($"Kód na registráciu PC do skupiny {group}: {code}");
-        o.WriteLine($"Platí {days} {(days == 1 ? "deň" : "dni")} (do {grant.NotAfterUtc.ToLocalTime():d. M. yyyy H:mm}), najviac {uses} PC.");
-        o.WriteLine("PC budú dôverovať konzolám: " + string.Join(", ", grant.Consoles().Select(c => c.Name)) + ". Na PC (správca):");
-        o.WriteLine($"  polaris-agent registrovat {server.Address} {server.Pin} {code}");
-        o.WriteLine("Kód nikam neukladaj – centrum pozná len jeho odtlačok.");
-        return 0;
+        return (true, "", f.Time("now", now), f.Array("pcs").Select(n => PcView.From(new JsonFields(n, "PC"))).ToList());
+    }
+
+    internal static (bool Ok, string Message) RemovePc((Uri Address, string Pin) server, SigningKey key, string id, DateTimeOffset now)
+    {
+        var answer = Ask(server, PcsPath, Utf8NoBom.GetBytes(JsonText.Canonical(new JsonObject().Add("command", "remove").Add("pc", id))), key, now);
+        return (answer.Ok, answer.Message);
     }
 
     /// <summary>stav KLUC --server URL ODTLAČOK [PC [odobrat]]: the PCs of the centre and what they last said.</summary>
@@ -180,15 +215,13 @@ public static partial class Commands
         var keyFile = RecipeSigning.KeyFromJson(File.ReadAllText(rest[0]));
         using var key = RecipeSigning.OpenPrivate(keyFile, secret($"Heslo ku kľúču {keyFile.Name}: ") ?? "");
         var wanted = rest.Count > 1 ? rest[1] : null;
-        var answer = Ask(server, PcsPath, Utf8NoBom.GetBytes(JsonText.Canonical(new JsonObject().Add("command", "list").Add("pc", ""))), key, utcNow);
-        if (!answer.Ok || answer.Fields is not { } f)
+        var (fetched, problem, now, pcs) = FetchPcs(server, key, utcNow);
+        if (!fetched)
         {
-            o.WriteLine("Centrum neodpovedalo: " + answer.Message);
+            o.WriteLine("Centrum neodpovedalo: " + problem);
             return 1;
         }
 
-        var now = f.Time("now", utcNow);
-        var pcs = f.Array("pcs").Select(n => PcView.From(new JsonFields(n, "PC"))).ToList();
         var matching = wanted is null ? [] : pcs.Where(p => p.Record.Id.StartsWith(wanted, StringComparison.OrdinalIgnoreCase) || string.Equals(p.Record.Pc.Name, wanted, StringComparison.OrdinalIgnoreCase)).ToList();
         if (wanted is not null && matching.Count != 1)
         {
@@ -198,7 +231,7 @@ public static partial class Commands
 
         if (rest.Count == 3)
         {
-            var removed = Ask(server, PcsPath, Utf8NoBom.GetBytes(JsonText.Canonical(new JsonObject().Add("command", "remove").Add("pc", matching[0].Record.Id))), key, utcNow);
+            var removed = RemovePc(server, key, matching[0].Record.Id, utcNow);
             o.WriteLine(removed.Message);
             return removed.Ok ? 0 : 1;
         }
@@ -264,7 +297,7 @@ public static partial class Commands
     }
 
     /// <summary>One PC as the console sees it.</summary>
-    private sealed record PcView(PcRecord Record, PcReport? Report, DateTimeOffset? Received)
+    internal sealed record PcView(PcRecord Record, PcReport? Report, DateTimeOffset? Received)
     {
         public static PcView From(JsonFields f)
         {
@@ -275,16 +308,16 @@ public static partial class Commands
             return new PcView(record, report, received);
         }
 
-        public string Line(DateTimeOffset now)
+        /// <summary>✓ in order, ! something to look at, ✗ silent, ? never reported – and what makes it so.</summary>
+        public (char Mark, List<string> Parts) State(DateTimeOffset now)
         {
             if (Report is not { } r || Received is not { } at)
             {
-                return $"{Record.Pc.Name,-16} ? zatiaľ bez hlásenia";
+                return ('?', ["zatiaľ bez hlásenia"]);
             }
 
-            var failed = RunReport.ReadJournal(string.Join("\n", r.Journal)).Where(x => x.Recipe is not "(meranie)" and not "(prihlásenie)").TakeLast(10).Sum(x => x.Failed);
+            var failed = Failures();
             var silent = now - at > Silent;
-            var mark = silent ? "✗" : failed > 0 || r.DevicesWithoutDriver > 0 ? "!" : "✓";
             var parts = new List<string>
             {
                 silent ? $"neozvalo sa {Ago(now - at)}" : $"ozvalo sa pred {Ago(now - at)}",
@@ -300,21 +333,34 @@ public static partial class Commands
                 parts.Add($"bez ovládača: {r.DevicesWithoutDriver}");
             }
 
-            if (r.TotalDiskBytes > 0 && r.FreeDiskBytes * 10 < r.TotalDiskBytes)
+            if (LowDisk)
             {
                 parts.Add($"málo miesta na disku ({PcSize(r.FreeDiskBytes)})");
             }
 
+            return (silent ? '✗' : failed > 0 || r.DevicesWithoutDriver > 0 || LowDisk ? '!' : '✓', parts);
+        }
+
+        /// <summary>Failures in the last ten runs of recipes (not measurements or skipped sign-ins).</summary>
+        public int Failures() => Report is { } r
+            ? RunReport.ReadJournal(string.Join("\n", r.Journal)).Where(x => x.Recipe is not "(meranie)" and not "(prihlásenie)").TakeLast(10).Sum(x => x.Failed)
+            : 0;
+
+        public bool LowDisk => Report is { TotalDiskBytes: > 0 } r && r.FreeDiskBytes * 10 < r.TotalDiskBytes;
+
+        public string Line(DateTimeOffset now)
+        {
+            var (mark, parts) = State(now);
             return $"{Record.Pc.Name,-16} {mark} {string.Join(" · ", parts)}";
         }
     }
 
-    private static string Ago(TimeSpan t) =>
+    internal static string Ago(TimeSpan t) =>
         t.TotalMinutes < 1 ? "chvíľou" : t.TotalHours < 1 ? $"{t.TotalMinutes:0} min" : t.TotalDays < 1 ? $"{t.TotalHours:0} h" : $"{t.TotalDays:0} d";
 
     private static string Uptime(long seconds) => Ago(TimeSpan.FromSeconds(seconds));
 
-    private static string PcSize(long bytes) =>
+    internal static string PcSize(long bytes) =>
         bytes >= 1L << 30 ? Polaris.Core.Format.Decimal(bytes / (double)(1L << 30), 1) + " GB" : Polaris.Core.Format.Decimal(bytes / (double)(1L << 20), 0) + " MB";
 
     private sealed record Answered(bool Ok, string Message, JsonFields? Fields);
@@ -340,7 +386,7 @@ public static partial class Commands
         }
     }
 
-    private static (Uri Address, string Pin) ServerOption(List<string> rest, string usage)
+    internal static (Uri Address, string Pin) ServerOption(List<string> rest, string usage)
     {
         var at = rest.IndexOf("--server");
         if (at < 0 || at + 2 >= rest.Count || !Uri.TryCreate(rest[at + 1], UriKind.Absolute, out var address) || address.Scheme != Uri.UriSchemeHttps

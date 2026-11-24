@@ -34,12 +34,24 @@ public sealed class ServerResponse
     public static ServerResponse Json(string json, string? etag = null) => new() { Body = Encoding.UTF8.GetBytes(json), ETag = etag };
 
     public static ServerResponse File(string path, string? etag = null) => new() { ContentType = "application/octet-stream", FilePath = path, ETag = etag };
+
+    /// <summary>A page or a script of the console: only from this server, never in a frame of another page.</summary>
+    public static ServerResponse Page(string contentType, string text) => new() { ContentType = contentType, Body = Encoding.UTF8.GetBytes(text), Strict = true };
+
+    /// <summary>Strict headers for pages: content only from this server, no frames, no referrer.</summary>
+    public bool Strict { get; init; }
 }
 
 /// <summary>The centre's own web server: TLS 1.2/1.3 by the system, HTTP/1.1, one request per connection, read-only.
 /// Every connection has a time limit and a size limit for its head; at most <see cref="MaxConnections"/> at once.</summary>
-public sealed class WebServer(IPEndPoint endpoint, X509Certificate2 certificate, Func<ServerRequest, ServerResponse> handler, Action<string> log, Func<string, bool>? acceptsBody = null)
+public sealed class WebServer(IPEndPoint endpoint, X509Certificate2? certificate, Func<ServerRequest, ServerResponse> handler, Action<string> log, Func<string, bool>? acceptsBody = null)
 {
+    /// <summary>Without a certificate the server speaks plain HTTP – only on the loopback address (the console on the
+    /// administrator's own PC), never on the network.</summary>
+    private readonly bool _plain = certificate is null
+        ? IPAddress.IsLoopback(endpoint.Address) ? true : throw new ArgumentException("Bez certifikátu len na 127.0.0.1.", nameof(certificate))
+        : false;
+
     public const int MaxHead = 8 * 1024;
 
     /// <summary>The only requests with a body are uploads to the paths <c>acceptsBody</c> names, never bigger than this.</summary>
@@ -55,11 +67,22 @@ public sealed class WebServer(IPEndPoint endpoint, X509Certificate2 certificate,
 
     public async Task RunAsync(CancellationToken stop, TaskCompletionSource? started = null)
     {
-        using var listener = new TcpListener(endpoint);
-        if (endpoint.Address.Equals(IPAddress.IPv6Any))
+        TcpListener listener;
+        try
         {
-            listener.Server.DualMode = true; // IPv4 and IPv6 on one port
+            listener = new TcpListener(endpoint);
+            if (endpoint.Address.Equals(IPAddress.IPv6Any))
+            {
+                listener.Server.DualMode = true; // IPv4 and IPv6 on one port
+            }
         }
+        catch (SocketException) when (endpoint.Address.Equals(IPAddress.IPv6Any))
+        {
+            // a server with IPv6 switched off (Debian with ipv6.disable=1): IPv4 alone
+            listener = new TcpListener(new IPEndPoint(IPAddress.Any, endpoint.Port));
+        }
+
+        using var listening = listener;
 
         listener.Start(MaxConnections);
         Port = ((IPEndPoint)listener.LocalEndpoint).Port;
@@ -97,14 +120,21 @@ public sealed class WebServer(IPEndPoint endpoint, X509Certificate2 certificate,
             {
                 limit.CancelAfter(HeadLimit);
                 client.NoDelay = true;
-                await using var tls = new SslStream(client.GetStream(), leaveInnerStreamOpen: false);
-                await tls.AuthenticateAsServerAsync(new SslServerAuthenticationOptions
+                Stream tls = client.GetStream();
+                if (!_plain)
                 {
-                    ServerCertificate = certificate,
-                    EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13,
-                    ClientCertificateRequired = false,
-                    CertificateRevocationCheckMode = X509RevocationMode.NoCheck,
-                }, limit.Token).ConfigureAwait(false);
+                    var secure = new SslStream(tls, leaveInnerStreamOpen: false);
+                    tls = secure;
+                    await secure.AuthenticateAsServerAsync(new SslServerAuthenticationOptions
+                    {
+                        ServerCertificate = certificate,
+                        EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13,
+                        ClientCertificateRequired = false,
+                        CertificateRevocationCheckMode = X509RevocationMode.NoCheck,
+                    }, limit.Token).ConfigureAwait(false);
+                }
+
+                await using var owned = tls;
 
                 var head = await ReadHeadAsync(tls, limit.Token).ConfigureAwait(false);
                 var (request, refusal) = Parse(head, remote, acceptsBody);
@@ -241,6 +271,13 @@ public sealed class WebServer(IPEndPoint endpoint, X509Certificate2 certificate,
         if (response.ETag is { } etag)
         {
             head.Append("ETag: ").Append(etag).Append("\r\n");
+        }
+
+        if (response.Strict)
+        {
+            head.Append("Content-Security-Policy: default-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'\r\n")
+                .Append("X-Frame-Options: DENY\r\n")
+                .Append("Referrer-Policy: no-referrer\r\n");
         }
 
         head.Append("\r\n");

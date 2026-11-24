@@ -271,6 +271,23 @@ jobs:
             if ($LASTEXITCODE -ne 0 -or $list -notmatch 'CI-PC') { "konzola PC nevidí"; exit 1 }
             & $c --subor $data stav $key --server https://127.0.0.1:18443/ $pin CI-PC
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            # the console in the browser: the page with strict headers, the classroom only with the key of this run
+            $konzolaOut = Join-Path $work "konzola.txt"
+            $konzola = Start-Process -FilePath $c -ArgumentList @('--subor', $data, 'konzola', $key, '--server', 'https://127.0.0.1:18443/', $pin, '--port', '18444', '--neotvarat') -PassThru -NoNewWindow -RedirectStandardOutput $konzolaOut
+            try {
+              Start-Sleep 3
+              $token = ([regex]::Match((Get-Content $konzolaOut -Raw), '#([0-9a-f]{48})')).Groups[1].Value
+              if (-not $token) { Get-Content $konzolaOut; "konzola nevypísala adresu"; exit 1 }
+              $page = Invoke-WebRequest -UseBasicParsing http://127.0.0.1:18444/
+              if ($page.Headers['Content-Security-Policy'] -notmatch "default-src 'self'") { "stránka konzoly nemá prísne hlavičky"; exit 1 }
+              $state = Invoke-RestMethod -Uri http://127.0.0.1:18444/api/stav -Headers @{ 'X-Polaris-Konzola' = $token }
+              if (-not $state.ok -or -not ($state.pcs | Where-Object name -eq 'CI-PC')) { $state | ConvertTo-Json -Depth 6; "konzola v prehliadači PC nevidí"; exit 1 }
+              "konzola v prehliadači: $($state.pcs.Count) PC, $($state.pcs[0].name) $($state.pcs[0].mark)"
+              $denied = try { Invoke-WebRequest -UseBasicParsing http://127.0.0.1:18444/api/stav | Out-Null; 0 } catch { [int]$_.Exception.Response.StatusCode }
+              if ($denied -ne 403) { "konzola odpovedala bez kľúča behu ($denied)"; exit 1 }
+            } finally {
+              Stop-Process -Id $konzola.Id -Force -ErrorAction SilentlyContinue
+            }
             # the private keys of the PC are encrypted by Windows for this machine and only for the system and administrators
             $keys = "$env:ProgramData\POLARIS\agent\pc\kluce.bin"
             if (-not (Test-Path $keys)) { "kľúče PC chýbajú"; exit 1 }

@@ -141,6 +141,26 @@ polaris-centrum stav spravca.kluc --server https://192.168.1.10:8443 ODTLAČOK [
 - Pre **dve centrá** (Debian aj Windows 11, návrh 4.16): záznam PC nesie dôkaz kódu, ktorý vie overiť len konzola, čo
   kód vydala – tá PC potvrdí aj druhému centru. Centrum beží rovnako aj na Windows 11 (CI to overuje).
 
+## Konzola v prehliadači (K7c)
+
+Na notebooku alebo učiteľskom PC (kde je kľúč konzoly) spusti:
+
+```
+polaris-centrum konzola notebook1.kluc --server https://192.168.1.10:8443 ODTLAČOK
+```
+
+Po zadaní hesla ku kľúču sa otvorí prehliadač s prehľadom učebne: **karty PC podľa skupín** (✓ v poriadku, ! pozrieť,
+✗ neozvalo sa, ? bez hlásenia), filter podľa značky, hľadanie, **detail PC** (model, Windows, agent, profil, disk,
+trezor, merania prihlásenia, denník s chybami), **Pridať PC** (vydá kód a ukáže príkaz pre PC na skopírovanie)
+a **Odobrať PC**. Stránka sa obnovuje každých 30 sekúnd. Nahrádza príkazy `kod` a `stav` (ostávajú pre skripty).
+
+- Konzola počúva **len na 127.0.0.1** tohto PC (port 8444, iný `--port`). Iné PC v sieti sa k nej nedostane.
+- Kľúč konzoly sa odomkne raz a ostane v programe; **prehliadač ho nikdy nedostane** – každú otázku centru podpíše
+  program. Stránka sa otvára adresou s **náhodným kľúčom tohto behu** za `#` (vypíše ho príkaz); bez neho konzola
+  neodpovedá. Iná stránka v prehliadači ho nevie prečítať ani poslať, adresa iného mena ako 127.0.0.1 sa odmietne.
+- Stránka je celá vlastná (žiadne knižnice ani nič z iných serverov), texty z centra idú do stránky vždy ako text.
+- Koniec: zatvor okno príkazu (Ctrl+C). Nový beh = nová adresa.
+
 ## Pripravuje sa
 
-Druhé centrum na Windows 11 ako služba a dorovnávanie centier, webová konzola s prehľadom učebne.
+Druhé centrum na Windows 11 ako služba a dorovnávanie centier; v konzole ovládače, softvér a ladenie.

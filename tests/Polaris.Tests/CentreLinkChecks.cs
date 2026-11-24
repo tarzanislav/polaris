@@ -421,4 +421,94 @@ public static class CentreLinkChecks
         Expect.True(RegistrationCode.Normalize("ABCD-EFGH") is null && RegistrationCode.Normalize("ABCD-EFGH-JKM!") is null, "krátky alebo s iným znakom");
         Expect.True(Enumerable.Range(0, 50).Select(_ => RegistrationCode.Generate()).Distinct().Count() == 50, "kódy sa neopakujú");
     }
+
+    /// <summary>A plain HTTP request to the console on this PC (its own server speaks HTTP only on 127.0.0.1).</summary>
+    private static (int Status, string Head, string Body) Http(int port, string method, string path, string? host = null, string? token = null, string? body = null)
+    {
+        using var client = new System.Net.Sockets.TcpClient("127.0.0.1", port);
+        using var stream = client.GetStream();
+        var bytes = body is null ? [] : Encoding.UTF8.GetBytes(body);
+        var head = $"{method} {path} HTTP/1.1\r\nHost: {host ?? $"127.0.0.1:{port}"}\r\n"
+            + (token is null ? "" : $"X-Polaris-Konzola: {token}\r\n")
+            + (body is null ? "" : $"Content-Type: application/json\r\nContent-Length: {bytes.Length}\r\n")
+            + "Connection: close\r\n\r\n";
+        stream.Write(Encoding.ASCII.GetBytes(head));
+        stream.Write(bytes);
+        using var reader = new StreamReader(stream, Encoding.UTF8);
+        var all = reader.ReadToEnd();
+        var cut = all.IndexOf("\r\n\r\n", StringComparison.Ordinal);
+        var status = int.Parse(all.AsSpan(9, 3), System.Globalization.CultureInfo.InvariantCulture);
+        return (status, all[..cut], all[(cut + 4)..]);
+    }
+
+    [Check]
+    public static void TheConsoleInTheBrowserShowsTheClassroomAndIssuesCodes()
+    {
+        var dir = Directory.CreateTempSubdirectory("polaris-konzola-").FullName;
+        try
+        {
+            var (secret, pub) = RecipeSigning.NewConsoleKey("notebook1", Password);
+            var keyPath = Path.Combine(dir, "notebook1.kluc");
+            File.WriteAllText(keyPath, RecipeSigning.ToJson(secret));
+            var registry = new PcRegistry(Path.Combine(dir, "pc"));
+            var now = T;
+            Running? centre = null;
+            var trusted = new List<TrustedConsole> { RecipeSigning.Trust(pub) };
+            var pcs = (ServerRequest r) => Polaris.Centrum.Commands.PcRoutes(registry, centre!.Pin, () => trusted, () => now)(r);
+            centre = new Running(Polaris.Centrum.Commands.Routes(Path.Combine(dir, "zverejnene"), null, null, pcs), dir, Polaris.Centrum.Commands.BodyPaths.Contains);
+            using var running = centre;
+
+            var free = new System.Net.Sockets.TcpListener(IPAddress.Loopback, 0);
+            free.Start();
+            var port = ((IPEndPoint)free.LocalEndpoint).Port;
+            free.Stop();
+            using var key = RecipeSigning.OpenPrivate(secret, Password);
+            var token = "skuskovy-kluc-tohto-behu";
+            var routes = Polaris.Centrum.Commands.ConsoleRoutes((centre.Address, centre.Pin), keyPath, secret, key, token, port, () => now);
+            using var stop = new CancellationTokenSource();
+            var started = new TaskCompletionSource();
+            var web = new WebServer(new IPEndPoint(IPAddress.Loopback, port), null, routes, _ => { }, p => p is "/api/kod" or "/api/odobrat");
+            var task = web.RunAsync(stop.Token, started);
+            started.Task.Wait(TimeSpan.FromSeconds(10));
+            Expect.Throws<ArgumentException>(() => _ = new WebServer(new IPEndPoint(IPAddress.Any, 0), null, routes, _ => { }), "bez certifikátu nikdy na sieti");
+
+            var page = Http(port, "GET", "/");
+            Expect.True(page.Status == 200 && page.Body.Contains("POLARIS", StringComparison.Ordinal) && page.Head.Contains("Content-Security-Policy: default-src 'self'", StringComparison.Ordinal) && page.Head.Contains("X-Frame-Options: DENY", StringComparison.Ordinal), "stránka konzoly s prísnymi hlavičkami");
+            Expect.True(Http(port, "GET", "/konzola.js").Body.Contains("X-Polaris-Konzola", StringComparison.Ordinal), "skript konzoly");
+            Expect.Equal(403, Http(port, "GET", "/api/stav").Status, "bez kľúča behu nič");
+            Expect.Equal(403, Http(port, "GET", "/api/stav", token: "iny").Status, "s cudzím kľúčom nič");
+            Expect.Equal(403, Http(port, "GET", "/", host: $"zly.example:{port}").Status, "cudzie meno (DNS rebinding) nič");
+
+            var empty = Http(port, "GET", "/api/stav", token: token);
+            Expect.True(empty.Status == 200 && empty.Body.Contains("\"pcs\":[]", StringComparison.Ordinal) && empty.Body.Contains("notebook1", StringComparison.Ordinal), "prázdna učebňa: " + empty.Body);
+
+            var issued = Http(port, "POST", "/api/kod", token: token, body: "{\"group\":\"ucebna\",\"days\":1,\"count\":5}");
+            var f = new Polaris.Json.JsonFields(Polaris.Json.JsonReader.Parse(issued.Body), "kód");
+            Expect.True(f.Bool("ok", false) && f.String("command").Contains(centre.Pin, StringComparison.Ordinal), "kód z konzoly v prehliadači: " + issued.Body);
+            var code = f.String("code");
+
+            using var pcKey = SigningKey.Create();
+            using var secrets = System.Security.Cryptography.ECDiffieHellman.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
+            using var p = pcKey.Public();
+            var identity = new PcIdentity(Convert.ToBase64String(p.Export()), Convert.ToBase64String(secrets.ExportSubjectPublicKeyInfo()), "PC-07", "Windows 11 Pro (26200)", "Vyrobca Skusobny 1", "0.1.0");
+            var reg = PinnedClient.Post(new Uri(centre.Address, CentrePaths.Register.TrimStart('/')), centre.Pin, Encoding.UTF8.GetBytes(RegistrationRequest.Make(code, identity, pcKey, centre.Pin, now)!.ToJson()), new Dictionary<string, string>(), 1 << 20, TimeSpan.FromSeconds(20));
+            Expect.True(reg.Ok, "PC zaregistrované kódom z konzoly v prehliadači");
+            var report = new PcReport(now, "0.1.0", "Windows 11 Pro (26200)", "Vyrobca Skusobny 1", "ucebna", "", "", 600, 9L << 30, 100L << 30, 0, "",
+                [RunReport.ToLine(new RunRecord { StartedUtc = now, FinishedUtc = now, Recipe = "ZAKLAD", Results = [new ChangeResult("x", "služba Xbox", ChangeKind.Install, false, "prístup odmietnutý", 0)] })], []);
+            var body = Encoding.UTF8.GetBytes(report.ToJson());
+            Expect.True(PinnedClient.Post(new Uri(centre.Address, CentrePaths.Report.TrimStart('/')), centre.Pin, body, PcSigning.Headers(body, CentrePaths.Report, centre.Pin, identity.Id, pcKey, now), 1 << 20, TimeSpan.FromSeconds(20)).Ok, "hlásenie");
+
+            var state = Http(port, "GET", "/api/stav", token: token).Body;
+            Expect.True(state.Contains("PC-07", StringComparison.Ordinal) && state.Contains("\"mark\":\"!\"", StringComparison.Ordinal) && state.Contains("služba Xbox: prístup odmietnutý", StringComparison.Ordinal) && state.Contains("málo miesta na disku", StringComparison.Ordinal), "učebňa v konzole: " + state);
+
+            Expect.True(Http(port, "POST", "/api/odobrat", token: token, body: $"{{\"id\":\"{identity.Id}\"}}").Body.Contains("\"ok\":true", StringComparison.Ordinal), "odobratie z konzoly");
+            Expect.True(Http(port, "GET", "/api/stav", token: token).Body.Contains("\"pcs\":[]", StringComparison.Ordinal), "PC zmizlo");
+            stop.Cancel();
+            task.Wait(TimeSpan.FromSeconds(10));
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
 }

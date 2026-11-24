@@ -52,6 +52,9 @@ public static partial class Commands
                                               kód na registráciu PC do skupiny (platí deň; centrum pozná len jeho odtlačok)
           stav KLUC --server https://SERVER:8443 ODTLAČOK [PC [odobrat]]
                                               PC v centre: kedy sa ozvali, profil, chyby receptov, merania, denník
+          konzola KLUC --server https://SERVER:8443 ODTLAČOK [--port 8444]
+                                              konzola v prehliadači na tomto PC: prehľad učebne, detail PC, kód pre
+                                              nové PC (kľúč ostáva v tomto programe; koniec Ctrl+C)
           kluc novy MENO                      nový kľúč konzoly: MENO.kluc (súkromný, chránený heslom) a MENO.verejny.json
           podpisat RECEPT KLUC                podpíše recept (vznikne RECEPT.podpis); PC s dôverou k tejto konzole ho prijmú
 
@@ -147,6 +150,11 @@ public static partial class Commands
             if (words[0] is "stav")
             {
                 return Status(words.Skip(1).ToList(), output, utcNow, secret ?? ReadSecret);
+            }
+
+            if (words[0] is "konzola")
+            {
+                return ConsoleCommand(words.Skip(1).ToList(), output, secret ?? ReadSecret, stop);
             }
 
             var store = new ClassroomStore(file);
