@@ -82,6 +82,8 @@ public static class Commands
           doverovat KLUC         toto PC bude prijímať recepty podpísané touto konzolou (KONZOLA.verejny.json; správca)
           nedoverovat ODTLACOK   zruší dôveru ku konzole (správca)
           konzoly                konzoly, ktorým toto PC dôveruje
+          instalovat             sprievodca (aj dvojklik na program): služba + registrácia kódom z konzoly,
+                                 adresu centra vezme z centrum.txt vedľa programu
           instalovat-sluzbu      skopíruje agenta do Program Files a spustí službu POLARIS agent (čistí relácie; správca)
           odinstalovat-sluzbu    zastaví a odstráni službu (správca)
           vycistit KONTO         hneď zmaže profil zdieľaného konta, ak na ňom nikto nie je prihlásený (správca)
@@ -744,7 +746,7 @@ public static class Commands
             ? args[1]
             : throw new InvalidDataException("Použitie: polaris-agent " + usage);
 
-    private static AgentHost DefaultHost() =>
+    internal static AgentHost DefaultHost() =>
         OperatingSystem.IsWindows() ? AgentHost.Windows() : throw new PlatformNotSupportedException();
 
     [SupportedOSPlatform("windows")]

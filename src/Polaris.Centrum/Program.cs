@@ -18,4 +18,11 @@ using var term = PosixSignalRegistration.Create(PosixSignal.SIGTERM, context =>
     stop.Cancel();
 });
 
+// a double click on Windows: the console of this PC (the key made the first time, the centre from centrum.txt)
+if (OperatingSystem.IsWindows() && args is [] && !Console.IsInputRedirected)
+{
+    serving = true;
+    return ConsoleSetup.Run(Console.Out, stop.Token);
+}
+
 return Commands.Run(args, Console.Out, DateTime.Now, DateTimeOffset.UtcNow, stop: stop.Token);

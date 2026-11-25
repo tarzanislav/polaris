@@ -9,6 +9,10 @@
     <PublishAot>true</PublishAot>
     <OptimizationPreference>Size</OptimizationPreference>
   </PropertyGroup>
+  <!-- the installer for PCs is one file: the icon program rides inside (dotnet publish … -p:ZiakExe=PATH) -->
+  <ItemGroup Condition="'$(ZiakExe)' != ''">
+    <EmbeddedResource Include="$(ZiakExe)" LogicalName="polaris-ziak.exe" />
+  </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Polaris.Core\Polaris.Core.csproj" />
     <ProjectReference Include="..\Polaris.Recipes\Polaris.Recipes.csproj" />

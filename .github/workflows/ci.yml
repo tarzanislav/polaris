@@ -138,6 +138,16 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           dotnet publish src/Polaris.Student -c Release -r win-x64 -o out/agent
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # the installers: one file each, a double click does the rest
+          dotnet publish src/Polaris.Agent -c Release -r win-x64 -o out/pc "-p:ZiakExe=$PWD/out/agent/polaris-ziak.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory -Force out/instalacky | Out-Null
+          Copy-Item out/pc/polaris-agent.exe out/instalacky/POLARIS-PC.exe
+          Copy-Item out/centrum/polaris-centrum.exe out/instalacky/POLARIS-konzola.exe
+          $inside = (Get-Item out/instalacky/POLARIS-PC.exe).Length - (Get-Item out/agent/polaris-agent.exe).Length
+          if ($inside -lt (Get-Item out/agent/polaris-ziak.exe).Length) { "ikona žiaka nie je v inštalačke PC"; exit 1 }
+          & ./out/instalacky/POLARIS-PC.exe verzia
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & ./out/agent/polaris-agent.exe overit recepty/ukazka-kancelarsky.json
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           # the sample software sets: valid, only stable versions, and what this PC would change
@@ -343,6 +353,11 @@ jobs:
             out/agent/polaris-ziak.exe
             recepty/*.json
             docs/recept.md
+          retention-days: 14
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: polaris-instalacky
+          path: out/instalacky/
           retention-days: 14
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

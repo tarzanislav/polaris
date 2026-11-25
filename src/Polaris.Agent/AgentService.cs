@@ -413,6 +413,17 @@ public static class AgentService
                 File.Copy(icon, IconLauncher.InstalledProgram, overwrite: true);
                 output.WriteLine("Ikona žiaka: služba ju spustí v každej prihlásenej relácii a padnutú spustí znova.");
             }
+            else if (typeof(AgentService).Assembly.GetManifestResourceStream(IconLauncher.ProgramName) is { } inside)
+            {
+                // the one-file installer carries the icon program inside
+                using (inside)
+                using (var file = File.Create(IconLauncher.InstalledProgram))
+                {
+                    inside.CopyTo(file);
+                }
+
+                output.WriteLine("Ikona žiaka: služba ju spustí v každej prihlásenej relácii a padnutú spustí znova.");
+            }
         }
 
         ServiceManager.Install(Name, DisplayName, Description, $"\"{target}\" sluzba");

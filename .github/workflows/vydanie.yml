@@ -1,0 +1,93 @@
+name: Vydanie
+
+# A release for people, not for developers: the installers as plain files with fixed links (no ZIP, no sign-in).
+# Starts with a tag v*; the release itself waits in the environment "vydanie" until the owner approves it
+# (Actions → the run → Review deployments).
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_NOLOGO: 'true'
+  DOTNET_CLI_TELEMETRY_OPTOUT: 'true'
+
+jobs:
+  windows:
+    name: Installers for Windows
+    runs-on: windows-2025
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: .NET 10 SDK
+        run: |
+          if (-not (dotnet --list-sdks 2>$null | Select-String '^10\.')) {
+            Invoke-WebRequest https://dot.net/v1/dotnet-install.ps1 -OutFile $env:RUNNER_TEMP/dotnet-install.ps1
+            & $env:RUNNER_TEMP/dotnet-install.ps1 -Channel 10.0 -InstallDir "$env:ProgramFiles/dotnet"
+          }
+      - name: POLARIS-PC.exe and POLARIS-konzola.exe
+        run: |
+          dotnet publish src/Polaris.Student -c Release -r win-x64 -o out/ziak
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet publish src/Polaris.Agent -c Release -r win-x64 -o out/pc "-p:ZiakExe=$PWD/out/ziak/polaris-ziak.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet publish src/Polaris.Centrum -c Release -r win-x64 -o out/centrum
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory -Force out/vydanie | Out-Null
+          Copy-Item out/pc/polaris-agent.exe out/vydanie/POLARIS-PC.exe
+          Copy-Item out/centrum/polaris-centrum.exe out/vydanie/POLARIS-konzola.exe
+          & ./out/vydanie/POLARIS-PC.exe verzia
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: vydanie-windows
+          path: out/vydanie/
+
+  debian:
+    name: Package for Debian
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: .NET 10 SDK
+        run: |
+          if ! dotnet --list-sdks 2>/dev/null | grep -q '^10\.'; then sudo apt-get update -q && sudo apt-get install -y -q dotnet-sdk-10.0; fi
+      - name: polaris-centrum_VERSION_amd64.deb
+        run: |
+          bash tools/ci/dotnet.sh publish src/Polaris.Centrum -c Release -r linux-x64 -o out/centrum-linux
+          version="${GITHUB_REF_NAME#v}"
+          bash tools/debian/balik-deb.sh "$version" out/centrum-linux/polaris-centrum out/vydanie
+          cp tools/debian/centrum.sh out/vydanie/
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: vydanie-debian
+          path: out/vydanie/
+
+  release:
+    name: Release (after the owner's approval)
+    needs: [windows, debian]
+    runs-on: ubuntu-24.04
+    environment: vydanie
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Release with the installers
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --dir stiahnute
+          mkdir vydanie && find stiahnute -type f -exec mv {} vydanie/ \;
+          ls -l vydanie
+          cat > poznamky.md <<'TEXT'
+          **Inštalácia**
+
+          - **Server (Debian):** `apt install ./polaris-centrum_*_amd64.deb`, potom `polaris-centrum-nastavit MENO.verejny.json`. Súbor `/etc/polaris/centrum.txt` skopíruj vedľa inštalačiek.
+          - **Konzola (Windows):** dvojklik na `POLARIS-konzola.exe` (prvýkrát vytvorí kľúč konzoly, odkaz na ploche).
+          - **PC učebne (Windows):** `POLARIS-PC.exe` a `centrum.txt` vedľa seba, dvojklik, zadaj kód z konzoly (+ Pridať PC).
+          TEXT
+          sed -i 's/^          //' poznamky.md
+          gh release create "$GITHUB_REF_NAME" vydanie/* --repo "$GITHUB_REPOSITORY" --title "POLARIS $GITHUB_REF_NAME" --notes-file poznamky.md --prerelease

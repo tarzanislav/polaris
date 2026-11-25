@@ -422,6 +422,18 @@ public static class CentreLinkChecks
         Expect.True(Enumerable.Range(0, 50).Select(_ => RegistrationCode.Generate()).Distinct().Count() == 50, "kódy sa neopakujú");
     }
 
+    [Check]
+    public static void TheCentreFileIsReadAsTheServerWritesIt()
+    {
+        var pin = new string('a', 64);
+        var written = CentreFile.Parse($"https://172.16.0.10:8443 {pin}\r\n");
+        Expect.True(written is { } w && w.Address.ToString() == "https://172.16.0.10:8443/" && w.Pin == pin, "riadok zo servera");
+        Expect.Equal("https://172.16.0.10:8443/", CentreFile.Parse($"172.16.0.10 {pin.ToUpperInvariant()}")?.Address.ToString(), "holá adresa dostane https a port 8443");
+        Expect.True(CentreFile.Parse($"http://172.16.0.10:8443 {pin}") is null, "nie http");
+        Expect.True(CentreFile.Parse("https://172.16.0.10:8443 abc") is null && CentreFile.Parse("") is null, "krátky odtlačok, prázdny súbor");
+        Expect.Equal(written, CentreFile.Parse(CentreFile.Line(written!.Value.Address, written.Value.Pin)), "čo sa zapíše, to sa prečíta");
+    }
+
     /// <summary>A plain HTTP request to the console on this PC (its own server speaks HTTP only on 127.0.0.1).</summary>
     private static (int Status, string Head, string Body) Http(int port, string method, string path, string? host = null, string? token = null, string? body = null)
     {
