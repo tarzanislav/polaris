@@ -171,8 +171,9 @@ input, select { font: inherit; color: var(--text); background: var(--panel); bor
   const titles = { "✓": "v poriadku", "!": "pozrieť", "✗": "neozvalo sa", "?": "bez hlásenia" };
   let token = location.hash.slice(1);
   try {
-    if (token) { sessionStorage.setItem("polaris-konzola", token); history.replaceState(null, "", "/"); }
-    else { token = sessionStorage.getItem("polaris-konzola") || ""; }
+    // the key of this run stays for other tabs of this browser too (it is worth nothing after the console stops)
+    if (token) { localStorage.setItem("polaris-konzola", token); history.replaceState(null, "", "/"); }
+    else { token = localStorage.getItem("polaris-konzola") || ""; }
   } catch (e) { /* the key of this run stays in memory only */ }
   let state = { pcs: [] }, filter = "", search = "", open = null;
 
@@ -344,7 +345,7 @@ input, select { font: inherit; color: var(--text); background: var(--panel); bor
 
   if (!token) {
     const m = $("message"); m.hidden = false;
-    m.textContent = "Konzolu otvor adresou, ktorú vypísal príkaz polaris-centrum konzola (s kľúčom za #).";
+    m.textContent = "Konzolu otvor adresou http://127.0.0.1:8444/#…, ktorú vypísalo okno konzola.cmd (skopíruj celú, aj časť za #).";
     return;
   }
   refresh();
