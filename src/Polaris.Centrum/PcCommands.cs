@@ -20,6 +20,9 @@ public static partial class Commands
     /// <summary>A PC that has not reported for this long counts as off (it reports every 15 minutes).</summary>
     public static readonly TimeSpan Silent = TimeSpan.FromMinutes(40);
 
+    /// <summary>Failures of recipes count in the mark of a PC for this long.</summary>
+    public static readonly TimeSpan RecentFailures = TimeSpan.FromDays(1);
+
     public static readonly IReadOnlySet<string> BodyPaths = new HashSet<string>(StringComparer.Ordinal) { UploadPath, CodesPath, RegisterPath, ReportPath, PcsPath, ApplyPath, UpdateSigning.UploadPath };
 
     /// <summary>The routes of the PCs: codes from consoles, registrations and reports of PCs, the list for consoles.</summary>
@@ -422,11 +425,11 @@ public static partial class Commands
             return (silent ? '✗' : failed > 0 || r.DevicesWithoutDriver > 0 || LowDisk ? '!' : '✓', parts);
         }
 
-        /// <summary>Failures of the last run of each recipe (an older failure the next run fixed does not count; not
-        /// measurements or skipped sign-ins).</summary>
+        /// <summary>Failures of the last run of each recipe in the last day (an older failure the next run fixed, or one
+        /// from days ago, does not count; nor the agent's own notes such as measurements, sign-ins or the plan).</summary>
         public int Failures() => Report is { } r
             ? RunReport.ReadJournal(string.Join("\n", r.Journal))
-                .Where(x => x.Recipe is not "(meranie)" and not "(prihlásenie)")
+                .Where(x => !x.Recipe.StartsWith('(') && r.Utc - x.StartedUtc < RecentFailures)
                 .GroupBy(x => x.Recipe, StringComparer.Ordinal)
                 .Sum(g => g.Last().Failed)
             : 0;
