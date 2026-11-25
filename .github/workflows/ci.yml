@@ -269,13 +269,15 @@ jobs:
           $upd = Join-Path $env:RUNNER_TEMP 'aktualizacia'
           New-Item -ItemType Directory -Force $upd | Out-Null
           Copy-Item out/instalacky/POLARIS-Klient-pre-PC-ucebne.exe "$upd/polaris-agent-novy.exe"
-          Remove-Item "$env:ProgramFiles\POLARIS\polaris-ziak.exe"
+          # the icon may be running in the runner's session: the update stops the service (and its icons) and replaces it
+          $iconBefore = (Get-Item "$env:ProgramFiles\POLARIS\polaris-ziak.exe").LastWriteTimeUtc
+          Start-Sleep -Seconds 2
           $p = Start-Process -FilePath "$upd/polaris-agent-novy.exe" -ArgumentList 'aktualizovat-sluzbu' -Wait -PassThru -NoNewWindow
           $journal = (& ./out/agent/polaris-agent.exe dennik 3) -join "`n"
           $journal
           if ($p.ExitCode -ne 0) { "aktualizácia služby zlyhala (kód $($p.ExitCode))"; exit 1 }
           if ((Get-Service PolarisAgent).Status -ne 'Running') { "služba po aktualizácii nebeží"; exit 1 }
-          if (-not (Test-Path "$env:ProgramFiles\POLARIS\polaris-ziak.exe")) { "ikona z inštalačky chýba"; exit 1 }
+          if ((Get-Item "$env:ProgramFiles\POLARIS\polaris-ziak.exe").LastWriteTimeUtc -le $iconBefore) { "ikona z inštalačky sa nenahradila"; exit 1 }
           if ($journal -notmatch 'nainštalovaný') { "denník nemá aktualizáciu"; exit 1 }
           & ./out/agent/polaris-agent.exe odinstalovat-sluzbu
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
