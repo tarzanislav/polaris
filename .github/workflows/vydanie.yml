@@ -1,8 +1,8 @@
 name: Vydanie
 
 # A release for people, not for developers: the installers as plain files with fixed links (no ZIP, no sign-in).
-# Starts with a tag v*; the release itself waits in the environment "vydanie" until the owner approves it
-# (Actions → the run → Review deployments).
+# Starts with a tag v* and ends as a DRAFT release: nobody but the owner sees it until he presses "Publish release".
+# That one click is the approval – nothing else to set up on GitHub.
 on:
   push:
     tags: ['v*']
@@ -67,10 +67,9 @@ jobs:
           path: out/vydanie/
 
   release:
-    name: Release (after the owner's approval)
+    name: Draft release (published by the owner)
     needs: [windows, debian]
     runs-on: ubuntu-24.04
-    environment: vydanie
     permissions:
       contents: write
       actions: read
@@ -90,4 +89,4 @@ jobs:
           - **PC učebne (Windows):** `POLARIS-PC.exe` a `centrum.txt` vedľa seba, dvojklik, zadaj kód z konzoly (+ Pridať PC).
           TEXT
           sed -i 's/^          //' poznamky.md
-          gh release create "$GITHUB_REF_NAME" vydanie/* --repo "$GITHUB_REPOSITORY" --title "POLARIS $GITHUB_REF_NAME" --notes-file poznamky.md --prerelease
+          gh release create "$GITHUB_REF_NAME" vydanie/* --repo "$GITHUB_REPOSITORY" --title "POLARIS $GITHUB_REF_NAME" --notes-file poznamky.md --prerelease --draft
