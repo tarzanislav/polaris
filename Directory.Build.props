@@ -10,7 +10,7 @@
     <Deterministic>true</Deterministic>
     <!-- POLARIS uses no packages: nothing to audit, the build never asks nuget.org about them -->
     <NuGetAudit>false</NuGetAudit>
-    <Version>0.1.4</Version>
+    <Version>0.1.5</Version>
     <Company>tarzanislav</Company>
     <Product>POLARIS</Product>
     <Copyright>© 2026 tarzanislav</Copyright>
