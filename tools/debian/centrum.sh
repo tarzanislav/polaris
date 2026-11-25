@@ -17,7 +17,7 @@ if [ "$(id -u)" != 0 ]; then
 fi
 
 # balík ako .zip rozbalí sám (unzip alebo python3 – jedno z nich Debian má takmer vždy)
-if [ ! -f polaris-centrum ]; then
+if [ ! -f polaris-centrum ] && ! ls polaris-centrum_*_amd64.deb >/dev/null 2>&1; then
   zip="$(ls -t polaris-centrum-linux*.zip 2>/dev/null | head -1 || true)"
   [ -n "$zip" ] || fail "v $here nie je polaris-centrum ani polaris-centrum-linux.zip – nakopíruj balík z GitHubu"
   say "Rozbaľujem $zip …"
@@ -25,7 +25,7 @@ if [ ! -f polaris-centrum ]; then
   elif command -v python3 >/dev/null; then python3 -I -m zipfile -e "$zip" "$here"
   else fail "na rozbalenie chýba unzip aj python3 – rozbaľ balík vo Windows a nakopíruj súbory"; fi
 fi
-[ -f instalovat-centrum.sh ] || fail "chýba instalovat-centrum.sh (je v balíku polaris-centrum-linux)"
+ls polaris-centrum_*_amd64.deb >/dev/null 2>&1 || [ -f instalovat-centrum.sh ] || fail "chýba balík .deb aj instalovat-centrum.sh (sú v balíku polaris-centrum-linux)"
 
 keys=$(ls ./*.verejny.json 2>/dev/null | wc -l)
 if [ "$keys" -eq 0 ]; then
@@ -38,14 +38,25 @@ else
   say "Kľúče konzol: $(ls ./*.verejny.json | xargs -n1 basename | tr '\n' ' ')"
 fi
 
-bash instalovat-centrum.sh 2>&1 | tee instalacia.txt
-result=${PIPESTATUS[0]}
+rm -f centrum.txt
+deb="$(ls -t polaris-centrum_*_amd64.deb 2>/dev/null | head -1 || true)"
+if [ -n "$deb" ]; then
+  # balík Debianu: kľúče konzol tam, kde ich balík hľadá, potom apt (aktualizácia rovnako)
+  install -d -m 755 /etc/polaris/konzoly
+  for key in ./*.verejny.json; do [ -f "$key" ] && install -m 644 "$key" /etc/polaris/konzoly/; done
+  apt-get install -y "./$deb" 2>&1 | tee instalacia.txt
+  result=${PIPESTATUS[0]}
+  [ "$result" = 0 ] && cp /etc/polaris/centrum.txt centrum.txt
+else
+  bash instalovat-centrum.sh 2>&1 | tee instalacia.txt
+  result=${PIPESTATUS[0]}
+fi
 [ "$result" = 0 ] || fail "inštalácia sa nedokončila – pošli súbor $here/instalacia.txt"
 
 address=$(sed -n 's/^Adresa centra: *\(https:[^ ]*\).*/\1/p' instalacia.txt | tail -1)
 pin=$(sed -n 's/^Odtlačok centra: *\([0-9a-f]\{64\}\).*/\1/p' instalacia.txt | tail -1)
 [ -n "$address" ] && [ -n "$pin" ] || fail "vo výpise som nenašiel adresu alebo odtlačok – pošli $here/instalacia.txt"
-printf '%s %s\r\n' "$address" "$pin" > centrum.txt
+[ -f centrum.txt ] || printf '%s %s\r\n' "$address" "$pin" > centrum.txt
 chmod 644 centrum.txt
 
 say ""

@@ -65,10 +65,25 @@ jobs:
           grep -qE '[0-9A-Z]{4}-[0-9A-Z]{4}-[0-9A-Z]{4}' "$kit/kod.txt" || { echo "::error::kód sa nevydal (služba nesmie písať do /srv/polaris/pc?)"; exit 1; }
           ./out/centrum-linux/polaris-centrum --subor "$kit/konzola.json" stav "$kit/ci-konzola.kluc" --server https://127.0.0.1:8443/ "$pin"
           sudo ls -l /srv/polaris /srv/polaris/pc/kody
-          sudo systemctl stop polaris-centrum
+          # the same server as a Debian package: apt install over the script install, then a console added by command
+          version="$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' Directory.Build.props)+ci${GITHUB_RUN_NUMBER}"
+          deb=$(bash tools/debian/balik-deb.sh "$version" out/centrum-linux/polaris-centrum out/deb)
+          dpkg-deb -I "$deb"
+          sudo apt-get install -y "./$deb" | tee "$kit/apt.txt"
+          grep -q "Program a služba z balíka" "$kit/apt.txt" || { echo "::error::balík nespustil nastavenie centra"; exit 1; }
+          test ! -e /etc/systemd/system/polaris-centrum.service || { echo "::error::stará služba zo skriptu prekrýva balík"; exit 1; }
+          curl -sk https://127.0.0.1:8443/v1/stav | grep -q '"polaris":"centrum"' || { echo "::error::centrum z balíka neodpovedá"; exit 1; }
+          rm -f "$kit/centrum.txt"
+          (cd "$kit" && sudo polaris-centrum-nastavit "$kit/ci-konzola.verejny.json") | tee "$kit/nastavit.txt"
+          grep -q "$pin" /etc/polaris/centrum.txt && grep -q "$pin" "$kit/centrum.txt" || { echo "::error::centrum.txt chýba alebo nesedí"; exit 1; }
+          ls /etc/polaris/konzoly
+          ./out/centrum-linux/polaris-centrum --subor "$kit/konzola.json" kod ucebna "$kit/ci-konzola.kluc" --server https://127.0.0.1:8443/ "$pin" | grep -qE '[0-9A-Z]{4}-[0-9A-Z]{4}-[0-9A-Z]{4}' || { echo "::error::po balíku sa kód nevydal"; exit 1; }
+          sudo apt-get remove -y polaris-centrum
+          ! systemctl is-active --quiet polaris-centrum || { echo "::error::služba beží aj po odstránení balíka"; exit 1; }
+          sudo test -f /srv/polaris/server.pem || { echo "::error::odstránenie balíka zmazalo dáta centra"; exit 1; }
           # one flat folder: everything the server needs beside each other (WinSCP, then sudo bash instalovat-centrum.sh)
           mkdir -p out/centrum-balik
-          cp out/centrum-linux/polaris-centrum tools/debian/polaris-centrum.service tools/debian/instalovat-centrum.sh tools/debian/centrum.sh docs/centrum.md out/centrum-balik/
+          cp out/centrum-linux/polaris-centrum tools/debian/polaris-centrum.service tools/debian/instalovat-centrum.sh tools/debian/centrum.sh docs/centrum.md out/deb/*.deb out/centrum-balik/
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: polaris-centrum-linux

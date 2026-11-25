@@ -6,6 +6,10 @@
 # a voliteľne verejné kľúče konzol (MENO.verejny.json), ktorým má centrum dôverovať. Potom cez PuTTY:
 #   sudo bash instalovat-centrum.sh
 # Skript sa dá spustiť znova kedykoľvek: aktualizuje program, certifikát a dáta nechá, pridá nové kľúče konzol.
+#
+# Z balíka .deb (apt install ./polaris-centrum_*.deb) je to príkaz polaris-centrum-nastavit: balík ho spustí sám
+# a ďalšie konzoly pridáš príkazom   polaris-centrum-nastavit MENO.verejny.json
+# Kľúče konzol drží /etc/polaris/konzoly, adresu a odtlačok pre konzolu.cmd súbor centrum.txt.
 set -euo pipefail
 
 port=8443
@@ -13,6 +17,18 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 data=/srv/polaris
 prog=/opt/polaris/polaris-centrum
 unit=/etc/systemd/system/polaris-centrum.service
+keydir=/etc/polaris/konzoly
+# z balíka: program a služba sú už na mieste (dal ich tam dpkg), skript len nastaví
+packaged=no
+[ "$here" = /usr/sbin ] && packaged=yes
+from_postinst=no
+added=()
+for arg in "$@"; do
+  case "$arg" in
+    --z-balika) from_postinst=yes ;;
+    *) [ -f "$arg" ] || { printf 'CHYBA: súbor %s neexistuje\n' "$arg" >&2; exit 1; }; added+=("$(cd "$(dirname "$arg")" && pwd)/$(basename "$arg")") ;;
+  esac
+done
 
 say() { printf '%s\n' "$*"; }
 step() { printf '\n== %s\n' "$*"; }
@@ -20,7 +36,7 @@ fail() { printf '\nCHYBA: %s\n' "$*" >&2; exit 1; }
 as_polaris() { (cd "$data" && runuser -u polaris -- "$prog" --subor "$data/centrum.json" "$@"); }
 
 step "Kontrola servera"
-[ "$(id -u)" = 0 ] || fail "spusti skript so sudo: sudo bash $0"
+[ "$(id -u)" = 0 ] || fail "spusti ako root (alebo so sudo)"
 [ -r /etc/os-release ] || fail "chýba /etc/os-release – neviem, aký je to systém"
 . /etc/os-release
 case " ${ID:-} ${ID_LIKE:-} " in
@@ -29,10 +45,15 @@ case " ${ID:-} ${ID_LIKE:-} " in
 esac
 [ "$(uname -m)" = x86_64 ] || fail "centrum je zostavené pre 64-bitové procesory x86 (x86_64); tento server má $(uname -m)"
 command -v systemctl >/dev/null || fail "chýba systemd (služba centra sa nedá nainštalovať)"
-[ -f "$here/polaris-centrum" ] && [ -f "$here/polaris-centrum.service" ] \
-  || fail "vedľa skriptu musia byť súbory polaris-centrum a polaris-centrum.service (z balíka polaris-centrum-linux)"
-chmod 755 "$here/polaris-centrum"
-if ! check=$("$here/polaris-centrum" pomoc 2>&1 >/dev/null); then
+if [ "$packaged" = yes ]; then
+  binary="$prog"
+else
+  [ -f "$here/polaris-centrum" ] && [ -f "$here/polaris-centrum.service" ] \
+    || fail "vedľa skriptu musia byť súbory polaris-centrum a polaris-centrum.service (z balíka polaris-centrum-linux)"
+  chmod 755 "$here/polaris-centrum"
+  binary="$here/polaris-centrum"
+fi
+if ! check=$("$binary" pomoc 2>&1 >/dev/null); then
   fail "program centra sa na tomto serveri nespustí: ${check:-neznámy dôvod} – pošli tento výpis"
 fi
 say "Program centra sa tu spustí ($(ldd --version 2>/dev/null | head -1 | awk '{print $NF}' || echo '?') glibc)."
@@ -45,7 +66,7 @@ else
   say "Vytvorený systémový používateľ polaris (bez prihlásenia, bez práv správcu)."
 fi
 install -d -o polaris -g polaris -m 750 "$data" "$data/zverejnene" "$data/pc" "$data/zasoba" "$data/konzoly"
-install -d -m 755 /opt/polaris
+install -d -m 755 /opt/polaris /etc/polaris "$keydir"
 say "Dáta: $data (len pre používateľa polaris), program: /opt/polaris."
 
 step "Program a služba"
@@ -55,10 +76,17 @@ if systemctl is-active --quiet polaris-centrum; then
   systemctl stop polaris-centrum
   say "Služba zastavená kvôli aktualizácii."
 fi
-install -m 755 "$here/polaris-centrum" "$prog"
-install -m 644 "$here/polaris-centrum.service" "$unit"
-systemctl daemon-reload
-say "Nainštalované: $prog, $unit."
+if [ "$packaged" = yes ]; then
+  # služba z balíka je v /usr/lib/systemd/system; staršia kópia zo skriptu by ju prekryla
+  rm -f "$unit"
+  systemctl daemon-reload
+  say "Program a služba z balíka: $prog."
+else
+  install -m 755 "$here/polaris-centrum" "$prog"
+  install -m 644 "$here/polaris-centrum.service" "$unit"
+  systemctl daemon-reload
+  say "Nainštalované: $prog, $unit."
+fi
 
 step "Certifikát centra"
 if [ -f "$data/server.pem" ]; then
@@ -77,9 +105,16 @@ pin="$(as_polaris server odtlacok)"
 
 step "Konzoly, ktorým centrum dôveruje"
 shopt -s nullglob
-keys=("$here"/*.verejny.json)
+for key in "${added[@]}" $([ "$packaged" = no ] && printf '%s\n' "$here"/*.verejny.json); do
+  install -m 644 "$key" "$keydir/$(basename "$key")"
+done
+keys=("$keydir"/*.verejny.json)
 if [ ${#keys[@]} -eq 0 ]; then
-  say "Vedľa skriptu nie je žiadny verejný kľúč konzoly (MENO.verejny.json) – pridáš ho neskôr spustením skriptu znova."
+  if [ "$packaged" = yes ]; then
+    say "Centrum zatiaľ nedôveruje žiadnej konzole. Pridaj ju:   polaris-centrum-nastavit /cesta/MENO.verejny.json"
+  else
+    say "Vedľa skriptu nie je žiadny verejný kľúč konzoly (MENO.verejny.json) – pridáš ho neskôr spustením skriptu znova."
+  fi
 fi
 for key in "${keys[@]}"; do
   copy="$data/.dovera-$(basename "$key")"
@@ -125,10 +160,19 @@ fi
 [ "$was_running" = yes ] && say "Centrum aktualizované a znova beží." || say "Centrum beží a spustí sa samo aj po reštarte servera."
 
 address="$(hostname -I 2>/dev/null | awk '{print $1}')"
+# adresa a odtlačok pre konzola.cmd na PC správcu (skopíruj vedľa neho – nič sa neopisuje)
+printf 'https://%s:%s %s\r\n' "${address:-ADRESA-SERVERA}" "$port" "$pin" > /etc/polaris/centrum.txt
+chmod 644 /etc/polaris/centrum.txt
+where=/etc/polaris/centrum.txt
+if [ "$from_postinst" = no ]; then
+  target="$([ "$packaged" = yes ] && pwd || printf '%s' "$here")/centrum.txt"
+  if [ "$target" != /etc/polaris/centrum.txt ] && cp /etc/polaris/centrum.txt "$target" 2>/dev/null; then where="$target"; fi
+fi
 step "Hotovo"
 say "Adresa centra:   https://${address:-ADRESA-SERVERA}:$port"
 say "Odtlačok centra: $pin"
 say ""
 say "Na konzole (PC správcu):  polaris-centrum kod SKUPINA spravca.kluc --server https://${address:-ADRESA}:$port $pin"
 say "Na každom PC (správca):   polaris-agent registrovat https://${address:-ADRESA}:$port $pin KÓD"
+say "Pre konzolu:              $where  (skopíruj ho cez WinSCP vedľa konzola.cmd)"
 say "Stav centra:              sudo systemctl status polaris-centrum   ·   záznam: sudo journalctl -u polaris-centrum -f"
