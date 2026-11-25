@@ -259,6 +259,21 @@ public static class AgentService
                         Commands.WriteJournal(host.JournalPath, run);
                     }
                 }
+                else if (PcLink.Waiting() is { } waiting)
+                {
+                    // waiting for a console's approval: asked every minute; once approved the PC is registered
+                    var (registered, _, message, check) = PcLink.Apply(waiting.Address, waiting.Pin, waiting.Consoles, waiting.Name, host.Clock());
+                    if (registered || message != lastProblem)
+                    {
+                        lastProblem = registered ? null : message;
+                        Commands.WriteJournal(host.JournalPath, Simple("(centrum)", "prihlaska", "prihláška v centre", registered || message.StartsWith("čaká", StringComparison.Ordinal), $"{message} (kontrolný kód {check})", host.Clock()));
+                    }
+
+                    if (registered)
+                    {
+                        PcLink.Report(host);
+                    }
+                }
             }
             catch (Exception e) when (e is not OutOfMemoryException)
             {

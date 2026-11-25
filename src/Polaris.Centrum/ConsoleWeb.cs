@@ -47,7 +47,7 @@ public static partial class Commands
         return 0;
     }
 
-    public static readonly IReadOnlySet<string> ConsoleBody = new HashSet<string>(StringComparer.Ordinal) { "/api/kod", "/api/odobrat", "/api/novy-kluc", "/api/centrum", "/api/odomknut", "/api/aktualizovat" };
+    public static readonly IReadOnlySet<string> ConsoleBody = new HashSet<string>(StringComparer.Ordinal) { "/api/kod", "/api/odobrat", "/api/novy-kluc", "/api/centrum", "/api/odomknut", "/api/aktualizovat", "/api/schvalit", "/api/zamietnut" };
 
     /// <summary>The routes of a console already unlocked (the command konzola: key and centre given on the command line).</summary>
     public static Func<ServerRequest, ServerResponse> ConsoleRoutes((Uri Address, string Pin) server, string keyPath, ConsoleKeyFile keyFile, SigningKey key, string token, int port, Func<DateTimeOffset> clock) =>
@@ -125,6 +125,8 @@ public static partial class Commands
             return request.Path switch
             {
                 "/api/stav" => Answer(200, StateOf(server, keyFile, key, now)),
+                "/api/schvalit" => Answer(200, Approve(server, keyPath, keyFile, key, request.Body ?? [], now)),
+                "/api/zamietnut" => Answer(200, Reject(server, key, request.Body ?? [], now)),
                 "/api/kod" => Answer(200, NewCode(server, keyPath, keyFile, key, request.Body ?? [], now)),
                 "/api/odobrat" => Answer(200, Remove(server, key, request.Body ?? [], now)),
                 _ => Answer(404, new JsonObject().Add("ok", false).Add("message", "Neznáma otázka konzoly.")),
@@ -141,7 +143,7 @@ public static partial class Commands
     /// <summary>The classroom as the page shows it: every PC with its mark, what makes it so and its last report.</summary>
     private static JsonObject StateOf((Uri Address, string Pin) server, ConsoleKeyFile keyFile, SigningKey key, DateTimeOffset now)
     {
-        var (ok, message, centreNow, pcs) = FetchPcs(server, key, now);
+        var (ok, message, centreNow, pcs, waiting) = FetchAll(server, key, now);
         var result = new JsonObject()
             .Add("ok", ok)
             .Add("message", message)
@@ -202,7 +204,58 @@ public static partial class Commands
             list.Add(item);
         }
 
-        return result.Add("pcs", list);
+        var waitingList = new JsonArray();
+        foreach (var (pc, asked) in waiting)
+        {
+            waitingList.Add(new JsonObject()
+                .Add("id", pc.Id)
+                .Add("check", PcApplication.CheckCode(pc.Id))
+                .Add("name", pc.Name)
+                .Add("hardware", pc.Hardware)
+                .Add("windows", pc.Windows)
+                .Add("agent", pc.Agent)
+                .Add("ago", Ago(centreNow - asked)));
+        }
+
+        return result.Add("pcs", list).Add("waiting", waitingList);
+    }
+
+    /// <summary>Admits the chosen waiting PCs into a group (each approval signed here by this console's key).</summary>
+    private static JsonObject Approve((Uri Address, string Pin) server, string keyPath, ConsoleKeyFile keyFile, SigningKey key, byte[] body, DateTimeOffset now)
+    {
+        var f = new JsonFields(JsonReader.Parse(Encoding.UTF8.GetString(body), JsonSyntax.Strict), "schválenie");
+        var ids = f.Strings("ids");
+        var group = f.String("group").Trim();
+        f.End();
+        if (ids.Count == 0 || ids.Any(id => !PcRules.Id(id)))
+        {
+            return new JsonObject().Add("ok", false).Add("message", "Nie je vybrané žiadne PC.");
+        }
+
+        var lines = new List<string>();
+        var all = true;
+        foreach (var id in ids)
+        {
+            var (ok, message) = ApprovePc(server, keyPath, keyFile, key, id, group, now);
+            all &= ok;
+            lines.Add(message);
+        }
+
+        return new JsonObject().Add("ok", all).Add("message", string.Join(" · ", lines));
+    }
+
+    private static JsonObject Reject((Uri Address, string Pin) server, SigningKey key, byte[] body, DateTimeOffset now)
+    {
+        var f = new JsonFields(JsonReader.Parse(Encoding.UTF8.GetString(body), JsonSyntax.Strict), "zamietnutie");
+        var id = f.String("id");
+        f.End();
+        if (!PcRules.Id(id))
+        {
+            return new JsonObject().Add("ok", false).Add("message", "Neznáme PC.");
+        }
+
+        var (ok, message) = RejectPc(server, key, id, now);
+        return new JsonObject().Add("ok", ok).Add("message", message);
     }
 
     private static JsonObject NewCode((Uri Address, string Pin) server, string keyPath, ConsoleKeyFile keyFile, SigningKey key, byte[] body, DateTimeOffset now)

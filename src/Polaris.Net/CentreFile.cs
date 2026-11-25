@@ -24,4 +24,33 @@ public static class CentreFile
     }
 
     public static string Line(Uri address, string pin) => $"{address} {pin}\r\n";
+
+    /// <summary>The consoles a new PC may be admitted by (lines "konzola MENO ODTLAČOK" after the first line): the PC
+    /// takes an approval only from one of them.</summary>
+    public static List<(string Name, string Fingerprint)> Consoles(string? text)
+    {
+        var list = new List<(string, string)>();
+        foreach (var line in (text ?? "").Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Skip(1))
+        {
+            var parts = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length == 3 && parts[0] == "konzola" && parts[2].Length == 16 && parts[2].All(char.IsAsciiHexDigit))
+            {
+                list.Add((parts[1], parts[2].ToUpperInvariant()));
+            }
+        }
+
+        return list;
+    }
+
+    /// <summary>The whole file: the centre, then the consoles (each once).</summary>
+    public static string Text(Uri address, string pin, IEnumerable<(string Name, string Fingerprint)> consoles)
+    {
+        var text = new System.Text.StringBuilder(Line(address, pin));
+        foreach (var (name, fingerprint) in consoles.DistinctBy(c => c.Fingerprint.ToUpperInvariant()))
+        {
+            text.Append($"konzola {name} {fingerprint.ToUpperInvariant()}\r\n");
+        }
+
+        return text.ToString();
+    }
 }

@@ -227,6 +227,29 @@ public sealed class UpdateJob(bool canRestart, Func<(Release? Release, string Pr
 
 public static partial class Commands
 {
+    /// <summary>centrum-txt ADRESA ODTLAČOK --konzoly PRIEČINOK: the file for the installers (the centre and the consoles
+    /// that may approve new PCs), written by the server's installation script.</summary>
+    private static int CentreText(List<string> rest, TextWriter o)
+    {
+        const string Usage = "centrum-txt https://SERVER:8443 ODTLAČOK --konzoly PRIEČINOK";
+        var at = rest.IndexOf("--konzoly");
+        if (at < 0 || at + 1 >= rest.Count)
+        {
+            throw new UsageException("Použitie: " + Usage);
+        }
+
+        var folder = rest[at + 1];
+        rest.RemoveRange(at, 2);
+        Need(rest, 2, Usage);
+        if (CentreFile.Parse(rest[0] + " " + rest[1]) is not { } centre)
+        {
+            throw new UsageException("Použitie: " + Usage);
+        }
+
+        o.Write(CentreFile.Text(centre.Address, centre.Pin, Trusted(folder).Select(t => (t.Name, t.Fingerprint))));
+        return 0;
+    }
+
     private const string UpdateUsage = "aktualizacia odovzdat PRODUKT VERZIA SÚBOR KLUC --server https://SERVER:8443 ODTLAČOK | aktualizacia over POPIS --konzoly PRIEČINOK [--produkt P]";
 
     private static int UpdateCommand(List<string> rest, TextWriter o, DateTimeOffset utcNow, Func<string, string?> secret)

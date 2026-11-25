@@ -76,6 +76,7 @@ jobs:
           rm -f "$kit/centrum.txt"
           (cd "$kit" && sudo polaris-centrum-nastavit "$kit/ci-konzola.verejny.json") | tee "$kit/nastavit.txt"
           grep -q "$pin" /etc/polaris/centrum.txt && grep -q "$pin" "$kit/centrum.txt" || { echo "::error::centrum.txt chýba alebo nesedí"; exit 1; }
+          grep -q "^konzola ci-konzola " /etc/polaris/centrum.txt || { cat /etc/polaris/centrum.txt; echo "::error::centrum.txt nemá konzoly na schvaľovanie PC"; exit 1; }
           ls /etc/polaris/konzoly
           ./out/centrum-linux/polaris-centrum --subor "$kit/konzola.json" kod ucebna "$kit/ci-konzola.kluc" --server https://127.0.0.1:8443/ "$pin" | grep -qE '[0-9A-Z]{4}-[0-9A-Z]{4}-[0-9A-Z]{4}' || { echo "::error::po balíku sa kód nevydal"; exit 1; }
           # an update approved by the console: handed to the centre, installed by the server's own timer (as root)

@@ -162,6 +162,11 @@ public static partial class Commands
                 return ConsoleCommand(words.Skip(1).ToList(), output, secret ?? ReadSecret, stop);
             }
 
+            if (words[0] is "centrum-txt")
+            {
+                return CentreText(words.Skip(1).ToList(), output);
+            }
+
             if (words[0] is "aktualizacia")
             {
                 return UpdateCommand(words.Skip(1).ToList(), output, utcNow, secret ?? ReadSecret);

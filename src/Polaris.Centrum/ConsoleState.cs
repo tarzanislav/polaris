@@ -142,7 +142,29 @@ public sealed class ConsoleState : IDisposable
             _key?.Key.Dispose();
             _key = (path, file, key);
             _server = centre;
+            KeepConsolesInCentreFile(path, file, centre);
             return new JsonObject().Add("ok", true).Add("console", name);
+        }
+    }
+
+    /// <summary>centrum.txt beside the console names the consoles new PCs may be approved by: this one and those whose
+    /// public keys lie beside it (added to what is there – the file goes to the PCs with the installer).</summary>
+    private void KeepConsolesInCentreFile(string keyPath, ConsoleKeyFile keyFile, (Uri Address, string Pin) centre)
+    {
+        try
+        {
+            var file = Path.Combine(Folder, CentreFile.Name);
+            var known = File.Exists(file) ? CentreFile.Consoles(File.ReadAllText(file)) : [];
+            var beside = Commands.TrustBeside(keyPath, keyFile, _ => { }).Select(t => (t.Name, t.Fingerprint));
+            var all = known.Concat(beside).DistinctBy(c => c.Item2.ToUpperInvariant()).ToList();
+            if (all.Count != known.Count)
+            {
+                File.WriteAllText(file, CentreFile.Text(centre.Address, centre.Pin, all));
+            }
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            // only a convenience for the installers of PCs
         }
     }
 

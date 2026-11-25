@@ -15,11 +15,12 @@ public static partial class Commands
     public const string RegisterPath = CentrePaths.Register;
     public const string ReportPath = CentrePaths.Report;
     public const string PcsPath = CentrePaths.Pcs;
+    public const string ApplyPath = CentrePaths.Apply;
 
     /// <summary>A PC that has not reported for this long counts as off (it reports every 15 minutes).</summary>
     public static readonly TimeSpan Silent = TimeSpan.FromMinutes(40);
 
-    public static readonly IReadOnlySet<string> BodyPaths = new HashSet<string>(StringComparer.Ordinal) { UploadPath, CodesPath, RegisterPath, ReportPath, PcsPath, UpdateSigning.UploadPath };
+    public static readonly IReadOnlySet<string> BodyPaths = new HashSet<string>(StringComparer.Ordinal) { UploadPath, CodesPath, RegisterPath, ReportPath, PcsPath, ApplyPath, UpdateSigning.UploadPath };
 
     /// <summary>The routes of the PCs: codes from consoles, registrations and reports of PCs, the list for consoles.</summary>
     public static Func<ServerRequest, ServerResponse> PcRoutes(PcRegistry registry, string serverPin, Func<IReadOnlyList<TrustedConsole>> trusted, Func<DateTimeOffset> clock) => request =>
@@ -62,6 +63,22 @@ public static partial class Commands
                         .Add("trust", grant.Trust).Add("trustSeal", grant.TrustSeal));
                 }
 
+            case ApplyPath:
+                {
+                    // a PC without a code: it waits until a console approves it (decided 25. 11. 2026)
+                    var application = PcApplication.FromJson(Encoding.UTF8.GetString(body));
+                    var (approval, waiting, problem) = registry.Apply(application, serverPin, now);
+                    if (approval is not null)
+                    {
+                        return Json(200, new JsonObject().Add("ok", true).Add("state", "schvalene").Add("message", $"schválené konzolou {approval.Console}")
+                            .Add("approval", approval.ToJson()));
+                    }
+
+                    return waiting
+                        ? Json(200, new JsonObject().Add("ok", true).Add("state", "caka").Add("message", "čaká na schválenie v konzole"))
+                        : Reply(403, false, problem);
+                }
+
             case ReportPath:
                 {
                     var (record, problem) = PcSigning.Verify(request.Header, body, request.Path, serverPin, registry.Find, now);
@@ -90,10 +107,28 @@ public static partial class Commands
                     var f = new JsonFields(JsonReader.Parse(Encoding.UTF8.GetString(body), JsonSyntax.Strict), "otázka konzoly");
                     var command = f.String("command");
                     var id = f.String("pc");
+                    var approvalText = f.OptionalString("approval");
                     f.End();
-                    if (command == "remove")
+                    switch (command)
                     {
-                        return registry.Remove(id) ? Reply(200, true, $"PC {id} odobraté") : Reply(404, false, $"PC {id} centrum nepozná");
+                        case "remove":
+                            return registry.Remove(id) ? Reply(200, true, $"PC {id} odobraté") : Reply(404, false, $"PC {id} centrum nepozná");
+                        case "reject":
+                            return registry.Reject(id) ? Reply(200, true, "prihláška zamietnutá") : Reply(404, false, "také PC na schválenie nečaká");
+                        case "approve":
+                            {
+                                var (record, why) = registry.Approve(PcApproval.FromJson(approvalText ?? ""), serverPin, trusted(), now);
+                                return record is null ? Reply(409, false, why) : Reply(200, true, $"PC {record.Pc.Name} prijaté do skupiny {record.Group}");
+                            }
+                    }
+
+                    var waitingList = new JsonArray();
+                    foreach (var (application, asked) in registry.WaitingNow(now))
+                    {
+                        waitingList.Add(new JsonObject()
+                            .Add("pc", application.Pc.ToNode())
+                            .Add("id", application.Pc.Id)
+                            .Add("asked", asked.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture)));
                     }
 
                     var list = new JsonArray();
@@ -108,7 +143,7 @@ public static partial class Commands
                         list.Add(item);
                     }
 
-                    return Json(200, new JsonObject().Add("ok", true).Add("now", now.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture)).Add("pcs", list));
+                    return Json(200, new JsonObject().Add("ok", true).Add("now", now.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture)).Add("pcs", list).Add("waiting", waitingList));
                 }
 
             default:
@@ -165,19 +200,7 @@ public static partial class Commands
             return (false, "Skupina: písmená, číslice, - a _ (do 40 znakov).", null, null);
         }
 
-        var trust = new List<TrustedConsole> { RecipeSigning.Trust(keyFile) };
-        foreach (var file in Directory.GetFiles(Path.GetDirectoryName(Path.GetFullPath(keyPath))!, "*.verejny.json").Order(StringComparer.Ordinal))
-        {
-            try
-            {
-                trust.Add(RecipeSigning.Trust(RecipeSigning.KeyFromJson(File.ReadAllText(file))));
-            }
-            catch (InvalidDataException e)
-            {
-                warn($"Pozor: {Path.GetFileName(file)} vynechaný – {e.Message}");
-            }
-        }
-
+        var trust = TrustBeside(keyPath, keyFile, warn);
         var code = RegistrationCode.Generate();
         var grant = RegistrationGrant.Sign(group, now.AddDays(days), uses, RegistrationCode.Normalize(code)!, key, trust);
         var answer = Ask(server, CodesPath, Utf8NoBom.GetBytes(grant.ToJson()), key, now);
@@ -187,13 +210,71 @@ public static partial class Commands
     /// <summary>The PCs of the centre with their last reports, as a trusted console asks for them.</summary>
     internal static (bool Ok, string Message, DateTimeOffset Now, List<PcView> Pcs) FetchPcs((Uri Address, string Pin) server, SigningKey key, DateTimeOffset now)
     {
+        var (ok, message, at, pcs, _) = FetchAll(server, key, now);
+        return (ok, message, at, pcs);
+    }
+
+    /// <summary>The PCs of the centre and the PCs waiting for approval.</summary>
+    internal static (bool Ok, string Message, DateTimeOffset Now, List<PcView> Pcs, List<(PcIdentity Pc, DateTimeOffset Asked)> Waiting) FetchAll((Uri Address, string Pin) server, SigningKey key, DateTimeOffset now)
+    {
         var answer = Ask(server, PcsPath, Utf8NoBom.GetBytes(JsonText.Canonical(new JsonObject().Add("command", "list").Add("pc", ""))), key, now);
         if (!answer.Ok || answer.Fields is not { } f)
         {
-            return (false, answer.Message, now, []);
+            return (false, answer.Message, now, [], []);
         }
 
-        return (true, "", f.Time("now", now), f.Array("pcs").Select(n => PcView.From(new JsonFields(n, "PC"))).ToList());
+        var at = f.Time("now", now);
+        return (true, "", at, f.Array("pcs").Select(n => PcView.From(new JsonFields(n, "PC"))).ToList(), f.Node("waiting") is null ? [] : WaitingPcs(f, at));
+    }
+
+    /// <summary>The PCs waiting for approval (newest first).</summary>
+    internal static List<(PcIdentity Pc, DateTimeOffset Asked)> WaitingPcs(JsonFields answer, DateTimeOffset now) =>
+        answer.Array("waiting").Select(n =>
+        {
+            var f = new JsonFields(n, "čakajúce PC");
+            return (PcIdentity.From(f.Fields("pc", "PC")!), f.Time("asked", now));
+        }).ToList();
+
+    /// <summary>The consoles the PCs are to trust: this one and the public keys lying beside its key file.</summary>
+    internal static List<TrustedConsole> TrustBeside(string keyPath, ConsoleKeyFile keyFile, Action<string> warn)
+    {
+        var trust = new List<TrustedConsole> { RecipeSigning.Trust(keyFile) };
+        foreach (var file in Directory.GetFiles(Path.GetDirectoryName(Path.GetFullPath(keyPath))!, "*.verejny.json").Order(StringComparer.Ordinal))
+        {
+            try
+            {
+                var console = RecipeSigning.Trust(RecipeSigning.KeyFromJson(File.ReadAllText(file)));
+                if (!trust.Any(t => t.Fingerprint == console.Fingerprint))
+                {
+                    trust.Add(console);
+                }
+            }
+            catch (InvalidDataException e)
+            {
+                warn($"Pozor: {Path.GetFileName(file)} vynechaný – {e.Message}");
+            }
+        }
+
+        return trust;
+    }
+
+    /// <summary>Admits a waiting PC into a group, signed by this console.</summary>
+    internal static (bool Ok, string Message) ApprovePc((Uri Address, string Pin) server, string keyPath, ConsoleKeyFile keyFile, SigningKey key, string id, string group, DateTimeOffset now)
+    {
+        if (!PcRules.GroupName(group))
+        {
+            return (false, "Skupina: písmená bez diakritiky, číslice, - a _ (do 40 znakov).");
+        }
+
+        var approval = PcApproval.Sign(id, group, TrustBeside(keyPath, keyFile, _ => { }), server.Pin, key, keyFile.Name, now);
+        var answer = Ask(server, PcsPath, Utf8NoBom.GetBytes(JsonText.Canonical(new JsonObject().Add("command", "approve").Add("pc", id).Add("approval", approval.ToJson()))), key, now);
+        return (answer.Ok, answer.Message);
+    }
+
+    internal static (bool Ok, string Message) RejectPc((Uri Address, string Pin) server, SigningKey key, string id, DateTimeOffset now)
+    {
+        var answer = Ask(server, PcsPath, Utf8NoBom.GetBytes(JsonText.Canonical(new JsonObject().Add("command", "reject").Add("pc", id))), key, now);
+        return (answer.Ok, answer.Message);
     }
 
     internal static (bool Ok, string Message) RemovePc((Uri Address, string Pin) server, SigningKey key, string id, DateTimeOffset now)
@@ -341,9 +422,13 @@ public static partial class Commands
             return (silent ? '✗' : failed > 0 || r.DevicesWithoutDriver > 0 || LowDisk ? '!' : '✓', parts);
         }
 
-        /// <summary>Failures in the last ten runs of recipes (not measurements or skipped sign-ins).</summary>
+        /// <summary>Failures of the last run of each recipe (an older failure the next run fixed does not count; not
+        /// measurements or skipped sign-ins).</summary>
         public int Failures() => Report is { } r
-            ? RunReport.ReadJournal(string.Join("\n", r.Journal)).Where(x => x.Recipe is not "(meranie)" and not "(prihlásenie)").TakeLast(10).Sum(x => x.Failed)
+            ? RunReport.ReadJournal(string.Join("\n", r.Journal))
+                .Where(x => x.Recipe is not "(meranie)" and not "(prihlásenie)")
+                .GroupBy(x => x.Recipe, StringComparer.Ordinal)
+                .Sum(g => g.Last().Failed)
             : 0;
 
         public bool LowDisk => Report is { TotalDiskBytes: > 0 } r && r.FreeDiskBytes * 10 < r.TotalDiskBytes;

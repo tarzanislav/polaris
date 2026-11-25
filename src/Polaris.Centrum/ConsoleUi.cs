@@ -69,6 +69,15 @@ public static class ConsoleUi
     </div>
     <ul id="u-lines" class="update-lines" hidden></ul>
   </div>
+  <section id="waiting" class="waiting" hidden>
+    <div class="waiting-head">
+      <h3>Čakajú na schválenie <span id="w-count" class="dim"></span></h3>
+      <label class="inline">do skupiny <input id="w-group" list="m-groups" maxlength="40" autocomplete="off"></label>
+      <button id="w-all" class="primary">Prijať všetky</button>
+    </div>
+    <p class="dim small">Nové PC sa ohlásili samy (klient + centrum.txt). Skontroluj kontrolný kód s oknom na PC a prijmi ich.</p>
+    <div id="w-list" class="grid"></div>
+  </section>
   <div id="groups"></div>
   <p id="empty" class="empty" hidden>Centrum zatiaľ nepozná žiadne PC. Klikni na <b>+ Pridať PC</b>, vydaj kód a na PC ho zadaj.</p>
 </main>
@@ -83,8 +92,10 @@ public static class ConsoleUi
   <div class="card">
     <div id="m-form">
       <h2>Pridať PC do skupiny</h2>
-      <p class="dim">Konzola vydá kód. Zadáš ho v inštalačke POLARIS-Klient-pre-PC-ucebne.exe; PC si vytvorí vlastné kľúče, dostane skupinu
-      a bude dôverovať tvojim konzolám.</p>
+      <p class="dim"><b>Najjednoduchšie bez kódu:</b> na PC spusti POLARIS-Klient-pre-PC-ucebne.exe (vedľa neho centrum.txt
+      z priečinka konzoly) – PC sa ohlási tu v časti <b>Čakajú na schválenie</b> a len ho prijmeš.</p>
+      <p class="dim">Alebo kód (záloha, napr. pre staršie centrum.txt): konzola ho vydá, zadáš ho v inštalačke; PC si vytvorí
+      vlastné kľúče, dostane skupinu a bude dôverovať tvojim konzolám.</p>
       <label>Skupina <input id="m-group" list="m-groups" value="ucebna" maxlength="40"></label>
       <datalist id="m-groups"></datalist>
       <div class="row">
@@ -180,7 +191,7 @@ input, select { font: inherit; color: var(--text); background: var(--panel); bor
 .pc li { margin: 2px 0; }
 .pc .hw { font-size: 12px; color: var(--dim); }
 .empty { color: var(--dim); text-align: center; margin-top: 60px; }
-.detail { position: fixed; top: 0; right: 0; bottom: 0; width: min(560px, 100%); background: var(--panel); border-left: 1px solid var(--line);
+.detail { position: fixed; top: 0; right: 0; bottom: 0; width: min(560px, 100%); overflow-x: hidden; background: var(--panel); border-left: 1px solid var(--line);
   box-shadow: -8px 0 30px rgba(0, 0, 0, .15); overflow-y: auto; z-index: 10; padding: 18px 22px 40px; }
 .detail-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
 .detail h2 { margin: 0 0 2px; }
@@ -195,6 +206,7 @@ input, select { font: inherit; color: var(--text); background: var(--panel); bor
 .entry.bad { border-color: color-mix(in srgb, var(--bad) 60%, var(--line)); }
 .entry .when { color: var(--dim); margin-right: 8px; }
 .entry ul { margin: 6px 0 0 16px; padding: 0; color: var(--bad); }
+.entry, .kv div, .pc li { overflow-wrap: anywhere; }
 .entry .note { color: var(--dim); margin-top: 3px; }
 .modal { position: fixed; inset: 0; background: rgba(10, 15, 25, .45); display: grid; place-items: center; z-index: 20; padding: 16px; }
 .card { background: var(--panel); border-radius: 14px; padding: 22px 24px; width: min(520px, 100%); box-shadow: var(--shadow); }
@@ -220,6 +232,14 @@ details { margin: 6px 0; } summary { cursor: pointer; font-size: 13px; }
 .update-text { flex: 1; }
 .update-lines { margin: 10px 0 0; padding: 0 0 0 30px; font-size: 13px; }
 .update-lines li { margin: 2px 0; }
+.waiting { background: color-mix(in srgb, var(--warn) 10%, var(--panel)); border: 1px solid var(--warn); border-radius: 12px; padding: 12px 14px; margin-bottom: 14px; }
+.waiting-head { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.waiting-head h3 { margin: 0; flex: 1; font-size: 15px; }
+label.inline { display: flex; gap: 6px; align-items: center; font-size: 13px; color: var(--dim); }
+label.inline input { width: 150px; }
+.wait-card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+.wait-card .check { font: 700 18px ui-monospace, "Cascadia Mono", Consolas, monospace; letter-spacing: .06em; margin: 4px 0; }
+.wait-card .actions { margin-top: 8px; justify-content: flex-start; }
 .toast { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 10px 16px;
   border-radius: 10px; z-index: 30; box-shadow: var(--shadow); }
 @media (max-width: 640px) { #browser { display: none; } .start .brand .dim { display: inline; } .where, .brand .dim, #status { display: none; } .status { margin-left: auto; } .code { font-size: 24px; } .kv { grid-template-columns: 110px 1fr; } #search { width: 100%; } .bar { gap: 10px; padding: 10px 14px; } main { padding: 12px 14px 60px; } }
@@ -312,6 +332,7 @@ details { margin: 6px 0; } summary { cursor: pointer; font-size: 13px; }
     if (u.running) { $("u-title").textContent = "Aktualizujem na " + u.latest + "…"; }
     else if (u.done && u.restart) { $("u-title").textContent = "Konzola sa reštartuje s verziou " + u.latest + "…"; }
     else if (u.pending.length) { $("u-title").textContent = "Nová verzia POLARIS " + u.latest; }
+    else if (u.lines.length) { $("u-title").textContent = "Verzia " + u.latest + " je odoslaná na server"; }
     else { $("u-title").textContent = "Klienti sa aktualizujú na " + u.client; }
     $("u-sub").textContent = u.pending.length && !u.running
       ? "Aktualizuje sa: " + u.pending.join(", ") + ". Konzola ju stiahne z GitHubu, overí, podpíše a pošle na server; PC a servery si ju nainštalujú samy."
@@ -387,6 +408,35 @@ details { margin: 6px 0; } summary { cursor: pointer; font-size: 13px; }
       groups.append(head, grid);
     });
     if (open) { const p = state.pcs.find(x => x.id === open); if (p) detail(p); }
+    drawWaiting();
+  }
+
+  // PCs that applied without a code: approved here (each approval signed by this console)
+  function drawWaiting() {
+    const waiting = state.waiting || [];
+    $("waiting").hidden = waiting.length === 0;
+    $("w-count").textContent = waiting.length ? "(" + waiting.length + ")" : "";
+    const group = $("w-group");
+    if (!group.value) group.value = (state.pcs[0] && state.pcs[0].group) || "ucebna";
+    const list = $("w-list"); list.replaceChildren();
+    waiting.forEach(w => {
+      const c = el("div", "wait-card");
+      c.append(el("div", "name", w.name), el("div", "check", w.check), el("div", "hw", w.hardware + " · " + w.windows + " · ohlásilo sa pred " + w.ago));
+      const actions = el("div", "actions");
+      const take = el("button", "primary", "Prijať"); take.onclick = () => approve([w.id]);
+      const no = el("button", "ghost", "Zamietnuť"); no.onclick = () => reject(w);
+      actions.append(take, no); c.append(actions); list.append(c);
+    });
+  }
+  async function approve(ids) {
+    const a = await ask("/api/schvalit", { ids: ids, group: $("w-group").value.trim() });
+    toast(a.message || (a.ok ? "Prijaté." : "Nepodarilo sa."));
+    refresh();
+  }
+  async function reject(w) {
+    const a = await ask("/api/zamietnut", { id: w.id });
+    toast(a.message || "Zamietnuté.");
+    refresh();
   }
 
   function card(p) {
@@ -467,6 +517,7 @@ details { margin: 6px 0; } summary { cursor: pointer; font-size: 13px; }
     };
   }
 
+  $("w-all").onclick = () => approve((state.waiting || []).map(w => w.id));
   $("d-close").onclick = () => { open = null; $("detail").hidden = true; };
   $("search").oninput = e => { search = e.target.value.trim().toLowerCase(); draw(); };
   $("add").onclick = () => { $("m-form").hidden = false; $("m-result").hidden = true; $("modal").hidden = false; $("m-group").focus(); };

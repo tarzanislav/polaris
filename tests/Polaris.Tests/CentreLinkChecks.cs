@@ -696,4 +696,86 @@ public static class CentreLinkChecks
         Expect.True(job.Pending().Contains(UpdateProducts.Title(UpdateProducts.Client)) && !job.Pending().Contains(UpdateProducts.Title(UpdateProducts.ServerDebian)), "čaká klient (vo vydaní), server nie (nie je vo vydaní)");
         Expect.True(job.Status().ToString()!.Length > 0, "stav pre okno");
     }
+
+    [Check]
+    public static void ANewPcAppliesAndTheConsoleApprovesIt()
+    {
+        var dir = Directory.CreateTempSubdirectory("polaris-schvalenie-").FullName;
+        try
+        {
+            var (secret, pub) = RecipeSigning.NewConsoleKey("ucitel", Password);
+            var keyPath = Path.Combine(dir, "ucitel.kluc");
+            File.WriteAllText(keyPath, RecipeSigning.ToJson(secret));
+            var registry = new PcRegistry(Path.Combine(dir, "pc"));
+            var trusted = new List<TrustedConsole> { RecipeSigning.Trust(pub) };
+            Running? centre = null;
+            var pcs = (ServerRequest r) => Polaris.Centrum.Commands.PcRoutes(registry, centre!.Pin, () => trusted, () => T)(r);
+            centre = new Running(Polaris.Centrum.Commands.Routes(Path.Combine(dir, "zverejnene"), null, null, pcs), dir, Polaris.Centrum.Commands.BodyPaths.Contains);
+            using var running = centre;
+
+            // the PC applies (no code): it waits
+            using var pcKey = SigningKey.Create();
+            using var secrets = System.Security.Cryptography.ECDiffieHellman.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
+            using var p = pcKey.Public();
+            var identity = new PcIdentity(Convert.ToBase64String(p.Export()), Convert.ToBase64String(secrets.ExportSubjectPublicKeyInfo()), "PC-11", "Windows 11 Pro (26200)", "Vyrobca Skusobny 1", "0.1.3");
+            string Apply() => Encoding.UTF8.GetString(PinnedClient.Post(new Uri(centre.Address, CentrePaths.Apply.TrimStart('/')), centre.Pin, Encoding.UTF8.GetBytes(PcApplication.Make(identity, pcKey, centre.Pin, T).ToJson()), new Dictionary<string, string>(), 1 << 20, TimeSpan.FromSeconds(20)).Body);
+            Expect.True(Apply().Contains("\"state\":\"caka\"", StringComparison.Ordinal), "PC čaká na schválenie");
+            var forged = PcApplication.Make(identity, pcKey, centre.Pin, T) with { Time = T.AddMinutes(1).ToString("O", System.Globalization.CultureInfo.InvariantCulture) };
+            Expect.True(!PinnedClient.Post(new Uri(centre.Address, CentrePaths.Apply.TrimStart('/')), centre.Pin, Encoding.UTF8.GetBytes(forged.ToJson()), new Dictionary<string, string>(), 1 << 20, TimeSpan.FromSeconds(20)).Ok, "prihláška s cudzím podpisom nie");
+
+            // the console sees it with the check code and approves it
+            using var key = RecipeSigning.OpenPrivate(secret, Password);
+            var free = new System.Net.Sockets.TcpListener(IPAddress.Loopback, 0);
+            free.Start();
+            var port = ((IPEndPoint)free.LocalEndpoint).Port;
+            free.Stop();
+            const string token = "kluc-behu-schvalenia";
+            using var stop = new CancellationTokenSource();
+            var started = new TaskCompletionSource();
+            var web = new WebServer(new IPEndPoint(IPAddress.Loopback, port), null, Polaris.Centrum.Commands.ConsoleRoutes((centre.Address, centre.Pin), keyPath, secret, key, token, port, () => T), _ => { }, Polaris.Centrum.Commands.ConsoleBody.Contains);
+            var task = web.RunAsync(stop.Token, started);
+            started.Task.Wait(TimeSpan.FromSeconds(10));
+            var check = PcApplication.CheckCode(identity.Id);
+            var room = Http(port, "GET", "/api/stav", token: token).Body;
+            Expect.True(room.Contains(check, StringComparison.Ordinal) && room.Contains("PC-11", StringComparison.Ordinal), "konzola vidí čakajúce PC s kontrolným kódom: " + room);
+            var approved = Http(port, "POST", "/api/schvalit", token: token, body: $"{{\"ids\":[\"{identity.Id}\"],\"group\":\"ucebna-125\"}}").Body;
+            Expect.True(approved.Contains("\"ok\":true", StringComparison.Ordinal), "prijaté: " + approved);
+            Expect.Equal("ucebna-125", registry.Find(identity.Id)?.Group, "PC je v skupine");
+
+            // the PC asks again and takes the approval only from a console of its centrum.txt
+            var f = new Polaris.Json.JsonFields(Polaris.Json.JsonReader.Parse(Apply()), "odpoveď");
+            Expect.Equal("schvalene", f.String("state"), "PC dostalo schválenie");
+            var approval = PcApproval.FromJson(f.String("approval"));
+            var (trust, problem) = approval.Check(identity.Id, centre.Pin, [trusted[0].Fingerprint]);
+            Expect.True(trust is { Count: > 0 } && trust[0].Fingerprint == trusted[0].Fingerprint, "dôvera ku konzole: " + problem);
+            Expect.True(approval.Check(identity.Id, centre.Pin, ["0000000000000000"]).Trust is null, "konzola mimo centrum.txt nie");
+            Expect.True(approval.Check(identity.Id, new string('b', 64), [trusted[0].Fingerprint]).Trust is null, "pre iné centrum nie");
+            Expect.True((approval with { Group = "ina" }).Check(identity.Id, centre.Pin, [trusted[0].Fingerprint]).Trust is null, "zmenená skupina nie");
+            Expect.True(approval.Check(new string('c', 32), centre.Pin, [trusted[0].Fingerprint]).Trust is null, "iné PC nie");
+
+            // another PC is turned away
+            using var otherKey = SigningKey.Create();
+            using var op = otherKey.Public();
+            var other = identity with { SigningKey = Convert.ToBase64String(op.Export()), Name = "CUDZIE" };
+            PinnedClient.Post(new Uri(centre.Address, CentrePaths.Apply.TrimStart('/')), centre.Pin, Encoding.UTF8.GetBytes(PcApplication.Make(other, otherKey, centre.Pin, T).ToJson()), new Dictionary<string, string>(), 1 << 20, TimeSpan.FromSeconds(20));
+            Expect.True(Http(port, "POST", "/api/zamietnut", token: token, body: $"{{\"id\":\"{other.Id}\"}}").Body.Contains("\"ok\":true", StringComparison.Ordinal), "zamietnuté");
+            Expect.True(registry.WaitingNow(T).Count == 0 && registry.Find(other.Id) is null, "nič nečaká, cudzie PC nie je v centre");
+            stop.Cancel();
+            task.Wait(TimeSpan.FromSeconds(10));
+
+            // centrum.txt names the consoles that may approve
+            var keys = Path.Combine(dir, "konzoly");
+            Directory.CreateDirectory(keys);
+            File.WriteAllText(Path.Combine(keys, "ucitel.verejny.json"), RecipeSigning.ToJson(pub));
+            var o = new StringWriter();
+            Expect.Equal(0, Polaris.Centrum.Commands.Run(["centrum-txt", "https://172.16.0.10:8443", centre.Pin, "--konzoly", keys], o, T.LocalDateTime, T), "centrum-txt");
+            Expect.Equal(centre.Pin, CentreFile.Parse(o.ToString())?.Pin, "odtlačok centra");
+            Expect.Equal(trusted[0].Fingerprint, CentreFile.Consoles(o.ToString()).Single().Fingerprint, "konzola na schvaľovanie");
+            Expect.True(CentreFile.Consoles($"https://172.16.0.10:8443 {centre.Pin}\r\n").Count == 0, "starý centrum.txt bez konzol");
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
 }

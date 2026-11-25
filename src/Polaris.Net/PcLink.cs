@@ -483,4 +483,5 @@ public static class CentrePaths
     public const string Register = "/v1/registracia";
     public const string Report = "/v1/hlasenie";
     public const string Pcs = "/v1/pc";
+    public const string Apply = "/v1/prihlaska";
 }

@@ -9,7 +9,7 @@
 #
 # Z balíka .deb (apt install ./polaris-centrum_*.deb) je to príkaz polaris-centrum-nastavit: balík ho spustí sám
 # a ďalšie konzoly pridáš príkazom   polaris-centrum-nastavit MENO.verejny.json
-# Kľúče konzol drží /etc/polaris/konzoly, adresu a odtlačok pre konzolu.cmd súbor centrum.txt.
+# Kľúče konzol drží /etc/polaris/konzoly; centrum.txt (adresa, odtlačok a konzoly) patrí k inštalačkám konzoly a PC.
 set -euo pipefail
 
 port=8443
@@ -161,7 +161,10 @@ fi
 
 address="$(hostname -I 2>/dev/null | awk '{print $1}')"
 # adresa a odtlačok pre konzola.cmd na PC správcu (skopíruj vedľa neho – nič sa neopisuje)
-printf 'https://%s:%s %s\r\n' "${address:-ADRESA-SERVERA}" "$port" "$pin" > /etc/polaris/centrum.txt
+# the centre and the consoles that may approve new PCs (only those root put in /etc/polaris/konzoly)
+if ! "$prog" centrum-txt "https://${address:-ADRESA-SERVERA}:$port" "$pin" --konzoly "$keydir" > /etc/polaris/centrum.txt 2>/dev/null; then
+  printf 'https://%s:%s %s\r\n' "${address:-ADRESA-SERVERA}" "$port" "$pin" > /etc/polaris/centrum.txt
+fi
 chmod 644 /etc/polaris/centrum.txt
 where=/etc/polaris/centrum.txt
 if [ "$from_postinst" = no ]; then
@@ -172,7 +175,7 @@ step "Hotovo"
 say "Adresa centra:   https://${address:-ADRESA-SERVERA}:$port"
 say "Odtlačok centra: $pin"
 say ""
-say "Na konzole (PC správcu):  polaris-centrum kod SKUPINA spravca.kluc --server https://${address:-ADRESA}:$port $pin"
-say "Na každom PC (správca):   polaris-agent registrovat https://${address:-ADRESA}:$port $pin KÓD"
-say "Pre konzolu:              $where  (skopíruj ho cez WinSCP vedľa konzola.cmd)"
+say "Súbor pre inštalačky:     $where"
+say "  – skopíruj ho (WinSCP) vedľa POLARIS-Konzola-spravcu.exe a POLARIS-Klient-pre-PC-ucebne.exe"
+say "  – nové PC sa potom ohlásia samy a v konzole ich len prijmeš (+ ďalšia konzola: polaris-centrum-nastavit MENO.verejny.json)"
 say "Stav centra:              sudo systemctl status polaris-centrum   ·   záznam: sudo journalctl -u polaris-centrum -f"

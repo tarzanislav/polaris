@@ -211,6 +211,76 @@ public static class PcLink
         }
     }
 
+    private const string ApplicationKey = @"SOFTWARE\POLARIS\Agent\Prihlaska";
+
+    /// <summary>Applies without a code (decided 25. 11. 2026): the centre keeps the PC waiting until a console approves
+    /// it; the approval is taken only from a console named in centrum.txt. Registered, waiting, a line for people and
+    /// the check code the console shows too.</summary>
+    public static (bool Registered, bool Waiting, string Message, string Check) Apply(Uri address, string pin, IReadOnlyList<string> consoles, string name, DateTimeOffset now)
+    {
+        var (signing, secrets) = PcKeys.LoadOrCreate();
+        using (signing)
+        using (secrets)
+        {
+            var identity = PcKeys.Identity(signing, secrets, name);
+            var check = PcApplication.CheckCode(identity.Id);
+            var application = PcApplication.Make(identity, signing, pin, now);
+            var answer = PinnedClient.Post(new Uri(address, CentrePaths.Apply.TrimStart('/')), pin, Encoding.UTF8.GetBytes(application.ToJson()), new Dictionary<string, string>(), 256 * 1024, Limit);
+            var (ok, message, fields) = Read(answer);
+            if (!ok || fields is null)
+            {
+                return (false, false, message, check);
+            }
+
+            if (fields.String("state") != "schvalene")
+            {
+                Remember(address, pin, consoles, name);
+                return (false, true, "čaká na schválenie v konzole", check);
+            }
+
+            var approval = PcApproval.FromJson(fields.String("approval"));
+            var (trust, problem) = approval.Check(identity.Id, pin, consoles);
+            if (trust is null)
+            {
+                return (false, false, problem, check);
+            }
+
+            foreach (var console in trust)
+            {
+                TrustStore.Add(new ConsoleKeyFile { Name = console.Name, Fingerprint = console.Fingerprint, PublicKey = Convert.ToBase64String(console.PublicKey) });
+            }
+
+            Centre.Configure(new CentreSettings(address, pin, approval.Group));
+            using (var k = Microsoft.Win32.Registry.LocalMachine.CreateSubKey(Centre.Key, writable: true))
+            {
+                k.SetValue("Pc", identity.Id, Microsoft.Win32.RegistryValueKind.String);
+                k.SetValue("Meno", name, Microsoft.Win32.RegistryValueKind.String);
+            }
+
+            Microsoft.Win32.Registry.LocalMachine.DeleteSubKeyTree(ApplicationKey, throwOnMissingSubKey: false);
+            return (true, false, $"PC {name} prijala konzola {approval.Console} do skupiny {approval.Group}; dôveruje konzolám: {string.Join(", ", trust.Select(c => c.Name))}.", check);
+        }
+    }
+
+    /// <summary>An application still waiting (the service asks again every minute), or null.</summary>
+    public static (Uri Address, string Pin, List<string> Consoles, string Name)? Waiting()
+    {
+        using var k = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(ApplicationKey);
+        return k?.GetValue("Adresa") is string a && Uri.TryCreate(a, UriKind.Absolute, out var address) && k.GetValue("Odtlacok") is string pin
+            && k.GetValue("Konzoly") is string[] consoles && k.GetValue("Meno") is string name
+            ? (address, pin, consoles.ToList(), name)
+            : null;
+    }
+
+    private static void Remember(Uri address, string pin, IReadOnlyList<string> consoles, string name)
+    {
+        using var k = Microsoft.Win32.Registry.LocalMachine.CreateSubKey(ApplicationKey, writable: true);
+        k.SetValue("Adresa", address.ToString(), Microsoft.Win32.RegistryValueKind.String);
+        k.SetValue("Odtlacok", pin, Microsoft.Win32.RegistryValueKind.String);
+        k.SetValue("Konzoly", consoles.ToArray(), Microsoft.Win32.RegistryValueKind.MultiString);
+        k.SetValue("Meno", name, Microsoft.Win32.RegistryValueKind.String);
+    }
+
     /// <summary>Sends a report now; the answer's message (or the problem).</summary>
     public static (bool Ok, string Message) Report(AgentHost host)
     {
