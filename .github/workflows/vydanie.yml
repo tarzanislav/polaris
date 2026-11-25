@@ -98,4 +98,4 @@ jobs:
           TEXT
           sed -i 's/^          //' poznamky.md
           VERZIA="${VERZIA#vydanie/}"
-          gh release create "$VERZIA" vydanie/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "POLARIS $VERZIA" --notes-file poznamky.md --prerelease --draft
+          gh release create "$VERZIA" vydanie/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "POLARIS $VERZIA" --notes-file poznamky.md --draft
