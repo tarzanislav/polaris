@@ -523,4 +523,53 @@ public static class CentreLinkChecks
             Directory.Delete(dir, recursive: true);
         }
     }
+
+    [Check]
+    public static void TheConsoleProgramStartsLockedAndIsSetUpInItsWindow()
+    {
+        var dir = Directory.CreateTempSubdirectory("polaris-okno-").FullName;
+        try
+        {
+            using var state = new Polaris.Centrum.ConsoleState(Path.Combine(dir, "konzola"));
+            var now = T;
+            Running? centre = null;
+            var registry = new PcRegistry(Path.Combine(dir, "pc"));
+            var trusted = new List<TrustedConsole>();
+            var pcs = (ServerRequest r) => Polaris.Centrum.Commands.PcRoutes(registry, centre!.Pin, () => trusted, () => now)(r);
+            centre = new Running(Polaris.Centrum.Commands.Routes(Path.Combine(dir, "zverejnene"), null, null, pcs), dir, Polaris.Centrum.Commands.BodyPaths.Contains);
+            using var running = centre;
+            var free = new System.Net.Sockets.TcpListener(IPAddress.Loopback, 0);
+            free.Start();
+            var port = ((IPEndPoint)free.LocalEndpoint).Port;
+            free.Stop();
+            const string token = "kluc-behu-okna";
+            using var stop = new CancellationTokenSource();
+            var started = new TaskCompletionSource();
+            var web = new WebServer(new IPEndPoint(IPAddress.Loopback, port), null, Polaris.Centrum.Commands.ConsoleRoutes(state, token, port, () => now), _ => { }, Polaris.Centrum.Commands.ConsoleBody.Contains);
+            var task = web.RunAsync(stop.Token, started);
+            started.Task.Wait(TimeSpan.FromSeconds(10));
+
+            Expect.True(Http(port, "GET", "/api/start", token: token).Body.Contains("\"keys\":[]", StringComparison.Ordinal), "prvé spustenie: žiadny kľúč");
+            Expect.True(Http(port, "GET", "/api/stav", token: token).Body.Contains("\"locked\":true", StringComparison.Ordinal), "zamknutá konzola centru nič nepovie");
+            Expect.True(Http(port, "POST", "/api/novy-kluc", token: token, body: "{\"name\":\"ucitel\",\"password\":\"kratke\"}").Body.Contains("\"ok\":false", StringComparison.Ordinal), "krátke heslo");
+            Expect.True(Http(port, "POST", "/api/novy-kluc", token: token, body: $"{{\"name\":\"ucitel\",\"password\":\"{Password}\"}}").Body.Contains("\"ok\":true", StringComparison.Ordinal), "kľúč z okna");
+            Expect.True(File.Exists(Path.Combine(dir, "konzola", "ucitel.verejny.json")), "verejný kľúč na server");
+            trusted.Add(RecipeSigning.Trust(RecipeSigning.KeyFromJson(File.ReadAllText(Path.Combine(dir, "konzola", "ucitel.verejny.json")))));
+            Expect.True(Http(port, "POST", "/api/centrum", token: token, body: "{\"address\":\"172.16.0.10\",\"pin\":\"abc\"}").Body.Contains("\"ok\":false", StringComparison.Ordinal), "zlý odtlačok");
+            Expect.True(Http(port, "POST", "/api/centrum", token: token, body: $"{{\"address\":\"{centre.Address}\",\"pin\":\"{centre.Pin}\"}}").Body.Contains("\"ok\":true", StringComparison.Ordinal), "centrum z okna");
+            Expect.True(File.Exists(Path.Combine(dir, "konzola", CentreFile.Name)), "centrum.txt uložené");
+            Expect.True(Http(port, "POST", "/api/odomknut", token: token, body: "{\"name\":\"ucitel\",\"password\":\"zle heslo zle heslo\"}").Body.Contains("Nesprávne heslo", StringComparison.Ordinal), "zlé heslo");
+            Expect.Equal(403, Http(port, "POST", "/api/odomknut", body: $"{{\"name\":\"ucitel\",\"password\":\"{Password}\"}}").Status, "odomknúť len s kľúčom behu");
+            Expect.True(Http(port, "POST", "/api/odomknut", token: token, body: $"{{\"name\":\"ucitel\",\"password\":\"{Password}\"}}").Body.Contains("\"ok\":true", StringComparison.Ordinal), "odomknuté");
+            var room = Http(port, "GET", "/api/stav", token: token).Body;
+            Expect.True(room.Contains("\"ok\":true", StringComparison.Ordinal) && room.Contains("\"pcs\":[]", StringComparison.Ordinal), "po odomknutí učebňa: " + room);
+            Expect.True(Http(port, "GET", "/ikona.svg").Body.Contains("<svg", StringComparison.Ordinal), "ikona okna");
+            stop.Cancel();
+            task.Wait(TimeSpan.FromSeconds(10));
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
 }

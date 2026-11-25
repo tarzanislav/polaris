@@ -18,11 +18,23 @@ using var term = PosixSignalRegistration.Create(PosixSignal.SIGTERM, context =>
     stop.Cancel();
 });
 
-// a double click on Windows: the console of this PC (the key made the first time, the centre from centrum.txt)
-if (OperatingSystem.IsWindows() && args is [] && !Console.IsInputRedirected)
+// on Windows the console is a program: a double click installs or updates it and opens its window
+if (OperatingSystem.IsWindows())
 {
-    serving = true;
-    return ConsoleSetup.Run(Console.Out, stop.Token);
+    if (args is [] && !Console.IsInputRedirected)
+    {
+        return ConsoleApp.Launch(Console.Out, stop.Token);
+    }
+
+    if (args is ["okno"])
+    {
+        return ConsoleApp.Serve(Console.Out, stop.Token);
+    }
+
+    if (args is ["odinstalovat-konzolu"])
+    {
+        return ConsoleApp.Uninstall(Console.Out);
+    }
 }
 
 return Commands.Run(args, Console.Out, DateTime.Now, DateTimeOffset.UtcNow, stop: stop.Token);

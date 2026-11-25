@@ -7,6 +7,7 @@
     <AssemblyName>polaris-centrum</AssemblyName>
     <InvariantGlobalization>true</InvariantGlobalization>
     <PublishAot>true</PublishAot>
+    <ApplicationIcon>..\..\assets\polaris.ico</ApplicationIcon>
     <OptimizationPreference>Size</OptimizationPreference>
   </PropertyGroup>
   <ItemGroup>

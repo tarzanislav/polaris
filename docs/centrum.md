@@ -141,6 +141,21 @@ polaris-centrum stav spravca.kluc --server https://192.168.1.10:8443 ODTLAČOK [
 - Pre **dve centrá** (Debian aj Windows 11, návrh 4.16): záznam PC nesie dôkaz kódu, ktorý vie overiť len konzola, čo
   kód vydala – tá PC potvrdí aj druhému centru. Centrum beží rovnako aj na Windows 11 (CI to overuje).
 
+## Inštalačky (vydania na GitHube)
+
+Najnovšie vždy na https://github.com/tarzanislav/polaris/releases/latest – každá sa nainštaluje aj **na staršiu
+verziu** (aktualizácia), nič sa neodinštalúva:
+
+| Súbor | Čo to je | Ako |
+|---|---|---|
+| `POLARIS-Server-Debian.deb` | server (centrum) na Debiane | `apt install ./POLARIS-Server-Debian.deb`, potom `polaris-centrum-nastavit MENO.verejny.json` |
+| `POLARIS-Server-Debian-instalacia.sh` | to isté jedným príkazom | `bash POLARIS-Server-Debian-instalacia.sh` v priečinku s .deb a kľúčmi konzol |
+| `POLARIS-Konzola-spravcu.exe` | konzola pre správcu (Windows) | dvojklik – program v `C:\POLARIS\konzola`, odkaz na ploche a v Štarte, záznam v Nastavenia → Aplikácie; kľúč, centrum a heslo sa zadávajú v okne konzoly |
+| `POLARIS-Klient-pre-PC-ucebne.exe` | klient na PC učebne (Windows) | vedľa neho `centrum.txt` zo servera, dvojklik, zadať kód z konzoly |
+
+`centrum.txt` (adresa a odtlačok centra) vytvorí server v `/etc/polaris/centrum.txt` – skopíruj ho k inštalačkám,
+nič sa neopisuje.
+
 ## Konzola v prehliadači (K7c)
 
 Na notebooku alebo učiteľskom PC (kde je kľúč konzoly) spusti:

@@ -37,7 +37,7 @@ jobs:
             Invoke-WebRequest https://dot.net/v1/dotnet-install.ps1 -OutFile $env:RUNNER_TEMP/dotnet-install.ps1
             & $env:RUNNER_TEMP/dotnet-install.ps1 -Channel 10.0 -InstallDir "$env:ProgramFiles/dotnet"
           }
-      - name: POLARIS-PC.exe and POLARIS-konzola.exe
+      - name: POLARIS-Klient-pre-PC-ucebne.exe and POLARIS-Konzola-spravcu.exe
         run: |
           dotnet publish src/Polaris.Student -c Release -r win-x64 -o out/ziak
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -46,9 +46,9 @@ jobs:
           dotnet publish src/Polaris.Centrum -c Release -r win-x64 -o out/centrum
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           New-Item -ItemType Directory -Force out/vydanie | Out-Null
-          Copy-Item out/pc/polaris-agent.exe out/vydanie/POLARIS-PC.exe
-          Copy-Item out/centrum/polaris-centrum.exe out/vydanie/POLARIS-konzola.exe
-          & ./out/vydanie/POLARIS-PC.exe verzia
+          Copy-Item out/pc/polaris-agent.exe out/vydanie/POLARIS-Klient-pre-PC-ucebne.exe
+          Copy-Item out/centrum/polaris-centrum.exe out/vydanie/POLARIS-Konzola-spravcu.exe
+          & ./out/vydanie/POLARIS-Klient-pre-PC-ucebne.exe verzia
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -67,8 +67,11 @@ jobs:
         run: |
           bash tools/ci/dotnet.sh publish src/Polaris.Centrum -c Release -r linux-x64 -o out/centrum-linux
           tag="${VERZIA#vydanie/}"; version="${tag#v}"
-          bash tools/debian/balik-deb.sh "$version" out/centrum-linux/polaris-centrum out/vydanie
-          cp tools/debian/centrum.sh out/vydanie/
+          deb=$(bash tools/debian/balik-deb.sh "$version" out/centrum-linux/polaris-centrum out/balik)
+          # fixed names for people (the version is inside the package): the latest-download links never change
+          mkdir -p out/vydanie
+          cp "$deb" out/vydanie/POLARIS-Server-Debian.deb
+          cp tools/debian/centrum.sh out/vydanie/POLARIS-Server-Debian-instalacia.sh
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: vydanie-debian
@@ -92,9 +95,10 @@ jobs:
           cat > poznamky.md <<'TEXT'
           **Inštalácia**
 
-          - **Server (Debian):** `apt install ./polaris-centrum_*_amd64.deb`, potom `polaris-centrum-nastavit MENO.verejny.json`. Súbor `/etc/polaris/centrum.txt` skopíruj vedľa inštalačiek.
-          - **Konzola (Windows):** dvojklik na `POLARIS-konzola.exe` (prvýkrát vytvorí kľúč konzoly, odkaz na ploche).
-          - **PC učebne (Windows):** `POLARIS-PC.exe` a `centrum.txt` vedľa seba, dvojklik, zadaj kód z konzoly (+ Pridať PC).
+          - **POLARIS-Server-Debian.deb** – server (centrum) na Debiane: `apt install ./POLARIS-Server-Debian.deb`, potom `polaris-centrum-nastavit MENO.verejny.json`. Súbor `/etc/polaris/centrum.txt` skopíruj vedľa inštalačiek. Novšia verzia sa nainštaluje rovnako, na staršiu.
+          - **POLARIS-Server-Debian-instalacia.sh** – to isté jedným príkazom (`bash POLARIS-Server-Debian-instalacia.sh` v priečinku s .deb a kľúčmi konzol).
+          - **POLARIS-Konzola-spravcu.exe** – konzola pre správcu (Windows): dvojklik – nainštaluje sa (plocha, Štart, Aplikácie), otvorí sa okno konzoly. Novšia verzia sa nainštaluje na staršiu.
+          - **POLARIS-Klient-pre-PC-ucebne.exe** – klient na PC učebne (Windows): vedľa neho `centrum.txt`, dvojklik, zadaj kód z konzoly (+ Pridať PC). Novšia verzia sa nainštaluje na staršiu.
           TEXT
           sed -i 's/^          //' poznamky.md
           VERZIA="${VERZIA#vydanie/}"

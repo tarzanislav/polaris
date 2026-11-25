@@ -47,11 +47,16 @@ public static partial class Commands
         return 0;
     }
 
-    private static readonly IReadOnlySet<string> ConsoleBody = new HashSet<string>(StringComparer.Ordinal) { "/api/kod", "/api/odobrat" };
+    public static readonly IReadOnlySet<string> ConsoleBody = new HashSet<string>(StringComparer.Ordinal) { "/api/kod", "/api/odobrat", "/api/novy-kluc", "/api/centrum", "/api/odomknut" };
+
+    /// <summary>The routes of a console already unlocked (the command konzola: key and centre given on the command line).</summary>
+    public static Func<ServerRequest, ServerResponse> ConsoleRoutes((Uri Address, string Pin) server, string keyPath, ConsoleKeyFile keyFile, SigningKey key, string token, int port, Func<DateTimeOffset> clock) =>
+        ConsoleRoutes(ConsoleState.Unlocked(server, keyPath, keyFile, key), token, port, clock);
 
     /// <summary>The routes of the console: the page and its script and look (no key needed), and the API (the key of this
-    /// run in a header, the address must be this PC's own).</summary>
-    public static Func<ServerRequest, ServerResponse> ConsoleRoutes((Uri Address, string Pin) server, string keyPath, ConsoleKeyFile keyFile, SigningKey key, string token, int port, Func<DateTimeOffset> clock) => request =>
+    /// run in a header, the address must be this PC's own). A locked console (the program on the desktop) first answers
+    /// only the questions of its start: make a key, give the centre, unlock with the password.</summary>
+    public static Func<ServerRequest, ServerResponse> ConsoleRoutes(ConsoleState state, string token, int port, Func<DateTimeOffset> clock) => request =>
     {
         // a page of another name pointing at this PC (DNS rebinding) is not this console
         var host = request.Header("host");
@@ -68,6 +73,8 @@ public static partial class Commands
                 return ServerResponse.Page("text/javascript; charset=utf-8", ConsoleUi.Script);
             case "/konzola.css":
                 return ServerResponse.Page("text/css; charset=utf-8", ConsoleUi.Style);
+            case "/ikona.svg":
+                return ServerResponse.Page("image/svg+xml", ConsoleUi.Icon);
         }
 
         if (!request.Path.StartsWith("/api/", StringComparison.Ordinal))
@@ -84,6 +91,24 @@ public static partial class Commands
         var now = clock();
         try
         {
+            switch (request.Path)
+            {
+                case "/api/start":
+                    return Answer(200, state.Start());
+                case "/api/novy-kluc":
+                    return Answer(200, state.NewKey(request.Body ?? []));
+                case "/api/centrum":
+                    return Answer(200, state.SetCentre(request.Body ?? []));
+                case "/api/odomknut":
+                    return Answer(200, state.Unlock(request.Body ?? []));
+            }
+
+            if (state.Open() is not { } open)
+            {
+                return Answer(200, new JsonObject().Add("ok", false).Add("locked", true).Add("message", "Konzola je zamknutá – zadaj heslo ku kľúču."));
+            }
+
+            var (server, keyPath, keyFile, key) = open;
             return request.Path switch
             {
                 "/api/stav" => Answer(200, StateOf(server, keyFile, key, now)),
@@ -92,7 +117,7 @@ public static partial class Commands
                 _ => Answer(404, new JsonObject().Add("ok", false).Add("message", "Neznáma otázka konzoly.")),
             };
         }
-        catch (Exception e) when (e is InvalidDataException or JsonError or IOException)
+        catch (Exception e) when (e is InvalidDataException or JsonError or IOException or UsageException)
         {
             return Answer(200, new JsonObject().Add("ok", false).Add("message", e.Message));
         }
@@ -194,7 +219,8 @@ public static partial class Commands
             .Add("until", grant.NotAfterUtc.ToString("O", CultureInfo.InvariantCulture))
             .Add("count", count)
             .Add("consoles", JsonArray.Of(grant.Consoles().Select(c => c.Name), n => n))
-            .Add("command", RegisterCommand(server, code));
+            .Add("command", RegisterCommand(server, code))
+            .Add("centreFile", CentreFile.Line(server.Address, server.Pin).TrimEnd());
     }
 
     private static JsonObject Remove((Uri Address, string Pin) server, SigningKey key, byte[] body, DateTimeOffset now)

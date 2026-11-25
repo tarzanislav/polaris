@@ -761,7 +761,7 @@ public static partial class Commands
     }
 
     [System.Text.RegularExpressions.GeneratedRegex("^[A-Za-z0-9_-]{1,40}$")]
-    private static partial System.Text.RegularExpressions.Regex KeyNamePattern();
+    internal static partial System.Text.RegularExpressions.Regex KeyNamePattern();
 
     // ---- helpers ----
 

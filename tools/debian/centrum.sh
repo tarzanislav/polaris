@@ -1,13 +1,14 @@
 #!/bin/bash
-# POLARIS – centrum na Debiane jedným príkazom. Do jedného priečinka na serveri (WinSCP, napr. /root/polaris) nakopíruj
-# balík polaris-centrum-linux (rozbalený alebo ako .zip) a verejné kľúče konzol (MENO.verejny.json). Potom v PuTTY:
-#   bash /root/polaris/centrum.sh
+# POLARIS – server (centrum) na Debiane jedným príkazom. Do jedného priečinka na serveri (WinSCP, napr. /root/polaris)
+# nakopíruj POLARIS-Server-Debian.deb (alebo balík polaris-centrum-linux) a verejné kľúče konzol (MENO.verejny.json).
+# Potom v PuTTY:   bash /root/polaris/POLARIS-Server-Debian-instalacia.sh   (inštalácia aj aktualizácia na staršiu)
 # Skript nainštaluje alebo aktualizuje centrum, uloží celý výpis do instalacia.txt a adresu s odtlačkom do centrum.txt –
 # ten súbor skopíruj na PC s konzolou vedľa konzola.cmd (nemusíš nič opisovať).
 set -uo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$here" || exit 1
+package() { ls -t POLARIS-Server-Debian*.deb polaris-centrum_*_amd64.deb 2>/dev/null | head -1; }
 say() { printf '%s\n' "$*"; }
 fail() { printf '\nCHYBA: %s\n' "$*" >&2; exit 1; }
 
@@ -17,7 +18,7 @@ if [ "$(id -u)" != 0 ]; then
 fi
 
 # balík ako .zip rozbalí sám (unzip alebo python3 – jedno z nich Debian má takmer vždy)
-if [ ! -f polaris-centrum ] && ! ls polaris-centrum_*_amd64.deb >/dev/null 2>&1; then
+if [ ! -f polaris-centrum ] && [ -z "$(package)" ]; then
   zip="$(ls -t polaris-centrum-linux*.zip 2>/dev/null | head -1 || true)"
   [ -n "$zip" ] || fail "v $here nie je polaris-centrum ani polaris-centrum-linux.zip – nakopíruj balík z GitHubu"
   say "Rozbaľujem $zip …"
@@ -25,7 +26,7 @@ if [ ! -f polaris-centrum ] && ! ls polaris-centrum_*_amd64.deb >/dev/null 2>&1;
   elif command -v python3 >/dev/null; then python3 -I -m zipfile -e "$zip" "$here"
   else fail "na rozbalenie chýba unzip aj python3 – rozbaľ balík vo Windows a nakopíruj súbory"; fi
 fi
-ls polaris-centrum_*_amd64.deb >/dev/null 2>&1 || [ -f instalovat-centrum.sh ] || fail "chýba balík .deb aj instalovat-centrum.sh (sú v balíku polaris-centrum-linux)"
+[ -n "$(package)" ] || [ -f instalovat-centrum.sh ] || fail "chýba balík .deb aj instalovat-centrum.sh (sú v balíku polaris-centrum-linux)"
 
 keys=$(ls ./*.verejny.json 2>/dev/null | wc -l)
 if [ "$keys" -eq 0 ]; then
@@ -39,7 +40,7 @@ else
 fi
 
 rm -f centrum.txt
-deb="$(ls -t polaris-centrum_*_amd64.deb 2>/dev/null | head -1 || true)"
+deb="$(package || true)"
 if [ -n "$deb" ]; then
   # balík Debianu: kľúče konzol tam, kde ich balík hľadá, potom apt (aktualizácia rovnako)
   install -d -m 755 /etc/polaris/konzoly

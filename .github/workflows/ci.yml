@@ -142,11 +142,11 @@ jobs:
           dotnet publish src/Polaris.Agent -c Release -r win-x64 -o out/pc "-p:ZiakExe=$PWD/out/agent/polaris-ziak.exe"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           New-Item -ItemType Directory -Force out/instalacky | Out-Null
-          Copy-Item out/pc/polaris-agent.exe out/instalacky/POLARIS-PC.exe
-          Copy-Item out/centrum/polaris-centrum.exe out/instalacky/POLARIS-konzola.exe
-          $inside = (Get-Item out/instalacky/POLARIS-PC.exe).Length - (Get-Item out/agent/polaris-agent.exe).Length
+          Copy-Item out/pc/polaris-agent.exe out/instalacky/POLARIS-Klient-pre-PC-ucebne.exe
+          Copy-Item out/centrum/polaris-centrum.exe out/instalacky/POLARIS-Konzola-spravcu.exe
+          $inside = (Get-Item out/instalacky/POLARIS-Klient-pre-PC-ucebne.exe).Length - (Get-Item out/agent/polaris-agent.exe).Length
           if ($inside -lt (Get-Item out/agent/polaris-ziak.exe).Length) { "ikona žiaka nie je v inštalačke PC"; exit 1 }
-          & ./out/instalacky/POLARIS-PC.exe verzia
+          & ./out/instalacky/POLARIS-Klient-pre-PC-ucebne.exe verzia
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & ./out/agent/polaris-agent.exe overit recepty/ukazka-kancelarsky.json
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

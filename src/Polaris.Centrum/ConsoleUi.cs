@@ -11,6 +11,7 @@ public static class ConsoleUi
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>POLARIS konzola</title>
+<link rel="icon" href="/ikona.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/konzola.css">
 <script src="/konzola.js" defer></script>
 </head>
@@ -19,8 +20,40 @@ public static class ConsoleUi
   <div class="brand"><span class="star">✦</span> POLARIS <span class="dim">konzola</span></div>
   <div class="where"><span id="console"></span><span class="sep">·</span><span id="centre"></span></div>
   <div class="status"><span id="dot" class="dot"></span><span id="status">pripájam…</span></div>
+  <button id="browser" class="ghost" title="Otvoriť konzolu v prehliadači">↗ V prehliadači</button>
   <button id="add" class="primary">+ Pridať PC</button>
 </header>
+<section id="start" class="start" hidden>
+  <div class="card">
+    <div class="brand big"><span class="star">✦</span> POLARIS <span class="dim">konzola</span></div>
+    <div id="s-key" hidden>
+      <h2>Kľúč tejto konzoly</h2>
+      <p class="dim">Prvé spustenie: konzola si vytvorí vlastný kľúč, ktorým podpisuje všetko, čo posiela centru. Heslo si
+      vymysli (aspoň 12 znakov) a zapíš si ho – obnoviť sa nedá.</p>
+      <label>Meno konzoly <input id="s-name" value="ucitel" maxlength="40" autocomplete="off"></label>
+      <label>Heslo <input id="s-pass1" type="password" autocomplete="new-password"></label>
+      <label>Heslo ešte raz <input id="s-pass2" type="password" autocomplete="new-password"></label>
+      <div class="actions"><button id="s-make" class="primary">Vytvoriť kľúč</button></div>
+    </div>
+    <div id="s-centre" hidden>
+      <h2>Centrum</h2>
+      <p class="dim">Najjednoduchšie: súbor <b>centrum.txt</b> zo servera (/etc/polaris/centrum.txt) skopíruj do priečinka
+      <span id="s-folder"></span> a stlač Skúsiť znova. Alebo údaje vypíš sem:</p>
+      <label>Adresa centra <input id="s-address" placeholder="napr. 172.16.0.10" autocomplete="off"></label>
+      <label>Odtlačok centra (64 znakov) <input id="s-pin" autocomplete="off" spellcheck="false"></label>
+      <div class="actions"><button id="s-again" class="ghost">Skúsiť znova</button><button id="s-save" class="primary">Uložiť</button></div>
+    </div>
+    <div id="s-unlock" hidden>
+      <h2>Odomknúť konzolu</h2>
+      <p class="dim" id="s-where"></p>
+      <label id="s-pick-l">Kľúč <select id="s-pick"></select></label>
+      <label>Heslo ku kľúču <input id="s-pass" type="password" autocomplete="current-password"></label>
+      <div class="actions"><button id="s-open" class="primary">Odomknúť</button></div>
+    </div>
+    <p id="s-note" class="note"></p>
+    <p id="s-version" class="dim small"></p>
+  </div>
+</section>
 <main>
   <section class="tools">
     <div id="chips" class="chips"></div>
@@ -41,7 +74,7 @@ public static class ConsoleUi
   <div class="card">
     <div id="m-form">
       <h2>Pridať PC do skupiny</h2>
-      <p class="dim">Konzola vydá kód. Na PC ho zadáš príkazom (ako správca); PC si vytvorí vlastné kľúče, dostane skupinu
+      <p class="dim">Konzola vydá kód. Zadáš ho v inštalačke POLARIS-Klient-pre-PC-ucebne.exe; PC si vytvorí vlastné kľúče, dostane skupinu
       a bude dôverovať tvojim konzolám.</p>
       <label>Skupina <input id="m-group" list="m-groups" value="ucebna" maxlength="40"></label>
       <datalist id="m-groups"></datalist>
@@ -55,8 +88,9 @@ public static class ConsoleUi
       <h2>Kód pre skupinu <span id="r-group"></span></h2>
       <div id="r-code" class="code"></div>
       <p id="r-until" class="dim"></p>
-      <p>Na PC spusti v PowerShelli ako správca (agent už beží ako služba):</p>
-      <div class="command"><code id="r-command"></code><button id="r-copy" class="ghost">Kopírovať</button></div>
+      <p><b>Na PC:</b> dvojklik na <b>POLARIS-Klient-pre-PC-ucebne.exe</b> (vedľa neho <b>centrum.txt</b>) a zadaj tento kód.</p>
+      <details><summary class="dim">Alebo príkaz pre PowerShell (správca, agent už nainštalovaný)</summary>
+      <div class="command"><code id="r-command"></code><button id="r-copy" class="ghost">Kopírovať</button></div></details>
       <p id="r-consoles" class="dim"></p>
       <p class="dim">Kód nikam neukladaj – centrum pozná len hodnotu z neho odvodenú.</p>
       <div class="actions"><button id="r-done" class="primary">Hotovo</button></div>
@@ -73,6 +107,11 @@ public static class ConsoleUi
 <div id="toast" class="toast" hidden></div>
 </body>
 </html>
+""";
+
+    /// <summary>The mark of POLARIS: a four-pointed star on blue (also in the window's title bar).</summary>
+    public const string Icon = """
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#2f6fdf"/><polygon points="32.0,7.7 37.4,26.6 56.3,32.0 37.4,37.4 32.0,56.3 26.6,37.4 7.7,32.0 26.6,26.6" fill="#fff"/></svg>
 """;
 
     public const string Style = """
@@ -158,9 +197,17 @@ input, select { font: inherit; color: var(--text); background: var(--panel); bor
   border: 2px dashed var(--accent); border-radius: 12px; margin: 8px 0; white-space: nowrap; }
 .command { display: flex; gap: 8px; align-items: center; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
 .command code { flex: 1; font-size: 12px; word-break: break-all; }
+.start { position: fixed; inset: 0; z-index: 40; background: var(--bg); display: grid; place-items: center; padding: 16px; overflow-y: auto; }
+.start .card { width: min(480px, 100%); }
+.brand.big { font-size: 22px; margin-bottom: 6px; }
+.note { color: var(--bad); min-height: 1.2em; margin: 10px 0 0; }
+.note.ok { color: var(--ok); }
+.small { font-size: 12px; }
+.card input { width: 100%; }
+details { margin: 6px 0; } summary { cursor: pointer; font-size: 13px; }
 .toast { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 10px 16px;
   border-radius: 10px; z-index: 30; box-shadow: var(--shadow); }
-@media (max-width: 640px) { .where, .brand .dim, #status { display: none; } .status { margin-left: auto; } .code { font-size: 24px; } .kv { grid-template-columns: 110px 1fr; } #search { width: 100%; } .bar { gap: 10px; padding: 10px 14px; } main { padding: 12px 14px 60px; } }
+@media (max-width: 640px) { #browser { display: none; } .start .brand .dim { display: inline; } .where, .brand .dim, #status { display: none; } .status { margin-left: auto; } .code { font-size: 24px; } .kv { grid-template-columns: 110px 1fr; } #search { width: 100%; } .bar { gap: 10px; padding: 10px 14px; } main { padding: 12px 14px 60px; } }
 """;
 
     public const string Script = """
@@ -191,9 +238,51 @@ input, select { font: inherit; color: var(--text); background: var(--panel); bor
     return response.json();
   }
 
+  // the start: a key, the centre, the password – everything in the window, nothing in a black one
+  async function start() {
+    const s = await ask("/api/start");
+    $("s-version").textContent = "verzia " + s.version;
+    $("s-folder").textContent = s.folder;
+    if (s.unlocked) { $("start").hidden = true; refresh(); return; }
+    $("start").hidden = false;
+    $("s-key").hidden = s.keys.length > 0;
+    $("s-centre").hidden = !(s.keys.length > 0 && !s.centre);
+    $("s-unlock").hidden = !(s.keys.length > 0 && s.centre);
+    if (s.keys.length && s.centre) {
+      $("s-where").textContent = "Centrum " + s.centre;
+      const pick = $("s-pick"); pick.replaceChildren();
+      s.keys.forEach(k => pick.append(Object.assign(el("option"), { value: k, textContent: k })));
+      $("s-pick-l").hidden = s.keys.length < 2;
+      $("s-pass").focus();
+    } else if (!s.keys.length) { $("s-pass1").focus(); }
+  }
+  const note = (text, ok) => { const n = $("s-note"); n.textContent = text || ""; n.className = "note" + (ok ? " ok" : ""); };
+  $("s-make").onclick = async () => {
+    if ($("s-pass1").value !== $("s-pass2").value) { note("Heslá sa nezhodujú."); return; }
+    const a = await ask("/api/novy-kluc", { name: $("s-name").value, password: $("s-pass1").value });
+    $("s-pass1").value = $("s-pass2").value = "";
+    note(a.message, a.ok);
+    if (a.ok) start();
+  };
+  $("s-again").onclick = () => { note(""); start(); };
+  $("s-save").onclick = async () => {
+    const a = await ask("/api/centrum", { address: $("s-address").value, pin: $("s-pin").value });
+    if (!a.ok) { note(a.message); return; }
+    note(""); start();
+  };
+  $("s-open").onclick = async () => {
+    const a = await ask("/api/odomknut", { name: $("s-pick").value, password: $("s-pass").value });
+    $("s-pass").value = "";
+    if (!a.ok) { note(a.message); return; }
+    note(""); start();
+  };
+  $("s-pass").addEventListener("keydown", e => { if (e.key === "Enter") $("s-open").click(); });
+  $("browser").onclick = () => window.open(location.origin + "/#" + token, "_blank", "noopener");
+
   async function refresh() {
     try {
       const answer = await ask("/api/stav");
+      if (answer.locked) { start(); return; }
       $("console").textContent = answer.console ? "konzola " + answer.console : "";
       $("centre").textContent = answer.centre || "";
       $("dot").className = "dot " + (answer.ok ? "ok" : "bad");
@@ -348,8 +437,8 @@ input, select { font: inherit; color: var(--text); background: var(--panel); bor
     m.textContent = "Konzolu otvor adresou http://127.0.0.1:8444/#…, ktorú vypísalo okno konzola.cmd (skopíruj celú, aj časť za #).";
     return;
   }
-  refresh();
-  setInterval(refresh, 30000);
+  start().catch(() => { $("dot").className = "dot bad"; $("status").textContent = "konzola nebeží"; });
+  setInterval(() => { if ($("start").hidden) refresh(); }, 30000);
 })();
 """;
 }
