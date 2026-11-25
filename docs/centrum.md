@@ -156,6 +156,23 @@ verziu** (aktualizácia), nič sa neodinštalúva:
 `centrum.txt` (adresa a odtlačok centra) vytvorí server v `/etc/polaris/centrum.txt` – skopíruj ho k inštalačkám,
 nič sa neopisuje.
 
+## Aktualizácie cez konzolu (rozhodnutie 25. 11. 2026)
+
+1. Konzola sa raz za hodinu pozrie na GitHub (najnovšie vydanie). Keď je novšia verzia, alebo ju centrum ešte
+   nerozosiela, ukáže hore **„Nová verzia POLARIS …“** s tlačidlom **Aktualizovať**.
+2. Po kliknutí konzola stiahne súbory vydania, **overí ich odtlačok** (SHA-256 od GitHubu a zo `SHA256SUMS.txt`),
+   každý **podpíše svojím kľúčom** (popis: produkt, verzia, odtlačok, veľkosť) a odovzdá centru. Centrum prijme len
+   podpis konzoly, ktorej dôveruje, a len novšiu verziu; súbory drží v `zverejnene/aktualizacie`.
+3. **PC** sa centra pýtajú každých 5 minút: novšieho klienta podpísaného konzolou, ktorej PC dôveruje, stiahnu do
+   chráneného priečinka agenta, overia bajt po bajte a nainštalujú (služba sa na chvíľu zastaví; registrácia, kľúče
+   a nastavenia ostávajú). Nepodarený pokus sa skúsi znova o hodinu; výsledok je v denníku PC.
+4. **Server na Debiane** má časovač `polaris-centrum-aktualizacia.timer` (každých 15 minút, ako root): prijme len
+   verziu podpísanú konzolou z `/etc/polaris/konzoly` (mení ich len root – služba centra nie), skontroluje odtlačok,
+   meno a verziu balíka a nainštaluje ho cez `apt`. Ručne: `sudo polaris-centrum-aktualizovat`.
+5. **Konzola** sa aktualizuje posledná: okno sa zavrie a otvorí znova s novou verziou.
+
+Bez konzoly: `polaris-centrum aktualizacia odovzdat PRODUKT VERZIA SÚBOR KLUC --server … ODTLAČOK`.
+
 ## Konzola v prehliadači (K7c)
 
 Na notebooku alebo učiteľskom PC (kde je kľúč konzoly) spusti:

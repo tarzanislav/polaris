@@ -12,6 +12,9 @@ trap 'rm -rf "$root"' EXIT
 install -D -m 755 "$binary" "$root/opt/polaris/polaris-centrum"
 install -D -m 644 "$tools/polaris-centrum.service" "$root/usr/lib/systemd/system/polaris-centrum.service"
 install -D -m 755 "$tools/instalovat-centrum.sh" "$root/usr/sbin/polaris-centrum-nastavit"
+install -D -m 755 "$tools/polaris-centrum-aktualizovat" "$root/usr/sbin/polaris-centrum-aktualizovat"
+install -D -m 644 "$tools/polaris-centrum-aktualizacia.service" "$root/usr/lib/systemd/system/polaris-centrum-aktualizacia.service"
+install -D -m 644 "$tools/polaris-centrum-aktualizacia.timer" "$root/usr/lib/systemd/system/polaris-centrum-aktualizacia.timer"
 install -d -m 755 "$root/etc/polaris/konzoly"
 install -d -m 755 "$root/usr/share/doc/polaris-centrum"
 cat > "$root/usr/share/doc/polaris-centrum/copyright" <<'TEXT'
@@ -33,7 +36,7 @@ Architecture: amd64
 Maintainer: POLARIS <tarzanislav@users.noreply.github.com>
 Section: admin
 Priority: optional
-Depends: libc6 (>= 2.34), libssl3t64 | libssl3, systemd, passwd, iproute2
+Depends: libc6 (>= 2.34), libssl3t64 | libssl3, systemd, passwd, iproute2, apt
 Recommends: curl
 Installed-Size: $size
 Homepage: https://github.com/tarzanislav/polaris
@@ -47,7 +50,11 @@ cat > "$root/DEBIAN/postinst" <<'TEXT'
 #!/bin/sh
 set -e
 case "$1" in
-  configure) /usr/sbin/polaris-centrum-nastavit --z-balika ;;
+  configure)
+    /usr/sbin/polaris-centrum-nastavit --z-balika
+    # aktualizácie podpísané konzolou (každých 15 minút)
+    systemctl daemon-reload >/dev/null 2>&1 || true
+    systemctl enable --now polaris-centrum-aktualizacia.timer >/dev/null 2>&1 || true ;;
 esac
 exit 0
 TEXT
@@ -57,6 +64,7 @@ cat > "$root/DEBIAN/prerm" <<'TEXT'
 set -e
 case "$1" in
   remove|deconfigure)
+    systemctl disable --now polaris-centrum-aktualizacia.timer >/dev/null 2>&1 || true
     systemctl stop polaris-centrum >/dev/null 2>&1 || true
     systemctl disable polaris-centrum >/dev/null 2>&1 || true ;;
 esac

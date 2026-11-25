@@ -12,9 +12,16 @@ public sealed class ConsoleState : IDisposable
     private (Uri Address, string Pin)? _server;
     private (string Path, ConsoleKeyFile File, SigningKey Key)? _key;
 
-    public ConsoleState(string folder) => Folder = folder;
+    public ConsoleState(string folder, UpdateJob? updates = null)
+    {
+        Folder = folder;
+        Updates = updates ?? new UpdateJob(canRestart: false);
+    }
 
     public string Folder { get; }
+
+    /// <summary>The new versions from GitHub and the work of handing them on (decided 25. 11. 2026: through the console).</summary>
+    public UpdateJob Updates { get; }
 
     public static ConsoleState Unlocked((Uri Address, string Pin) server, string keyPath, ConsoleKeyFile keyFile, SigningKey key) =>
         new(Path.GetDirectoryName(Path.GetFullPath(keyPath)) ?? ".") { _server = server, _key = (keyPath, keyFile, key) };

@@ -55,6 +55,11 @@ public static partial class Commands
           konzola KLUC --server https://SERVER:8443 ODTLAČOK [--port 8444]
                                               konzola v prehliadači na tomto PC: prehľad učebne, detail PC, kód pre
                                               nové PC (kľúč ostáva v tomto programe; koniec Ctrl+C)
+          aktualizacia odovzdat PRODUKT VERZIA SÚBOR KLUC --server https://SERVER:8443 ODTLAČOK
+                                              nová verzia (klient, server-debian, server-windows) podpísaná konzolou
+                                              na centrum – PC a servery si ju nainštalujú (konzola to robí sama z GitHubu)
+          aktualizacia over POPIS --konzoly PRIEČINOK [--produkt P]
+                                              overí podpísaný popis aktualizácie; vypíše „VERZIA SHA256“ (pre server)
           kluc novy MENO                      nový kľúč konzoly: MENO.kluc (súkromný, chránený heslom) a MENO.verejny.json
           podpisat RECEPT KLUC                podpíše recept (vznikne RECEPT.podpis); PC s dôverou k tejto konzole ho prijmú
 
@@ -155,6 +160,11 @@ public static partial class Commands
             if (words[0] is "konzola")
             {
                 return ConsoleCommand(words.Skip(1).ToList(), output, secret ?? ReadSecret, stop);
+            }
+
+            if (words[0] is "aktualizacia")
+            {
+                return UpdateCommand(words.Skip(1).ToList(), output, utcNow, secret ?? ReadSecret);
             }
 
             var store = new ClassroomStore(file);

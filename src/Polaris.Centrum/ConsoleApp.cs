@@ -45,12 +45,12 @@ public static class ConsoleApp
         Directory.CreateDirectory(Own);
         if (ReadRunning() is { } running)
         {
-            OpenWindow(running, wait: false);
+            OpenWindow(running)?.Dispose();
             return 0;
         }
 
         var folder = KeyFolder();
-        using var state = new ConsoleState(folder);
+        using var state = new ConsoleState(folder, new UpdateJob(canRestart: true));
         var token = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(24));
         var port = FreePort(Commands.ConsolePort);
         using var end = CancellationTokenSource.CreateLinkedTokenSource(stop);
@@ -58,11 +58,40 @@ public static class ConsoleApp
         var serving = web.RunAsync(end.Token);
         var address = $"http://127.0.0.1:{port}/#{token}";
         File.WriteAllText(Running, $"{Environment.ProcessId} {address}");
+        Process? window = null;
+
+        // a new version of the console downloaded by the update: once the work is done, the new one takes over
+        var watcher = new Thread(() =>
+        {
+            while (!end.IsCancellationRequested)
+            {
+                if (state.Updates.Done && state.Updates.RestartWith is { } next)
+                {
+                    end.Token.WaitHandle.WaitOne(TimeSpan.FromSeconds(4)); // the window shows the last lines
+                    Process.Start(new ProcessStartInfo(next) { UseShellExecute = false, CreateNoWindow = true, ArgumentList = { "aktualizovat-konzolu", Environment.ProcessId.ToString(CultureInfo.InvariantCulture) } })?.Dispose();
+                    try
+                    {
+                        window?.Kill(entireProcessTree: true);
+                    }
+                    catch (Exception e) when (e is InvalidOperationException or System.ComponentModel.Win32Exception)
+                    {
+                    }
+
+                    end.Cancel();
+                    return;
+                }
+
+                end.Token.WaitHandle.WaitOne(TimeSpan.FromSeconds(1));
+            }
+        })
+        { IsBackground = true, Name = "Nová konzola" };
+        watcher.Start();
         try
         {
             if (Edge() is not null)
             {
-                OpenWindow(address, wait: true);
+                window = OpenWindow(address);
+                window?.WaitForExit();
                 end.Cancel();
             }
             else
@@ -101,13 +130,23 @@ public static class ConsoleApp
         var here = Path.GetFullPath(AppContext.BaseDirectory);
         if (!string.Equals(Path.GetFullPath(Environment.ProcessPath!), program, StringComparison.OrdinalIgnoreCase))
         {
-            try
+            // the old console may still be ending (an update): a few tries before giving up
+            for (var attempt = 0; ; attempt++)
             {
-                File.Copy(Environment.ProcessPath!, program, overwrite: true);
-            }
-            catch (IOException)
-            {
-                o.WriteLine("Konzola práve beží – zatvor jej okno a spusti inštalačku znova (stará verzia ostáva).");
+                try
+                {
+                    File.Copy(Environment.ProcessPath!, program, overwrite: true);
+                    break;
+                }
+                catch (IOException) when (attempt < 10)
+                {
+                    Thread.Sleep(TimeSpan.FromSeconds(1));
+                }
+                catch (IOException)
+                {
+                    o.WriteLine("Konzola práve beží – zatvor jej okno a spusti inštalačku znova (stará verzia ostáva).");
+                    break;
+                }
             }
 
             var centre = Path.Combine(here, Polaris.Net.CentreFile.Name);
@@ -220,7 +259,7 @@ public static class ConsoleApp
     }
 
     /// <summary>The console as an app window of Edge with its own profile (nothing shared with the user's browser).</summary>
-    private static void OpenWindow(string address, bool wait)
+    private static Process? OpenWindow(string address)
     {
         var edge = Edge()!;
         var profile = Path.Combine(Own, "okno");
@@ -230,10 +269,25 @@ public static class ConsoleApp
             start.ArgumentList.Add(arg);
         }
 
-        using var window = Process.Start(start);
-        if (wait && window is not null)
+        return Process.Start(start);
+    }
+
+    /// <summary>The new console after an update: waits until the old one ended, puts itself in its place and opens the
+    /// window again.</summary>
+    public static int TakeOver(int oldProcess, TextWriter o)
+    {
+        try
         {
-            window.WaitForExit();
+            using var old = Process.GetProcessById(oldProcess);
+            old.WaitForExit(TimeSpan.FromSeconds(60));
         }
+        catch (ArgumentException)
+        {
+            // already ended
+        }
+
+        var program = Install(o);
+        Process.Start(new ProcessStartInfo(program, "okno") { UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = Path.GetDirectoryName(program)! })?.Dispose();
+        return 0;
     }
 }

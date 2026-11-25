@@ -78,6 +78,19 @@ jobs:
           grep -q "$pin" /etc/polaris/centrum.txt && grep -q "$pin" "$kit/centrum.txt" || { echo "::error::centrum.txt chýba alebo nesedí"; exit 1; }
           ls /etc/polaris/konzoly
           ./out/centrum-linux/polaris-centrum --subor "$kit/konzola.json" kod ucebna "$kit/ci-konzola.kluc" --server https://127.0.0.1:8443/ "$pin" | grep -qE '[0-9A-Z]{4}-[0-9A-Z]{4}-[0-9A-Z]{4}' || { echo "::error::po balíku sa kód nevydal"; exit 1; }
+          # an update approved by the console: handed to the centre, installed by the server's own timer (as root)
+          systemctl is-enabled polaris-centrum-aktualizacia.timer
+          deb2=$(bash tools/debian/balik-deb.sh "${version}.1" out/centrum-linux/polaris-centrum out/deb2)
+          ./out/centrum-linux/polaris-centrum --subor "$kit/konzola.json" aktualizacia odovzdat server-debian "${version}.1" "$deb2" "$kit/ci-konzola.kluc" --server https://127.0.0.1:8443/ "$pin"
+          sudo systemctl start polaris-centrum-aktualizacia.service
+          sudo journalctl -u polaris-centrum-aktualizacia -n 30 --no-pager
+          test "$(dpkg-query -W -f='${Version}' polaris-centrum)" = "${version}.1" || { echo "::error::server sa neaktualizoval"; exit 1; }
+          for i in $(seq 20); do curl -sk https://127.0.0.1:8443/v1/stav | grep -q '"polaris":"centrum"' && break; sleep 1; done
+          # a manifest changed on the centre (the service user could do that) is refused by the updater
+          sudo sed -i 's/"version": "[^"]*"/"version": "99.0"/' /srv/polaris/zverejnene/aktualizacie/server-debian.json
+          sudo /usr/sbin/polaris-centrum-aktualizovat | tee "$kit/odmietnute.txt"
+          grep -q "odmietnutá" "$kit/odmietnute.txt" || { echo "::error::podvrhnutý popis nebol odmietnutý"; exit 1; }
+          test "$(dpkg-query -W -f='${Version}' polaris-centrum)" = "${version}.1" || { echo "::error::podvrhnutá aktualizácia sa nainštalovala"; exit 1; }
           sudo apt-get remove -y polaris-centrum
           ! systemctl is-active --quiet polaris-centrum || { echo "::error::služba beží aj po odstránení balíka"; exit 1; }
           sudo test -f /srv/polaris/server.pem || { echo "::error::odstránenie balíka zmazalo dáta centra"; exit 1; }
@@ -252,6 +265,18 @@ jobs:
           $menu = Get-Content $report -Raw -Encoding utf8
           $menu
           if ($menu -notmatch 'zatvorený' -or $menu -notmatch '64 px') { "ponuka ikony nie je ako má byť"; exit 1 }
+          # an update takes the service's place: the one-file client (icon inside), started from the agent's own folder
+          $upd = Join-Path $env:RUNNER_TEMP 'aktualizacia'
+          New-Item -ItemType Directory -Force $upd | Out-Null
+          Copy-Item out/instalacky/POLARIS-Klient-pre-PC-ucebne.exe "$upd/polaris-agent-novy.exe"
+          Remove-Item "$env:ProgramFiles\POLARIS\polaris-ziak.exe"
+          $p = Start-Process -FilePath "$upd/polaris-agent-novy.exe" -ArgumentList 'aktualizovat-sluzbu' -Wait -PassThru -NoNewWindow
+          $journal = (& ./out/agent/polaris-agent.exe dennik 3) -join "`n"
+          $journal
+          if ($p.ExitCode -ne 0) { "aktualizácia služby zlyhala (kód $($p.ExitCode))"; exit 1 }
+          if ((Get-Service PolarisAgent).Status -ne 'Running') { "služba po aktualizácii nebeží"; exit 1 }
+          if (-not (Test-Path "$env:ProgramFiles\POLARIS\polaris-ziak.exe")) { "ikona z inštalačky chýba"; exit 1 }
+          if ($journal -notmatch 'nainštalovaný') { "denník nemá aktualizáciu"; exit 1 }
           & ./out/agent/polaris-agent.exe odinstalovat-sluzbu
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           if (Get-Service PolarisAgent -ErrorAction SilentlyContinue) { "služba ostala"; exit 1 }

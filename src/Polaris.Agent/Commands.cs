@@ -154,6 +154,7 @@ public static class Commands
                 "nedoverovat" => RemoveTrust(Need(args, "nedoverovat ODTLACOK"), output, host ?? DefaultHost()),
                 "konzoly" => ListTrust(output, host ?? DefaultHost()),
                 "instalovat-sluzbu" => Service(install: true, output, host ?? DefaultHost()),
+                "aktualizovat-sluzbu" => OperatingSystem.IsWindows() ? TakeOver(host ?? DefaultHost()) : throw new PlatformNotSupportedException(),
                 "odinstalovat-sluzbu" => Service(install: false, output, host ?? DefaultHost()),
                 "vycistit" => CleanNow(Need(args, "vycistit KONTO"), output, host ?? DefaultHost()),
                 "obchod" => Store(args, output, host ?? DefaultHost()),
@@ -433,6 +434,30 @@ public static class Commands
         }
 
         return 0;
+    }
+
+    /// <summary>aktualizovat-sluzbu: started by the service from its protected folder after it checked this program
+    /// against the console's signed manifest – this program takes the service's place; the journal says how it went.</summary>
+    [SupportedOSPlatform("windows")]
+    private static int TakeOver(AgentHost host)
+    {
+        if (!host.IsAdmin())
+        {
+            return 2;
+        }
+
+        var said = new StringWriter();
+        try
+        {
+            AgentService.Install(Environment.ProcessPath ?? throw new InvalidOperationException("Cesta k programu sa nedá zistiť."), said);
+            WriteJournal(host.JournalPath, AgentService.Simple("(aktualizácia)", "aktualizacia", "aktualizácia klienta", true, $"klient {Product.Version} nainštalovaný, služba beží", host.Clock()));
+            return 0;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidOperationException or SystemCallException or Polaris.Windows.SystemCallException)
+        {
+            WriteJournal(host.JournalPath, AgentService.Simple("(aktualizácia)", "aktualizacia", "aktualizácia klienta", false, $"klient {Product.Version} sa nenainštaloval: {e.Message} {said}".Trim(), host.Clock()));
+            return 1;
+        }
     }
 
     private static int CleanNow(string account, TextWriter output, AgentHost host)

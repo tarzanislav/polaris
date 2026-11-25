@@ -47,7 +47,7 @@ public static partial class Commands
         return 0;
     }
 
-    public static readonly IReadOnlySet<string> ConsoleBody = new HashSet<string>(StringComparer.Ordinal) { "/api/kod", "/api/odobrat", "/api/novy-kluc", "/api/centrum", "/api/odomknut" };
+    public static readonly IReadOnlySet<string> ConsoleBody = new HashSet<string>(StringComparer.Ordinal) { "/api/kod", "/api/odobrat", "/api/novy-kluc", "/api/centrum", "/api/odomknut", "/api/aktualizovat" };
 
     /// <summary>The routes of a console already unlocked (the command konzola: key and centre given on the command line).</summary>
     public static Func<ServerRequest, ServerResponse> ConsoleRoutes((Uri Address, string Pin) server, string keyPath, ConsoleKeyFile keyFile, SigningKey key, string token, int port, Func<DateTimeOffset> clock) =>
@@ -109,6 +109,19 @@ public static partial class Commands
             }
 
             var (server, keyPath, keyFile, key) = open;
+            if (request.Path is "/api/aktualizacia" or "/api/aktualizacia/znova")
+            {
+                state.Updates.Look(server, force: request.Path.EndsWith("/znova", StringComparison.Ordinal));
+                return Answer(200, state.Updates.Status());
+            }
+
+            if (request.Path == "/api/aktualizovat")
+            {
+                return Answer(200, state.Updates.Start(server, key, keyFile.Name)
+                    ? new JsonObject().Add("ok", true)
+                    : new JsonObject().Add("ok", false).Add("message", "Aktualizácia už beží."));
+            }
+
             return request.Path switch
             {
                 "/api/stav" => Answer(200, StateOf(server, keyFile, key, now)),

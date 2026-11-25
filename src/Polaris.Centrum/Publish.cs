@@ -212,7 +212,8 @@ public static partial class Commands
         var pin = PinnedClient.Pin(certificate);
         var upload = Upload(publication, pin, () => Trusted(trustFolder), () => DateTimeOffset.UtcNow);
         var pcs = PcRoutes(new PcRegistry(Path.Combine(store.Folder, "pc")), pin, () => Trusted(trustFolder), () => DateTimeOffset.UtcNow);
-        var server = new WebServer(new IPEndPoint(IPAddress.IPv6Any, port), certificate, Routes(publication, supply, upload, pcs), line => o.WriteLine(line), BodyPaths.Contains);
+        var updates = UpdateUpload(publication, pin, () => Trusted(trustFolder), () => DateTimeOffset.UtcNow);
+        var server = new WebServer(new IPEndPoint(IPAddress.IPv6Any, port), certificate, Routes(publication, supply, upload, pcs, updates), line => o.WriteLine(line), BodyPaths.Contains);
         o.WriteLine($"POLARIS centrum počúva na porte {port} (HTTPS). Odtlačok: {pin}");
         server.RunAsync(stop).GetAwaiter().GetResult();
         o.WriteLine("Centrum zastavené.");
@@ -220,13 +221,18 @@ public static partial class Commands
     }
 
     /// <summary>What the server hands out – nothing else exists for it.</summary>
-    public static Func<ServerRequest, ServerResponse> Routes(string publication, string? supply, Func<ServerRequest, ServerResponse>? upload = null, Func<ServerRequest, ServerResponse>? pcs = null) => request =>
+    public static Func<ServerRequest, ServerResponse> Routes(string publication, string? supply, Func<ServerRequest, ServerResponse>? upload = null, Func<ServerRequest, ServerResponse>? pcs = null, Func<ServerRequest, ServerResponse>? updates = null) => request =>
     {
         if (request.Method == "POST")
         {
             if (request.Path == UploadPath && upload is not null)
             {
                 return upload(request);
+            }
+
+            if (request.Path == UpdateSigning.UploadPath && updates is not null)
+            {
+                return updates(request);
             }
 
             if (request.Path != UploadPath && BodyPaths.Contains(request.Path) && pcs is not null)
@@ -257,6 +263,10 @@ public static partial class Commands
                 return Published(Path.Combine(publication, "skupiny", file));
             case ["v1", "recepty", var file] when RecipeFile().IsMatch(file):
                 return Published(Path.Combine(publication, "recepty", file));
+            case ["v1", "aktualizacie", var file] when file.EndsWith(".json", StringComparison.Ordinal) && UpdateProducts.All.Contains(file[..^5]):
+                return Published(Path.Combine(publication, "aktualizacie", file));
+            case ["v1", "aktualizacie", var file] when UpdateFile().IsMatch(file) && File.Exists(Path.Combine(publication, "aktualizacie", file)):
+                return ServerResponse.File(Path.Combine(publication, "aktualizacie", file), "\"" + file[..64] + "\"");
             case ["v1", "baliky", var id, var file] when supply is not null && new PackageStore(supply).Exists(id):
                 var package = new PackageStore(supply).Load(id);
                 return file == PackageFormat.FileName
@@ -292,6 +302,32 @@ public static partial class Commands
         var (lines, refused) = new PublicationFolder(publication).Accept(bundle, consoles);
         lines.Insert(0, $"odovzdala konzola {console.Name}");
         return Answer(refused ? 409 : 200, !refused, lines);
+    };
+
+    /// <summary>A new version from a console: the envelope says which trusted console sent it for this centre now, the
+    /// manifest (signed by the console on its own) names exactly these bytes.</summary>
+    public static Func<ServerRequest, ServerResponse> UpdateUpload(string publication, string serverPin, Func<IReadOnlyList<TrustedConsole>> trusted, Func<DateTimeOffset> clock) => request =>
+    {
+        var consoles = trusted();
+        var body = request.Body ?? [];
+        var (console, problem) = UploadSigning.Verify(request.Header, body, request.Path, serverPin, consoles, clock());
+        if (console is null)
+        {
+            return Answer(403, false, [problem]);
+        }
+
+        UpdateManifest manifest;
+        try
+        {
+            manifest = UpdateManifest.FromJson(Encoding.UTF8.GetString(Convert.FromBase64String(request.Header(UpdateSigning.ManifestHeader.ToLowerInvariant()) ?? "")));
+        }
+        catch (Exception e) when (e is InvalidDataException or FormatException)
+        {
+            return Answer(400, false, ["popis aktualizácie chýba alebo je poškodený: " + e.Message]);
+        }
+
+        var (ok, message) = new UpdateFolder(Path.Combine(publication, "aktualizacie")).Accept(manifest, body, consoles);
+        return Answer(ok ? 200 : 409, ok, [$"odovzdala konzola {console.Name}", message]);
     };
 
     private static ServerResponse Answer(int status, bool ok, List<string> lines) => new()
@@ -380,4 +416,7 @@ public static partial class Commands
 
     [GeneratedRegex("^[0-9a-f]{64}\\.(json|podpis)$")]
     private static partial Regex RecipeFile();
+
+    [GeneratedRegex("^[0-9a-f]{64}\\.bin$")]
+    private static partial Regex UpdateFile();
 }

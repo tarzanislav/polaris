@@ -1,0 +1,8 @@
+# POLARIS centrum – aktualizácia podpísaná konzolou (spúšťa ju polaris-centrum-aktualizacia.timer).
+[Unit]
+Description=POLARIS centrum - aktualizacia podpisana konzolou
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/polaris-centrum-aktualizovat

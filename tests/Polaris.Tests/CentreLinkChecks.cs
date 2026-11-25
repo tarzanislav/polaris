@@ -572,4 +572,128 @@ public static class CentreLinkChecks
             Directory.Delete(dir, recursive: true);
         }
     }
+
+    [Check]
+    public static void AnUpdateIsSignedByTheConsoleAndCheckedByEveryone()
+    {
+        using var key = SigningKey.Create();
+        using var other = SigningKey.Create();
+        using var pub = key.Public();
+        var trusted = new List<TrustedConsole> { new("ucitel", pub.Fingerprint(), pub.Export()) };
+        var file = Encoding.UTF8.GetBytes("nový klient");
+        var m = UpdateSigning.Sign(UpdateProducts.Client, "0.1.3", file, key, "ucitel", T);
+        Expect.Equal(SignatureState.Valid, UpdateSigning.Check(m, trusted).State, "podpísaná dôverovanou konzolou");
+        Expect.Equal(SignatureState.Valid, UpdateSigning.Check(UpdateManifest.FromJson(m.ToJson()), trusted).State, "aj po ceste ako text");
+        Expect.Equal(SignatureState.Broken, UpdateSigning.Check(m with { Version = "9.9.9" }, trusted).State, "iná verzia – podpis nesedí");
+        Expect.Equal(SignatureState.Broken, UpdateSigning.Check(m with { Sha256 = new string('0', 64) }, trusted).State, "iný súbor – podpis nesedí");
+        Expect.Equal(SignatureState.UnknownKey, UpdateSigning.Check(UpdateSigning.Sign(UpdateProducts.Client, "0.1.3", file, other, "cudzia", T), trusted).State, "cudzia konzola");
+        Expect.Equal(SignatureState.ContentChanged, UpdateSigning.Check(m with { Product = "iny" }, trusted).State, "neznámy produkt");
+        using (var bytes = new MemoryStream(file))
+        {
+            Expect.True(UpdateSigning.Matches(m, bytes), "súbor je ten podpísaný");
+        }
+
+        using (var bytes = new MemoryStream(Encoding.UTF8.GetBytes("nový klienT")))
+        {
+            Expect.True(!UpdateSigning.Matches(m, bytes), "zmenený bajt");
+        }
+
+        Expect.True(UpdateSigning.Newer("0.1.3", "0.1.2") && UpdateSigning.Newer("0.2.0", "0.1.12") && UpdateSigning.Newer("v1.0", "0.9.9"), "novšie verzie");
+        Expect.True(!UpdateSigning.Newer("0.1.2", "0.1.2") && !UpdateSigning.Newer("0.1.2", "0.1.3"), "rovnaká a staršia");
+        Expect.True(UpdateSigning.Newer("0.1.3", "0.1.3~ci90") && !UpdateSigning.Newer("0.1.3~ci90", "0.1.3") && UpdateSigning.Newer("0.1.3~ci90", "0.1.2"), "zostavenie z CI je pred vydaním");
+    }
+
+    [Check]
+    public static void ANewClientGoesFromTheConsoleThroughTheCentreToThePc()
+    {
+        var dir = Directory.CreateTempSubdirectory("polaris-aktualizacia-").FullName;
+        try
+        {
+            var (secret, pub) = RecipeSigning.NewConsoleKey("ucitel", Password);
+            using var key = RecipeSigning.OpenPrivate(secret, Password);
+            var (_, strangerPub) = RecipeSigning.NewConsoleKey("cudzia", Password);
+            var trusted = new List<TrustedConsole> { RecipeSigning.Trust(pub) };
+            var publication = Path.Combine(dir, "zverejnene");
+            Running? centre = null;
+            var updates = (ServerRequest r) => Polaris.Centrum.Commands.UpdateUpload(publication, centre!.Pin, () => trusted, () => T)(r);
+            centre = new Running(Polaris.Centrum.Commands.Routes(publication, null, null, null, updates), dir, Polaris.Centrum.Commands.BodyPaths.Contains);
+            using var running = centre;
+            var server = (centre.Address, centre.Pin);
+
+            var client = new byte[300_000];
+            new Random(7).NextBytes(client);
+            var (ok, message) = Polaris.Centrum.Commands.HandUpdate(server, key, "ucitel", UpdateProducts.Client, "0.1.3", client, T);
+            Expect.True(ok, "centrum prijalo klienta 0.1.3: " + message);
+            var versions = Polaris.Centrum.Commands.CentreVersions(server);
+            Expect.Equal("0.1.3", versions[UpdateProducts.Client], "centrum rozosiela 0.1.3");
+            Expect.Equal("", versions[UpdateProducts.ServerDebian], "server zatiaľ nie");
+
+            Expect.True(!Polaris.Centrum.Commands.HandUpdate(server, key, "ucitel", UpdateProducts.Client, "0.1.2", client, T).Ok, "staršia verzia sa neprijme");
+            using (var stranger = SigningKey.Create())
+            {
+                Expect.True(!Polaris.Centrum.Commands.HandUpdate(server, stranger, "cudzia", UpdateProducts.Client, "0.1.4", client, T).Ok, "cudzia konzola nič");
+            }
+
+            // the PC: takes only what a console it trusts signed, newer than its own, byte for byte
+            var settings = new CentreSettings(centre.Address, centre.Pin, "ucebna");
+            var folder = Path.Combine(dir, "pc-aktualizacia");
+            var pc = new ClientUpdate(settings, folder, () => trusted, () => T);
+            var (program, said) = pc.Look("0.1.2");
+            Expect.True(program is not null && File.ReadAllBytes(program).AsSpan().SequenceEqual(client), "PC stiahlo presne podpísaný súbor: " + said);
+            Expect.True(said.Contains("0.1.2 → 0.1.3", StringComparison.Ordinal), "záznam do denníka: " + said);
+            Expect.True(new ClientUpdate(settings, folder, () => trusted, () => T).Look("0.1.2").Program is null, "ten istý pokus nie hneď znova");
+            Expect.True(new ClientUpdate(settings, folder, () => trusted, () => T.AddHours(2)).Look("0.1.2").Program is not null, "po hodine znova");
+            Expect.True(new ClientUpdate(settings, Path.Combine(dir, "pc2"), () => trusted, () => T).Look("0.1.3").Program is null, "rovnaká verzia nie");
+            var (refused, why) = new ClientUpdate(settings, Path.Combine(dir, "pc3"), () => [RecipeSigning.Trust(strangerPub)], () => T).Look("0.1.2");
+            Expect.True(refused is null && why.Contains("odmietnutá", StringComparison.Ordinal), "PC s inou konzolou odmietne: " + why);
+
+            // a changed file on the centre (the centre is not trusted with the bytes)
+            var bin = Directory.GetFiles(Path.Combine(publication, "aktualizacie"), "*.bin").Single();
+            var bad = File.ReadAllBytes(bin);
+            bad[1000] ^= 1;
+            File.WriteAllBytes(bin, bad);
+            var (taken, note) = new ClientUpdate(settings, Path.Combine(dir, "pc4"), () => trusted, () => T).Look("0.1.2");
+            Expect.True(taken is null && note.Contains("nie je ten", StringComparison.Ordinal), "zmenený súbor na centre odmietnutý: " + note);
+
+            // the check the Debian server runs as root: only consoles in its own folder count
+            var keys = Path.Combine(dir, "konzoly");
+            Directory.CreateDirectory(keys);
+            File.WriteAllText(Path.Combine(keys, "ucitel.verejny.json"), RecipeSigning.ToJson(pub));
+            var deb = new byte[1000];
+            Expect.True(Polaris.Centrum.Commands.HandUpdate(server, key, "ucitel", UpdateProducts.ServerDebian, "0.1.3", deb, T).Ok, "server-debian na centre");
+            var manifest = Path.Combine(publication, "aktualizacie", "server-debian.json");
+            var o = new StringWriter();
+            Expect.Equal(0, Polaris.Centrum.Commands.Run(["aktualizacia", "over", manifest, "--konzoly", keys, "--produkt", "server-debian"], o, T.LocalDateTime, T), "over: " + o);
+            Expect.Equal($"0.1.3 {Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(deb))}", o.ToString().Trim(), "verzia a odtlačok pre skript");
+            Expect.Equal(1, Polaris.Centrum.Commands.Run(["aktualizacia", "over", manifest, "--konzoly", keys, "--produkt", "klient"], new StringWriter(), T.LocalDateTime, T), "iný produkt");
+            Expect.Equal(1, Polaris.Centrum.Commands.Run(["aktualizacia", "over", manifest, "--konzoly", Path.Combine(dir, "nikto"), "--produkt", "server-debian"], new StringWriter(), T.LocalDateTime, T), "bez dôvery nič");
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Check]
+    public static void TheConsoleReadsAReleaseOfGitHub()
+    {
+        const string json = """
+        {"tag_name":"v0.1.3","published_at":"2026-11-25T10:00:00Z","author":{"login":"x"},"assets":[
+          {"name":"POLARIS-Klient-pre-PC-ucebne.exe","size":7209984,"digest":"sha256:ABCDEF0123456789abcdef0123456789abcdef0123456789abcdef0123456789","browser_download_url":"https://github.com/tarzanislav/polaris/releases/download/v0.1.3/POLARIS-Klient-pre-PC-ucebne.exe"},
+          {"name":"SHA256SUMS.txt","size":300,"browser_download_url":"https://github.com/tarzanislav/polaris/releases/download/v0.1.3/SHA256SUMS.txt"},
+          {"name":"zly.exe","size":1,"browser_download_url":"http://example.com/zly.exe"}]}
+        """;
+        var r = Polaris.Centrum.GitHubReleases.Parse(json);
+        Expect.Equal("0.1.3", r.Version, "verzia z tagu");
+        Expect.Equal("abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789", r.Asset("POLARIS-Klient-pre-PC-ucebne.exe")?.Sha256, "odtlačok od GitHubu");
+        Expect.True(r.Asset("SHA256SUMS.txt")?.Sha256 is null && r.Asset("zly.exe") is null, "bez odtlačku; nie http");
+        var sums = "1111111111111111111111111111111111111111111111111111111111111111  POLARIS-Server-Debian.deb\n2222222222222222222222222222222222222222222222222222222222222222 *POLARIS-Konzola-spravcu.exe\n";
+        Expect.Equal(new string('2', 64), Polaris.Centrum.GitHubReleases.Sum(sums, "POLARIS-Konzola-spravcu.exe"), "riadok sha256sum");
+        Expect.True(Polaris.Centrum.GitHubReleases.Sum(sums, "iny.exe") is null, "chýba");
+
+        var job = new Polaris.Centrum.UpdateJob(canRestart: false, () => (r, ""));
+        job.Look(null, force: true);
+        Expect.True(job.Pending().Contains(UpdateProducts.Title(UpdateProducts.Client)) && !job.Pending().Contains(UpdateProducts.Title(UpdateProducts.ServerDebian)), "čaká klient (vo vydaní), server nie (nie je vo vydaní)");
+        Expect.True(job.Status().ToString()!.Length > 0, "stav pre okno");
+    }
 }

@@ -19,7 +19,7 @@ public static partial class Commands
     /// <summary>A PC that has not reported for this long counts as off (it reports every 15 minutes).</summary>
     public static readonly TimeSpan Silent = TimeSpan.FromMinutes(40);
 
-    public static readonly IReadOnlySet<string> BodyPaths = new HashSet<string>(StringComparer.Ordinal) { UploadPath, CodesPath, RegisterPath, ReportPath, PcsPath };
+    public static readonly IReadOnlySet<string> BodyPaths = new HashSet<string>(StringComparer.Ordinal) { UploadPath, CodesPath, RegisterPath, ReportPath, PcsPath, UpdateSigning.UploadPath };
 
     /// <summary>The routes of the PCs: codes from consoles, registrations and reports of PCs, the list for consoles.</summary>
     public static Func<ServerRequest, ServerResponse> PcRoutes(PcRegistry registry, string serverPin, Func<IReadOnlyList<TrustedConsole>> trusted, Func<DateTimeOffset> clock) => request =>

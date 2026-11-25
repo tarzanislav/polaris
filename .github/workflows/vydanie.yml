@@ -39,17 +39,20 @@ jobs:
           }
       - name: POLARIS-Klient-pre-PC-ucebne.exe and POLARIS-Konzola-spravcu.exe
         run: |
-          dotnet publish src/Polaris.Student -c Release -r win-x64 -o out/ziak
+          # the programs carry the version of the release: what a PC reports and compares is the tag
+          $version = ($env:VERZIA -replace '^vydanie/', '') -replace '^v', ''
+          dotnet publish src/Polaris.Student -c Release -r win-x64 -o out/ziak "-p:Version=$version"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          dotnet publish src/Polaris.Agent -c Release -r win-x64 -o out/pc "-p:ZiakExe=$PWD/out/ziak/polaris-ziak.exe"
+          dotnet publish src/Polaris.Agent -c Release -r win-x64 -o out/pc "-p:ZiakExe=$PWD/out/ziak/polaris-ziak.exe" "-p:Version=$version"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          dotnet publish src/Polaris.Centrum -c Release -r win-x64 -o out/centrum
+          dotnet publish src/Polaris.Centrum -c Release -r win-x64 -o out/centrum "-p:Version=$version"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           New-Item -ItemType Directory -Force out/vydanie | Out-Null
           Copy-Item out/pc/polaris-agent.exe out/vydanie/POLARIS-Klient-pre-PC-ucebne.exe
           Copy-Item out/centrum/polaris-centrum.exe out/vydanie/POLARIS-Konzola-spravcu.exe
-          & ./out/vydanie/POLARIS-Klient-pre-PC-ucebne.exe verzia
+          $said = (& ./out/vydanie/POLARIS-Klient-pre-PC-ucebne.exe verzia) -join " "
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ($said -notmatch [regex]::Escape($version)) { "klient hlási inú verziu ($said) ako vydanie ($version)"; exit 1 }
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: vydanie-windows
@@ -65,8 +68,8 @@ jobs:
           if ! dotnet --list-sdks 2>/dev/null | grep -q '^10\.'; then sudo apt-get update -q && sudo apt-get install -y -q dotnet-sdk-10.0; fi
       - name: polaris-centrum_VERSION_amd64.deb
         run: |
-          bash tools/ci/dotnet.sh publish src/Polaris.Centrum -c Release -r linux-x64 -o out/centrum-linux
           tag="${VERZIA#vydanie/}"; version="${tag#v}"
+          bash tools/ci/dotnet.sh publish src/Polaris.Centrum -c Release -r linux-x64 -o out/centrum-linux "-p:Version=$version"
           deb=$(bash tools/debian/balik-deb.sh "$version" out/centrum-linux/polaris-centrum out/balik)
           # fixed names for people (the version is inside the package): the latest-download links never change
           mkdir -p out/vydanie
@@ -91,7 +94,9 @@ jobs:
         run: |
           gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --dir stiahnute
           mkdir vydanie && find stiahnute -type f -exec mv {} vydanie/ \;
-          ls -l vydanie
+          # the console checks every download against these (and against GitHub's own digest)
+          (cd vydanie && sha256sum * > SHA256SUMS.txt)
+          ls -l vydanie && cat vydanie/SHA256SUMS.txt
           cat > poznamky.md <<'TEXT'
           **Inštalácia**
 

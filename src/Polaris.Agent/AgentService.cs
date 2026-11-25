@@ -208,6 +208,7 @@ public static class AgentService
     private static void FollowCentre(AgentHost host, CancellationToken stop)
     {
         CentreSync? sync = null;
+        ClientUpdate? update = null;
         CentreSettings? syncFor = null;
         var lastFetch = DateTimeOffset.MinValue;
         string? lastProblem = null;
@@ -220,6 +221,7 @@ public static class AgentService
                     if (sync is null || settings != syncFor)
                     {
                         (sync, syncFor, lastFetch) = (Centre.Sync(settings, host), settings, DateTimeOffset.MinValue);
+                        update = new ClientUpdate(settings, Path.Combine(Packages.AgentFolder, "aktualizacia"), TrustStore.Read, host.Clock);
                     }
 
                     if (host.Clock() - lastFetch >= Centre.FetchEvery)
@@ -236,6 +238,19 @@ public static class AgentService
                         {
                             lastProblem = outcome.Message;
                             Note(host, false, outcome.Message);
+                        }
+
+                        // a new client signed by a trusted console: it takes the place of this one (and restarts the service)
+                        var (program, message) = update!.Look(Product.Version);
+                        if (message.Length > 0 && message != lastProblem)
+                        {
+                            lastProblem = program is null ? message : null;
+                            Commands.WriteJournal(host.JournalPath, Simple("(aktualizácia)", "aktualizacia", "aktualizácia klienta", program is not null, message, host.Clock()));
+                        }
+
+                        if (program is not null)
+                        {
+                            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(program, "aktualizovat-sluzbu") { UseShellExecute = false, CreateNoWindow = true })?.Dispose();
                         }
                     }
 
@@ -404,32 +419,67 @@ public static class AgentService
             }
         }
 
-        if (!string.Equals(Path.GetFullPath(currentProgram), Path.GetFullPath(target), StringComparison.OrdinalIgnoreCase))
+        try
         {
-            File.Copy(currentProgram, target, overwrite: true);
-            var icon = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(currentProgram))!, IconLauncher.ProgramName);
-            if (File.Exists(icon))
+            if (!string.Equals(Path.GetFullPath(currentProgram), Path.GetFullPath(target), StringComparison.OrdinalIgnoreCase))
             {
-                File.Copy(icon, IconLauncher.InstalledProgram, overwrite: true);
-                output.WriteLine("Ikona žiaka: služba ju spustí v každej prihlásenej relácii a padnutú spustí znova.");
-            }
-            else if (typeof(AgentService).Assembly.GetManifestResourceStream(IconLauncher.ProgramName) is { } inside)
-            {
-                // the one-file installer carries the icon program inside
-                using (inside)
-                using (var file = File.Create(IconLauncher.InstalledProgram))
+                // the stopped service may still be ending for a moment: a few tries
+                Retry(() => File.Copy(currentProgram, target, overwrite: true));
+                var icon = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(currentProgram))!, IconLauncher.ProgramName);
+                try
                 {
-                    inside.CopyTo(file);
-                }
+                    if (File.Exists(icon))
+                    {
+                        Retry(() => File.Copy(icon, IconLauncher.InstalledProgram, overwrite: true));
+                        output.WriteLine("Ikona žiaka: služba ju spustí v každej prihlásenej relácii a padnutú spustí znova.");
+                    }
+                    else if (typeof(AgentService).Assembly.GetManifestResourceStream(IconLauncher.ProgramName) is { } inside)
+                    {
+                        // the one-file installer carries the icon program inside
+                        using (inside)
+                        {
+                            Retry(() =>
+                            {
+                                inside.Position = 0;
+                                using var file = File.Create(IconLauncher.InstalledProgram);
+                                inside.CopyTo(file);
+                            });
+                        }
 
-                output.WriteLine("Ikona žiaka: služba ju spustí v každej prihlásenej relácii a padnutú spustí znova.");
+                        output.WriteLine("Ikona žiaka: služba ju spustí v každej prihlásenej relácii a padnutú spustí znova.");
+                    }
+                }
+                catch (IOException e)
+                {
+                    output.WriteLine("Ikona žiaka sa nedala nahradiť (" + e.Message + ") – ostáva predchádzajúca.");
+                }
             }
         }
+        finally
+        {
+            // whatever happened to the copy, the service runs again (the new program, or the one that was there)
+            ServiceManager.Install(Name, DisplayName, Description, $"\"{target}\" sluzba");
+            ServiceManager.SetRunning(Name, true, TimeSpan.FromSeconds(30));
+        }
 
-        ServiceManager.Install(Name, DisplayName, Description, $"\"{target}\" sluzba");
-        ServiceManager.SetRunning(Name, true, TimeSpan.FromSeconds(30));
         output.WriteLine($"Služba {DisplayName} beží z {target} (spúšťa sa automaticky, po páde sa obnoví).");
         return target;
+    }
+
+    private static void Retry(Action action)
+    {
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                action();
+                return;
+            }
+            catch (IOException) when (attempt < 15)
+            {
+                Thread.Sleep(TimeSpan.FromSeconds(1));
+            }
+        }
     }
 
     public static void Uninstall(TextWriter output)

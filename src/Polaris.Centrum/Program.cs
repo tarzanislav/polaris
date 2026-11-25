@@ -31,6 +31,11 @@ if (OperatingSystem.IsWindows())
         return ConsoleApp.Serve(Console.Out, stop.Token);
     }
 
+    if (args is ["aktualizovat-konzolu", var old] && int.TryParse(old, out var pid))
+    {
+        return ConsoleApp.TakeOver(pid, Console.Out);
+    }
+
     if (args is ["odinstalovat-konzolu"])
     {
         return ConsoleApp.Uninstall(Console.Out);

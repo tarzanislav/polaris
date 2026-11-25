@@ -60,6 +60,15 @@ public static class ConsoleUi
     <input id="search" type="search" placeholder="Hľadať PC…" autocomplete="off">
   </section>
   <div id="message" class="message" hidden></div>
+  <div id="update" class="update" hidden>
+    <div class="update-row">
+      <span class="star">✦</span>
+      <div class="update-text"><b id="u-title"></b><div id="u-sub" class="dim"></div></div>
+      <button id="u-go" class="primary">Aktualizovať</button>
+      <button id="u-close" class="ghost" hidden>Zavrieť</button>
+    </div>
+    <ul id="u-lines" class="update-lines" hidden></ul>
+  </div>
   <div id="groups"></div>
   <p id="empty" class="empty" hidden>Centrum zatiaľ nepozná žiadne PC. Klikni na <b>+ Pridať PC</b>, vydaj kód a na PC ho zadaj.</p>
 </main>
@@ -205,6 +214,12 @@ input, select { font: inherit; color: var(--text); background: var(--panel); bor
 .small { font-size: 12px; }
 .card input { width: 100%; }
 details { margin: 6px 0; } summary { cursor: pointer; font-size: 13px; }
+.update { background: var(--panel); border: 1px solid var(--accent); border-radius: 12px; padding: 12px 14px; margin-bottom: 14px; box-shadow: var(--shadow); }
+.update-row { display: flex; gap: 12px; align-items: center; }
+.update-row .star { font-size: 20px; }
+.update-text { flex: 1; }
+.update-lines { margin: 10px 0 0; padding: 0 0 0 30px; font-size: 13px; }
+.update-lines li { margin: 2px 0; }
 .toast { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 10px 16px;
   border-radius: 10px; z-index: 30; box-shadow: var(--shadow); }
 @media (max-width: 640px) { #browser { display: none; } .start .brand .dim { display: inline; } .where, .brand .dim, #status { display: none; } .status { margin-left: auto; } .code { font-size: 24px; } .kv { grid-template-columns: 110px 1fr; } #search { width: 100%; } .bar { gap: 10px; padding: 10px 14px; } main { padding: 12px 14px 60px; } }
@@ -243,7 +258,7 @@ details { margin: 6px 0; } summary { cursor: pointer; font-size: 13px; }
     const s = await ask("/api/start");
     $("s-version").textContent = "verzia " + s.version;
     $("s-folder").textContent = s.folder;
-    if (s.unlocked) { $("start").hidden = true; refresh(); return; }
+    if (s.unlocked) { $("start").hidden = true; await refresh(); checkUpdate(false); return; }
     $("start").hidden = false;
     $("s-key").hidden = s.keys.length > 0;
     $("s-centre").hidden = !(s.keys.length > 0 && !s.centre);
@@ -278,6 +293,50 @@ details { margin: 6px 0; } summary { cursor: pointer; font-size: 13px; }
   };
   $("s-pass").addEventListener("keydown", e => { if (e.key === "Enter") $("s-open").click(); });
   $("browser").onclick = () => window.open(location.origin + "/#" + token, "_blank", "noopener");
+
+  // updates: GitHub → this console → signed → the centre → PCs and servers (only what this console signed)
+  const newer = (a, b) => {
+    const n = v => String(v || "0").replace(/^v/, "").split(/[~+-]/)[0].split(".").map(Number);
+    const x = n(a), y = n(b);
+    for (let i = 0; i < Math.max(x.length, y.length); i++) { if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0); }
+    return false;
+  };
+  let updateTimer = null, lastUpdate = null;
+  function showUpdate(u) {
+    lastUpdate = u;
+    const box = $("update"), lines = $("u-lines");
+    const old = u.client ? state.pcs.filter(p => p.agent && newer(u.client, p.agent)).length : 0;
+    const busy = u.running || (u.lines.length && !u.closed);
+    if (!busy && !u.pending.length && !old) { box.hidden = true; return; }
+    box.hidden = false;
+    if (u.running) { $("u-title").textContent = "Aktualizujem na " + u.latest + "…"; }
+    else if (u.done && u.restart) { $("u-title").textContent = "Konzola sa reštartuje s verziou " + u.latest + "…"; }
+    else if (u.pending.length) { $("u-title").textContent = "Nová verzia POLARIS " + u.latest; }
+    else { $("u-title").textContent = "Klienti sa aktualizujú na " + u.client; }
+    $("u-sub").textContent = u.pending.length && !u.running
+      ? "Aktualizuje sa: " + u.pending.join(", ") + ". Konzola ju stiahne z GitHubu, overí, podpíše a pošle na server; PC a servery si ju nainštalujú samy."
+      : (old ? "PC so starším klientom: " + old + " (vezmú si ho do 5 minút)." : "");
+    $("u-go").hidden = u.running || !u.pending.length;
+    $("u-close").hidden = u.running || !u.done || u.restart;
+    lines.replaceChildren(); u.lines.forEach(l => lines.append(el("li", "", l))); lines.hidden = !u.lines.length;
+  }
+  async function checkUpdate(force) {
+    try {
+      const u = await ask(force ? "/api/aktualizacia/znova" : "/api/aktualizacia");
+      if (!u.ok) return;
+      if (lastUpdate && lastUpdate.closed && !u.running) u.closed = true;
+      showUpdate(u);
+      clearTimeout(updateTimer);
+      if (u.running || (u.done && u.restart)) updateTimer = setTimeout(() => checkUpdate(false), 2000);
+    } catch (e) { /* the console is restarting */ }
+  }
+  $("u-go").onclick = async () => {
+    const a = await ask("/api/aktualizovat", {});
+    if (!a.ok) { toast(a.message); return; }
+    if (lastUpdate) lastUpdate.closed = false;
+    setTimeout(() => checkUpdate(false), 500);
+  };
+  $("u-close").onclick = () => { if (lastUpdate) { lastUpdate.closed = true; lastUpdate.lines = []; showUpdate(lastUpdate); } };
 
   async function refresh() {
     try {
@@ -439,6 +498,7 @@ details { margin: 6px 0; } summary { cursor: pointer; font-size: 13px; }
   }
   start().catch(() => { $("dot").className = "dot bad"; $("status").textContent = "konzola nebeží"; });
   setInterval(() => { if ($("start").hidden) refresh(); }, 30000);
+  setInterval(() => { if ($("start").hidden) checkUpdate(false); }, 30 * 60000);
 })();
 """;
 }

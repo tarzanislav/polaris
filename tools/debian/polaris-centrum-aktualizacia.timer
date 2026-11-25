@@ -1,0 +1,11 @@
+# Každých 15 minút sa server pozrie, či konzola schválila novú verziu centra.
+[Unit]
+Description=POLARIS centrum - hladanie aktualizacie kazdych 15 minut
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=15min
+RandomizedDelaySec=60
+
+[Install]
+WantedBy=timers.target

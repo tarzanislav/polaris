@@ -1,0 +1,31 @@
+#!/bin/bash
+# POLARIS – aktualizácia servera (centra) z jeho vlastného zverejnenia. Spúšťa ju časovač systemd každých 15 minút
+# ako root. Prijme LEN verziu, ktorú podpísala konzola, ktorej server dôveruje (/etc/polaris/konzoly – mení ich len
+# root), a len presne ten súbor, ktorý konzola podpísala. Služba centra (bez práv) súbory len odovzdáva ďalej.
+set -euo pipefail
+
+source_folder=/srv/polaris/zverejnene/aktualizacie
+[ -f "$source_folder/server-debian.json" ] || exit 0
+
+work="$(mktemp -d /var/tmp/polaris-aktualizacia.XXXXXX)"
+trap 'rm -rf "$work"' EXIT
+cp "$source_folder/server-debian.json" "$work/popis.json"
+
+if ! answer="$(/opt/polaris/polaris-centrum aktualizacia over "$work/popis.json" --konzoly /etc/polaris/konzoly --produkt server-debian)"; then
+  echo "Aktualizácia odmietnutá: $answer"
+  exit 0
+fi
+version="${answer%% *}"
+sha="${answer##* }"
+installed="$(dpkg-query -W -f='${Version}' polaris-centrum 2>/dev/null || echo 0)"
+if ! dpkg --compare-versions "$version" gt "$installed"; then
+  exit 0
+fi
+
+cp "$source_folder/$sha.bin" "$work/polaris-centrum.deb"
+echo "$sha  $work/polaris-centrum.deb" | sha256sum -c --quiet - || { echo "Súbor aktualizácie nesedí s podpísaným popisom – odmietnutý."; exit 1; }
+[ "$(dpkg-deb -f "$work/polaris-centrum.deb" Package)" = polaris-centrum ] || { echo "Súbor nie je balík centra – odmietnutý."; exit 1; }
+[ "$(dpkg-deb -f "$work/polaris-centrum.deb" Version)" = "$version" ] || { echo "Verzia balíka nesedí s popisom – odmietnutý."; exit 1; }
+
+echo "Aktualizujem centrum POLARIS $installed → $version (schválené konzolou)."
+DEBIAN_FRONTEND=noninteractive apt-get install -y -o DPkg::Lock::Timeout=300 "$work/polaris-centrum.deb"
