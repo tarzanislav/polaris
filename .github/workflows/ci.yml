@@ -68,7 +68,7 @@ jobs:
           sudo systemctl stop polaris-centrum
           # one flat folder: everything the server needs beside each other (WinSCP, then sudo bash instalovat-centrum.sh)
           mkdir -p out/centrum-balik
-          cp out/centrum-linux/polaris-centrum tools/debian/polaris-centrum.service tools/debian/instalovat-centrum.sh docs/centrum.md out/centrum-balik/
+          cp out/centrum-linux/polaris-centrum tools/debian/polaris-centrum.service tools/debian/instalovat-centrum.sh tools/debian/centrum.sh docs/centrum.md out/centrum-balik/
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: polaris-centrum-linux
@@ -116,6 +116,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & ./out/centrum/polaris-centrum.exe pomoc | Select-Object -First 1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Copy-Item tools/windows/konzola.cmd out/centrum/konzola.cmd
       - name: polaris-agent.exe (natively compiled, one file) and the sample recipe
         run: |
           dotnet publish src/Polaris.Agent -c Release -r win-x64 -o out/agent
@@ -331,7 +332,9 @@ jobs:
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: polaris-centrum-windows
-          path: out/centrum/polaris-centrum.exe
+          path: |
+            out/centrum/polaris-centrum.exe
+            out/centrum/konzola.cmd
           retention-days: 14
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
