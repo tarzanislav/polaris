@@ -1,11 +1,13 @@
 name: Vydanie
 
 # A release for people, not for developers: the installers as plain files with fixed links (no ZIP, no sign-in).
-# Starts with a tag v* and ends as a DRAFT release: nobody but the owner sees it until he presses "Publish release".
+# Starts with a tag v* (or a branch vydanie/v*) and ends as a DRAFT release: nobody but the owner sees it until he presses "Publish release".
 # That one click is the approval – nothing else to set up on GitHub.
 on:
   push:
     tags: ['v*']
+    # a branch vydanie/v0.1.1 starts the release of that version (tags cannot be pushed from every place)
+    branches: ['vydanie/v*']
   workflow_dispatch:
     inputs:
       verzia:
@@ -64,7 +66,7 @@ jobs:
       - name: polaris-centrum_VERSION_amd64.deb
         run: |
           bash tools/ci/dotnet.sh publish src/Polaris.Centrum -c Release -r linux-x64 -o out/centrum-linux
-          version="${VERZIA#v}"
+          tag="${VERZIA#vydanie/}"; version="${tag#v}"
           bash tools/debian/balik-deb.sh "$version" out/centrum-linux/polaris-centrum out/vydanie
           cp tools/debian/centrum.sh out/vydanie/
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -95,4 +97,5 @@ jobs:
           - **PC učebne (Windows):** `POLARIS-PC.exe` a `centrum.txt` vedľa seba, dvojklik, zadaj kód z konzoly (+ Pridať PC).
           TEXT
           sed -i 's/^          //' poznamky.md
+          VERZIA="${VERZIA#vydanie/}"
           gh release create "$VERZIA" vydanie/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "POLARIS $VERZIA" --notes-file poznamky.md --prerelease --draft
