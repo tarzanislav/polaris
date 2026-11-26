@@ -778,4 +778,75 @@ public static class CentreLinkChecks
             Directory.Delete(dir, recursive: true);
         }
     }
+
+    [Check]
+    public static void ProfilesArePutTogetherInTheConsoleAndPublished()
+    {
+        var dir = Directory.CreateTempSubdirectory("polaris-profily-").FullName;
+        try
+        {
+            var folder = Path.Combine(dir, "konzola");
+            Directory.CreateDirectory(folder);
+            var (secret, pub) = RecipeSigning.NewConsoleKey("ucitel", Password);
+            using var key = RecipeSigning.OpenPrivate(secret, Password);
+            var trusted = new List<TrustedConsole> { RecipeSigning.Trust(pub) };
+            var publication = Path.Combine(dir, "zverejnene");
+            Running? centre = null;
+            var upload = (ServerRequest r) => Polaris.Centrum.Commands.Upload(publication, centre!.Pin, () => trusted, () => T)(r);
+            centre = new Running(Polaris.Centrum.Commands.Routes(publication, null, upload), dir, Polaris.Centrum.Commands.BodyPaths.Contains);
+            using var running = centre;
+            var server = (centre.Address, centre.Pin);
+            byte[] Json(string text) => Encoding.UTF8.GetBytes(text);
+
+            var library = Polaris.Centrum.ConsoleProfiles.Library(folder);
+            Expect.True(Polaris.Centrum.ConsoleProfiles.Starter.All(id => library.Any(r => r.Id == id)), "knižnica má recepty pilota");
+            var starter = string.Join(",", Polaris.Centrum.ConsoleProfiles.Starter.Select(x => $"\"{x}\""));
+            var saved = Polaris.Centrum.ConsoleProfiles.SaveProfile(folder, Json($"{{\"name\":\"ucebna\",\"parts\":[{starter}]}}"), T).Canonical();
+            Expect.True(saved.Contains("\"ok\":true", StringComparison.Ordinal), "profil UCEBNA: " + saved);
+            Expect.True(Polaris.Centrum.ConsoleProfiles.SaveProfile(folder, Json("{\"name\":\"zle meno\",\"parts\":[\"ukazka-zaklad\"]}"), T).Canonical().Contains("\"ok\":false", StringComparison.Ordinal), "zlé meno");
+            Expect.True(Polaris.Centrum.ConsoleProfiles.SaveProfile(folder, Json("{\"name\":\"X\",\"parts\":[\"neexistuje\"]}"), T).Canonical().Contains("\"ok\":false", StringComparison.Ordinal), "neznámy recept");
+            Expect.True(Polaris.Centrum.ConsoleProfiles.SetGroup(folder, Json("{\"group\":\"ucebna-125\",\"profile\":\"UCEBNA\"}"), T).Canonical().Contains("\"ok\":true", StringComparison.Ordinal), "skupina dostala profil");
+
+            var published = Polaris.Centrum.ConsoleProfiles.Publish(folder, server, key, "ucitel", T).Canonical();
+            Expect.True(published.Contains("\"ok\":true", StringComparison.Ordinal) && published.Contains("Profil UCEBNA v1", StringComparison.Ordinal), "zverejnené: " + published);
+
+            // what a PC of the group gets from the centre: a plan and a recipe signed by the console it trusts
+            var planText = Encoding.UTF8.GetString(PinnedClient.Get(new Uri(centre.Address, "v1/skupiny/ucebna-125.json"), centre.Pin, null, 1 << 20, TimeSpan.FromSeconds(20)).Body);
+            var plan = PlanSigning.FromJson(planText);
+            Expect.Equal(SignatureState.Valid, PlanSigning.Check(plan, trusted).State, "plán podpísaný konzolou");
+            var fingerprint = plan.Plan.Find("UCEBNA")!.Fingerprint;
+            var recipe = RecipeText.FromJson(Encoding.UTF8.GetString(PinnedClient.Get(new Uri(centre.Address, $"v1/recepty/{fingerprint}.json"), centre.Pin, null, 1 << 20, TimeSpan.FromSeconds(20)).Body));
+            var signature = RecipeSigning.SignatureFromJson(Encoding.UTF8.GetString(PinnedClient.Get(new Uri(centre.Address, $"v1/recepty/{fingerprint}.podpis"), centre.Pin, null, 1 << 20, TimeSpan.FromSeconds(20)).Body));
+            Expect.Equal(SignatureState.Valid, RecipeSigning.Check(recipe, signature, trusted).State, "recept podpísaný konzolou");
+            Expect.Equal(Polaris.Centrum.ConsoleProfiles.Starter.Sum(id => library.Single(r => r.Id == id).Recipe.Elements.Count), recipe.Elements.Count, "všetky prvky receptov pilota");
+            Expect.True(RecipeCheck.Problems(recipe).Count == 0, "zložený recept je v poriadku");
+
+            // the same again: no new version; another recipe added: version 2
+            Expect.True(!Polaris.Centrum.ConsoleProfiles.Publish(folder, server, key, "ucitel", T.AddMinutes(1)).Canonical().Contains("Profil UCEBNA v", StringComparison.Ordinal), "bez zmeny nová verzia nevznikne");
+            Polaris.Centrum.ConsoleProfiles.SaveProfile(folder, Json($"{{\"name\":\"UCEBNA\",\"parts\":[{starter},\"ukazka-softver-zaklad\"]}}"), T);
+            var again = Polaris.Centrum.ConsoleProfiles.Publish(folder, server, key, "ucitel", T.AddMinutes(2)).Canonical();
+            Expect.True(again.Contains("Profil UCEBNA v2", StringComparison.Ordinal), "zmena = verzia 2: " + again);
+            Expect.True(Polaris.Centrum.ConsoleProfiles.DeleteProfile(folder, Json("{\"name\":\"UCEBNA\"}"), T).Canonical().Contains("\"ok\":false", StringComparison.Ordinal), "profil skupiny sa nezmaže");
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Check]
+    public static void AProfileKeepsEveryElementIdUnique()
+    {
+        var a = new Recipe { Name = "A", Version = 3, Elements = [new ServiceElement { Id = "spolocne" }] };
+        var b = new Recipe { Name = "B", Version = 1, Elements = [new ServiceElement { Id = "spolocne" }, new ServiceElement { Id = "ine" }] };
+        var r = ProfileComposer.Compose("TEST", [("ukazka-a", a), ("vlastne/moje-b", b)], 1);
+        Expect.Equal("spolocne,moje-b.spolocne,ine", string.Join(",", r.Elements.Select(e => e.Id)), "druhé meno dostane predponu");
+        Expect.Equal("Profil TEST: A v3 + B v1", r.Note, "poznámka hovorí, z čoho je");
+        Expect.True(ProfileComposer.Name("UCEBNA-2") && !ProfileComposer.Name("ucebna") && !ProfileComposer.Name(""), "mená profilov");
+    }
+}
+
+internal static class JsonCanonicalForTests
+{
+    public static string Canonical(this Polaris.Json.JsonObject o) => Polaris.Json.JsonText.Canonical(o);
 }

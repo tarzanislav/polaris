@@ -40,33 +40,7 @@ public static partial class Commands
             throw new UsageException("Nie je žiadna skupina PC – nie je čo zverejniť.");
         }
 
-        var fingerprints = new Dictionary<string, string>(StringComparer.Ordinal);
-        var files = new Dictionary<string, string>(StringComparer.Ordinal);
-        var problems = new List<string>();
-        foreach (var p in data.Profiles)
-        {
-            var (_, found) = RecipeState(store, p);
-            problems.AddRange(found);
-            var file = store.RecipeFile(p);
-            if (found.Count > 0 || !File.Exists(file))
-            {
-                continue;
-            }
-
-            var recipe = RecipeText.Load(file);
-            var signatureFile = RecipeSigning.SignatureFileOf(file);
-            if (!File.Exists(signatureFile))
-            {
-                problems.Add($"Profil {p.Name}: recept nie je podpísaný (podpisat {p.File} KLUC) – PC ho neprijmú.");
-                continue;
-            }
-
-            fingerprints[p.Name] = RecipeText.Fingerprint(recipe);
-            files[p.Name] = file;
-        }
-
-        problems.AddRange(data.Timetable.Problems(data.Profiles.Select(p => p.Name).ToHashSet(), data.Groups.Select(g => g.Name).ToHashSet()));
-        if (problems.Count > 0)
+        if (PublishProblems(data, store, out _) is { Count: > 0 } problems)
         {
             o.WriteLine("Nezverejnené – najprv oprav:");
             foreach (var p in problems)
@@ -79,51 +53,102 @@ public static partial class Commands
 
         var keyFile = RecipeSigning.KeyFromJson(File.ReadAllText(rest[0]));
         using var key = RecipeSigning.OpenPrivate(keyFile, secret($"Heslo ku kľúču {keyFile.Name}: ") ?? "");
+        var lines = new List<string>();
+        var ok = PublishWith(data, store, key, keyFile.Name, target, utcNow, lines);
+        foreach (var line in lines)
+        {
+            o.WriteLine(line);
+        }
+
+        return ok ? 0 : 1;
+    }
+
+    /// <summary>What stops a publication: unreadable, unchecked or unsigned recipes, a timetable that names unknown
+    /// groups or profiles. The fingerprints and files of the good ones come out.</summary>
+    internal static List<string> PublishProblems(Classroom data, ClassroomStore store, out Dictionary<string, (string Fingerprint, string File)> recipes)
+    {
+        recipes = new Dictionary<string, (string, string)>(StringComparer.Ordinal);
+        var problems = new List<string>();
+        foreach (var p in data.Profiles)
+        {
+            var (_, found) = RecipeState(store, p);
+            problems.AddRange(found);
+            var file = store.RecipeFile(p);
+            if (found.Count > 0 || !File.Exists(file))
+            {
+                continue;
+            }
+
+            if (!File.Exists(RecipeSigning.SignatureFileOf(file)))
+            {
+                problems.Add($"Profil {p.Name}: recept nie je podpísaný (podpisat {p.File} KLUC) – PC ho neprijmú.");
+                continue;
+            }
+
+            recipes[p.Name] = (RecipeText.Fingerprint(RecipeText.Load(file)), file);
+        }
+
+        foreach (var g in data.Groups.Where(g => data.FindProfile(g.DefaultProfile) is null))
+        {
+            problems.Add($"Skupina {g.Name}: profil {g.DefaultProfile} neexistuje.");
+        }
+
+        problems.AddRange(data.Timetable.Problems(data.Profiles.Select(p => p.Name).ToHashSet(), data.Groups.Select(g => g.Name).ToHashSet()));
+        return problems;
+    }
+
+    /// <summary>The publication: the recipes, then the plan of every group signed by this console, into the folder of
+    /// the settings – and, with a centre, handed to it (an envelope signed for that centre). False when something failed.</summary>
+    internal static bool PublishWith(Classroom data, ClassroomStore store, SigningKey key, string console, (Uri Address, string Pin)? target, DateTimeOffset utcNow, List<string> lines)
+    {
+        if (PublishProblems(data, store, out var recipes) is { Count: > 0 } problems)
+        {
+            lines.Add("Nezverejnené – najprv oprav:");
+            lines.AddRange(problems.Select(p => "– " + p));
+            return false;
+        }
+
         var root = Path.Combine(store.Folder, PublicationFolder);
         Directory.CreateDirectory(Path.Combine(root, "recepty"));
         Directory.CreateDirectory(Path.Combine(root, "skupiny"));
 
         // recipes first, plans last: a PC never sees a plan whose recipe is not there yet
-        foreach (var (name, file) in files)
+        foreach (var (_, (fingerprint, file)) in recipes)
         {
-            var fingerprint = fingerprints[name];
             WriteSafely(Path.Combine(root, "recepty", fingerprint + ".json"), File.ReadAllBytes(file));
             WriteSafely(Path.Combine(root, "recepty", fingerprint + ".podpis"), File.ReadAllBytes(RecipeSigning.SignatureFileOf(file)));
         }
 
+        var fingerprints = recipes.ToDictionary(r => r.Key, r => r.Value.Fingerprint, StringComparer.Ordinal);
         foreach (var group in data.Groups.OrderBy(g => g.Name, StringComparer.Ordinal))
         {
             var plan = GroupPlan.For(data, group.Name, fingerprints, utcNow);
-            var signed = PlanSigning.Sign(plan, key, keyFile.Name);
+            var signed = PlanSigning.Sign(plan, key, console);
             WriteSafely(Path.Combine(root, "skupiny", group.Name + ".json"), Utf8NoBom.GetBytes(PlanSigning.ToJson(signed)));
-            o.WriteLine($"Skupina {group.Name}: plán {plan.Sequence} – profily {string.Join(", ", plan.Profiles.Select(p => p.Name))}.");
+            lines.Add($"Skupina {group.Name}: plán {plan.Sequence} – profily {string.Join(", ", plan.Profiles.Select(p => p.Name))}.");
         }
 
-        o.WriteLine($"Zverejnené v {root}, podpísala konzola {keyFile.Name}.");
+        lines.Add($"Zverejnené v {root}, podpísala konzola {console}.");
         if (target is not { } server)
         {
-            o.WriteLine("PC si plán prevezmú od centra, ktoré tento priečinok odovzdáva, pri najbližšom pohľade (do 5 minút).");
-            return 0;
+            lines.Add("PC si plán prevezmú od centra, ktoré tento priečinok odovzdáva, pri najbližšom pohľade (do 5 minút).");
+            return true;
         }
 
         // the same publication handed to the centre on the server, signed by this console for that centre only
         var bundle = new PublicationFolder(root).Bundle(data.Groups.Select(g => g.Name));
         var body = Utf8NoBom.GetBytes(bundle.ToJson());
-        var headers = UploadSigning.Headers(body, UploadPath, server.Pin, key, DateTimeOffset.UtcNow);
+        var headers = UploadSigning.Headers(body, UploadPath, server.Pin, key, utcNow);
         var answer = PinnedClient.Post(new Uri(server.Address, UploadPath.TrimStart('/')), server.Pin, body, headers, 1024 * 1024, TimeSpan.FromMinutes(2));
         if (answer.Status == 0)
         {
-            o.WriteLine("Odovzdanie na centrum zlyhalo: " + answer.Error + ".");
-            return 1;
+            lines.Add("Odovzdanie na centrum zlyhalo: " + answer.Error + ".");
+            return false;
         }
 
-        o.WriteLine($"Centrum {server.Address}:");
-        foreach (var line in Lines(answer.Body))
-        {
-            o.WriteLine("  " + line);
-        }
-
-        return answer.Ok ? 0 : 1;
+        lines.Add($"Centrum {server.Address}:");
+        lines.AddRange(Lines(answer.Body).Select(l => "  " + l));
+        return answer.Ok;
     }
 
     public const string UploadPath = "/v1/zverejnenie";

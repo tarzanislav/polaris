@@ -18,6 +18,7 @@ public static class ConsoleUi
 <body>
 <header class="bar">
   <div class="brand"><span class="star">✦</span> POLARIS <span class="dim">konzola</span></div>
+  <nav class="views"><button id="v-room" class="view on">Učebňa</button><button id="v-profiles" class="view">Profily</button></nav>
   <div class="where"><span id="console"></span><span class="sep">·</span><span id="centre"></span></div>
   <div class="status"><span id="dot" class="dot"></span><span id="status">pripájam…</span></div>
   <button id="browser" class="ghost" title="Otvoriť konzolu v prehliadači">↗ V prehliadači</button>
@@ -54,7 +55,7 @@ public static class ConsoleUi
     <p id="s-version" class="dim small"></p>
   </div>
 </section>
-<main>
+<main id="room">
   <section class="tools">
     <div id="chips" class="chips"></div>
     <input id="search" type="search" placeholder="Hľadať PC…" autocomplete="off">
@@ -80,6 +81,29 @@ public static class ConsoleUi
   </section>
   <div id="groups"></div>
   <p id="empty" class="empty" hidden>Centrum zatiaľ nepozná žiadne PC. Klikni na <b>+ Pridať PC</b>, vydaj kód a na PC ho zadaj.</p>
+</main>
+<main id="profiles" hidden>
+  <div class="p-head">
+    <div>
+      <h2>Profily</h2>
+      <p class="dim">Profil = čo majú PC skupiny mať (nastavenia, služby, relácia žiaka, programy). Poskladaj ho z receptov,
+      priraď skupine a klikni <b>Zverejniť na PC</b> – konzola ho podpíše a PC si ho vezmú do 5 minút.</p>
+    </div>
+    <button id="p-publish" class="primary">Zverejniť na PC</button>
+  </div>
+  <div id="p-result" class="update" hidden><b id="p-result-title"></b><ul id="p-lines" class="update-lines"></ul></div>
+  <section class="p-box">
+    <h3>Skupiny</h3>
+    <div id="p-groups"></div>
+  </section>
+  <section id="p-starter" class="p-box starter" hidden>
+    <h3>Prvý profil</h3>
+    <p class="dim">Navrhujem profil <b>UCEBNA</b> s rovnakými receptmi, aké bežali na testovacom PC pri pilote (základ, služby,
+    relácia žiaka, Pieskovisko, slabé PC) – na tom PC sa tak nič nezmení. Programy pridáš neskôr zaškrtnutím.</p>
+    <button id="p-starter-go" class="primary">Vytvoriť profil UCEBNA</button>
+  </section>
+  <div id="p-list"></div>
+  <button id="p-new" class="ghost">+ Nový profil</button>
 </main>
 <aside id="detail" class="detail" hidden>
   <div class="detail-head">
@@ -240,9 +264,28 @@ label.inline input { width: 150px; }
 .wait-card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
 .wait-card .check { font: 700 18px ui-monospace, "Cascadia Mono", Consolas, monospace; letter-spacing: .06em; margin: 4px 0; }
 .wait-card .actions { margin-top: 8px; justify-content: flex-start; }
+.views { display: flex; gap: 4px; background: var(--bg); padding: 3px; border-radius: 10px; }
+.view { border: 0; background: transparent; padding: 6px 14px; border-radius: 8px; color: var(--dim); font-weight: 600; }
+.view.on { background: var(--panel); color: var(--text); box-shadow: var(--shadow); }
+.p-head { display: flex; gap: 18px; align-items: flex-start; margin-bottom: 14px; }
+.p-head > div { flex: 1; } .p-head h2 { margin: 0 0 4px; } .p-head p { margin: 0; max-width: 760px; }
+.p-box, .p-card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; margin-bottom: 14px; }
+.p-box h3, .p-card h3 { margin: 0 0 10px; font-size: 15px; }
+.starter { border-color: var(--accent); }
+.g-row { display: flex; gap: 12px; align-items: center; padding: 6px 0; border-top: 1px solid var(--line); }
+.g-row:first-child { border-top: 0; }
+.g-row b { min-width: 160px; } .g-row .dim { flex: 1; }
+.p-card .head { display: flex; gap: 10px; align-items: center; margin-bottom: 8px; }
+.p-card .head h3 { margin: 0; flex: 1; }
+.parts { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 6px 18px; }
+.part { display: flex; gap: 10px; align-items: flex-start; padding: 6px 8px; border-radius: 8px; cursor: pointer; }
+.part:hover { background: var(--bg); }
+.part input { margin-top: 3px; }
+.part .t { font-weight: 600; } .part .n { font-size: 12px; color: var(--dim); }
+select { font: inherit; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--text); }
 .toast { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 10px 16px;
   border-radius: 10px; z-index: 30; box-shadow: var(--shadow); }
-@media (max-width: 640px) { #browser { display: none; } .start .brand .dim { display: inline; } .where, .brand .dim, #status { display: none; } .status { margin-left: auto; } .code { font-size: 24px; } .kv { grid-template-columns: 110px 1fr; } #search { width: 100%; } .bar { gap: 10px; padding: 10px 14px; } main { padding: 12px 14px 60px; } }
+@media (max-width: 640px) { .p-head { flex-direction: column; } .views .view { padding: 6px 8px; } #browser { display: none; } .start .brand .dim { display: inline; } .where, .brand .dim, #status { display: none; } .status { margin-left: auto; } .code { font-size: 24px; } .kv { grid-template-columns: 110px 1fr; } #search { width: 100%; } .bar { gap: 10px; padding: 10px 14px; } main { padding: 12px 14px 60px; } }
 """;
 
     public const string Script = """
@@ -313,6 +356,97 @@ label.inline input { width: 150px; }
   };
   $("s-pass").addEventListener("keydown", e => { if (e.key === "Enter") $("s-open").click(); });
   $("browser").onclick = () => window.open(location.origin + "/#" + token, "_blank", "noopener");
+
+  // views: the classroom and the profiles
+  function show(view) {
+    $("room").hidden = view !== "room"; $("profiles").hidden = view !== "profiles";
+    $("v-room").classList.toggle("on", view === "room"); $("v-profiles").classList.toggle("on", view === "profiles");
+    if (view === "profiles") loadProfiles();
+  }
+  $("v-room").onclick = () => show("room");
+  $("v-profiles").onclick = () => show("profiles");
+
+  // profiles: put together from the library, given to groups, signed and published by this console
+  let prof = { library: [], profiles: [], groups: [], starter: [] };
+  async function loadProfiles() {
+    const p = await ask("/api/profily");
+    if (!p.ok) { toast(p.message); return; }
+    prof = p; drawProfiles();
+  }
+  function groupNames() {
+    const names = new Set(prof.groups.map(g => g.name));
+    (state.pcs || []).forEach(pc => names.add(pc.group));
+    return [...names].sort();
+  }
+  function drawProfiles() {
+    $("p-starter").hidden = prof.profiles.length > 0;
+    const groups = $("p-groups"); groups.replaceChildren();
+    const names = groupNames();
+    if (!names.length) groups.append(el("p", "dim", "Zatiaľ žiadna skupina – vznikne, keď prijmeš prvé PC."));
+    names.forEach(name => {
+      const row = el("div", "g-row");
+      const count = (state.pcs || []).filter(pc => pc.group === name).length;
+      const pick = el("select");
+      pick.append(Object.assign(el("option"), { value: "", textContent: "— bez profilu —" }));
+      prof.profiles.forEach(p => pick.append(Object.assign(el("option"), { value: p.name, textContent: p.name })));
+      pick.value = (prof.groups.find(g => g.name === name) || {}).profile || "";
+      pick.onchange = async () => { const a = await ask("/api/skupina-profil", { group: name, profile: pick.value }); toast(a.message); loadProfiles(); };
+      row.append(el("b", "", name), el("span", "dim", count + " PC"), pick);
+      groups.append(row);
+    });
+    const list = $("p-list"); list.replaceChildren();
+    prof.profiles.forEach(p => list.append(profileCard(p.name, p.parts, !p.composed)));
+  }
+  function profileCard(name, parts, byHand, fresh) {
+    const card = el("section", "p-card");
+    const head = el("div", "head");
+    const title = fresh ? Object.assign(el("input"), { placeholder: "MENO PROFILU (napr. PISOMKA)", maxLength: 40 }) : el("h3", "", name);
+    head.append(title);
+    const save = el("button", "primary", "Uložiť");
+    const del = el("button", "ghost", fresh ? "Zrušiť" : "Zmazať");
+    head.append(save, del);
+    card.append(head);
+    if (byHand) { card.append(el("p", "dim", "Profil písaný ručne (súbor receptu) – v konzole sa nemení.")); return card; }
+    const box = el("div", "parts");
+    const chosen = new Set(parts);
+    prof.library.forEach(r => {
+      const label = el("label", "part");
+      const check = Object.assign(el("input"), { type: "checkbox", checked: chosen.has(r.id) });
+      check.onchange = () => check.checked ? chosen.add(r.id) : chosen.delete(r.id);
+      const text = el("div");
+      text.append(el("div", "t", r.title), el("div", "n", r.name + " v" + r.version + " · " + r.count + " prvkov"));
+      label.title = r.note;
+      label.append(check, text); box.append(label);
+    });
+    card.append(box);
+    save.onclick = async () => {
+      const order = prof.library.map(r => r.id).filter(id => chosen.has(id));
+      const a = await ask("/api/profil", { name: fresh ? title.value : name, parts: order });
+      toast(a.message); if (a.ok) loadProfiles();
+    };
+    del.onclick = async () => {
+      if (fresh) { card.remove(); return; }
+      const a = await ask("/api/profil-zmazat", { name: name }); toast(a.message); loadProfiles();
+    };
+    return card;
+  }
+  $("p-new").onclick = () => { $("p-list").append(profileCard("", [], false, true)); };
+  $("p-starter-go").onclick = async () => {
+    const a = await ask("/api/profil", { name: "UCEBNA", parts: prof.starter });
+    toast(a.message); await loadProfiles();
+    // the groups the console sees get it right away (they can be changed above)
+    for (const g of groupNames()) { if (!(prof.groups.find(x => x.name === g) || {}).profile) await ask("/api/skupina-profil", { group: g, profile: "UCEBNA" }); }
+    loadProfiles();
+  };
+  $("p-publish").onclick = async () => {
+    const button = $("p-publish"); button.disabled = true; button.textContent = "Zverejňujem…";
+    try {
+      const a = await ask("/api/zverejnit", {});
+      $("p-result").hidden = false;
+      $("p-result-title").textContent = a.message;
+      const lines = $("p-lines"); lines.replaceChildren(); (a.lines || []).forEach(l => lines.append(el("li", "", l)));
+    } finally { button.disabled = false; button.textContent = "Zverejniť na PC"; }
+  };
 
   // updates: GitHub → this console → signed → the centre → PCs and servers (only what this console signed)
   const newer = (a, b) => {

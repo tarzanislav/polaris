@@ -156,6 +156,20 @@ verziu** (aktualizácia), nič sa neodinštalúva:
 `centrum.txt` (adresa a odtlačok centra) vytvorí server v `/etc/polaris/centrum.txt` – skopíruj ho k inštalačkám,
 nič sa neopisuje.
 
+## Profily v konzole (26. 11. 2026)
+
+Záložka **Profily** v okne konzoly:
+
+1. **Profil** = čo majú PC skupiny mať. Poskladá sa zaškrtnutím receptov z knižnice (ukážky v programe: základ učebne,
+   služby, relácia žiaka, Pieskovisko, slabé PC, sady softvéru; vlastné recepty v priečinku `recepty` vedľa kľúča
+   konzoly). Konzola z nich zloží jeden recept (prvok, ktorého meno už iný recept použil, dostane predponu receptu).
+2. **Skupina** dostane profil výberom pri jej mene.
+3. **Zverejniť na PC**: konzola zložené recepty podpíše (nová verzia len pri zmene), podpíše plány skupín a odovzdá
+   ich centru. PC si ich vezmú do 5 minút a profil používajú (znova raz za hodinu).
+
+Nastavenia sú v `centrum.json` vedľa kľúča konzoly, zložené recepty v `profily/`. Rozvrh (iný profil podľa hodiny)
+zatiaľ len príkazmi; v okne neskôr.
+
 ## Aktualizácie cez konzolu (rozhodnutie 25. 11. 2026)
 
 1. Konzola sa raz za hodinu pozrie na GitHub (najnovšie vydanie). Keď je novšia verzia, alebo ju centrum ešte

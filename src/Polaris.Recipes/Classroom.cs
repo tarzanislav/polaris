@@ -33,6 +33,10 @@ public sealed class ProfileRecipe
     public string File { get; set; } = "";
 
     public string Description { get; set; } = "";
+
+    /// <summary>A profile put together in the console from recipes of its library (their ids, in order); the console
+    /// writes the composed recipe into <see cref="File"/>. Empty for a profile written by hand.</summary>
+    public List<string> Parts { get; set; } = [];
 }
 
 /// <summary>Everything the centre keeps about the classroom: groups, PCs, profiles (recipes) and the timetable. One file
@@ -68,7 +72,8 @@ public static class ClassroomFormat
         .Add("savedUtc", c.SavedUtc.ToUniversalTime().ToString("O", Inv))
         .Add("groups", JsonArray.Of(c.Groups, g => new JsonObject().Add("name", g.Name).Add("defaultProfile", g.DefaultProfile)))
         .Add("pcs", JsonArray.Of(c.Pcs, p => new JsonObject().Add("id", p.Id.ToString("D")).Add("name", p.Name).Add("group", p.Group)))
-        .Add("profiles", JsonArray.Of(c.Profiles, p => new JsonObject().Add("name", p.Name).Add("file", p.File).AddIf(p.Description.Length > 0, "description", p.Description)))
+        .Add("profiles", JsonArray.Of(c.Profiles, p => new JsonObject().Add("name", p.Name).Add("file", p.File).AddIf(p.Description.Length > 0, "description", p.Description)
+            .AddIf(p.Parts.Count > 0, "parts", JsonArray.Of(p.Parts, x => x))))
         .Add("timetable", Timetable(c.Timetable)));
 
     public static Classroom FromJson(string json)
@@ -88,7 +93,7 @@ public static class ClassroomFormat
                 SavedUtc = f.Time("savedUtc"),
                 Groups = f.Array("groups").Select(n => Read(n, "skupina", g => new ClassroomGroup { Name = g.String("name"), DefaultProfile = g.String("defaultProfile") })).ToList(),
                 Pcs = f.Array("pcs").Select(n => Read(n, "PC", p => new ClassroomPc { Id = Id(p), Name = p.String("name"), Group = p.String("group") })).ToList(),
-                Profiles = f.Array("profiles").Select(n => Read(n, "profil", p => new ProfileRecipe { Name = p.String("name"), File = p.String("file"), Description = p.String("description") })).ToList(),
+                Profiles = f.Array("profiles").Select(n => Read(n, "profil", p => new ProfileRecipe { Name = p.String("name"), File = p.String("file"), Description = p.String("description"), Parts = p.Strings("parts") })).ToList(),
                 Timetable = f.Fields("timetable", "rozvrh") is { } t ? ReadTimetable(t) : new Timetable(),
             };
             f.End();

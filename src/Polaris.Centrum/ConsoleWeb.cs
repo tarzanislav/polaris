@@ -47,7 +47,7 @@ public static partial class Commands
         return 0;
     }
 
-    public static readonly IReadOnlySet<string> ConsoleBody = new HashSet<string>(StringComparer.Ordinal) { "/api/kod", "/api/odobrat", "/api/novy-kluc", "/api/centrum", "/api/odomknut", "/api/aktualizovat", "/api/schvalit", "/api/zamietnut" };
+    public static readonly IReadOnlySet<string> ConsoleBody = new HashSet<string>(StringComparer.Ordinal) { "/api/kod", "/api/odobrat", "/api/novy-kluc", "/api/centrum", "/api/odomknut", "/api/aktualizovat", "/api/schvalit", "/api/zamietnut", "/api/profil", "/api/profil-zmazat", "/api/skupina-profil", "/api/zverejnit" };
 
     /// <summary>The routes of a console already unlocked (the command konzola: key and centre given on the command line).</summary>
     public static Func<ServerRequest, ServerResponse> ConsoleRoutes((Uri Address, string Pin) server, string keyPath, ConsoleKeyFile keyFile, SigningKey key, string token, int port, Func<DateTimeOffset> clock) =>
@@ -126,6 +126,11 @@ public static partial class Commands
             {
                 "/api/stav" => Answer(200, StateOf(server, keyFile, key, now)),
                 "/api/schvalit" => Answer(200, Approve(server, keyPath, keyFile, key, request.Body ?? [], now)),
+                "/api/profily" => Answer(200, ConsoleProfiles.State(state.Folder)),
+                "/api/profil" => Answer(200, ConsoleProfiles.SaveProfile(state.Folder, request.Body ?? [], now)),
+                "/api/profil-zmazat" => Answer(200, ConsoleProfiles.DeleteProfile(state.Folder, request.Body ?? [], now)),
+                "/api/skupina-profil" => Answer(200, ConsoleProfiles.SetGroup(state.Folder, request.Body ?? [], now)),
+                "/api/zverejnit" => Answer(200, ConsoleProfiles.Publish(state.Folder, server, key, keyFile.Name, now)),
                 "/api/zamietnut" => Answer(200, Reject(server, key, request.Body ?? [], now)),
                 "/api/kod" => Answer(200, NewCode(server, keyPath, keyFile, key, request.Body ?? [], now)),
                 "/api/odobrat" => Answer(200, Remove(server, key, request.Body ?? [], now)),

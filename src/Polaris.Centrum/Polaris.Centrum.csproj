@@ -10,6 +10,10 @@
     <ApplicationIcon>..\..\assets\polaris.ico</ApplicationIcon>
     <OptimizationPreference>Size</OptimizationPreference>
   </PropertyGroup>
+  <!-- the library of recipes the console puts profiles together from (the samples of the repository) -->
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\recepty\*.json" LogicalName="recepty/%(Filename)%(Extension)" />
+  </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Polaris.Core\Polaris.Core.csproj" />
     <ProjectReference Include="..\Polaris.Net\Polaris.Net.csproj" />
