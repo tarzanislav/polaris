@@ -161,9 +161,10 @@ public static partial class Commands
                 .Add("group", r.Group)
                 .Add("mark", mark.ToString())
                 .Add("parts", JsonArray.Of(parts, p => p))
-                .Add("hardware", r.Pc.Hardware)
-                .Add("windows", r.Pc.Windows)
-                .Add("agent", r.Pc.Agent)
+                // what the PC says now (its last report), else what it said at its registration
+                .Add("hardware", pc.Report is { Hardware.Length: > 0 } now1 ? now1.Hardware : r.Pc.Hardware)
+                .Add("windows", pc.Report is { Windows.Length: > 0 } now2 ? now2.Windows : r.Pc.Windows)
+                .Add("agent", pc.Report is { Agent.Length: > 0 } now3 ? now3.Agent : r.Pc.Agent)
                 .Add("registered", r.RegisteredUtc.ToString("O", CultureInfo.InvariantCulture));
             if (pc.Report is { } report && pc.Received is { } received)
             {
